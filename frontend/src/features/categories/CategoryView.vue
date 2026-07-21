@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import MButton from '@/components/mds/MButton.vue'
 import MInput from '@/components/mds/MInput.vue'
 import MTextarea from '@/components/mds/MTextarea.vue'
@@ -8,36 +8,62 @@ import MTree from '@/components/mds/MTree.vue'
 import MIcon from '@/components/mds/MIcon.vue'
 import MEmptyState from '@/components/mds/MEmptyState.vue'
 import MDialog from '@/components/mds/MDialog.vue'
+import MSpinner from '@/components/mds/MSpinner.vue'
 import { useToast } from '@/components/mds/toast.js'
 import { useFormValidation, rules } from '@/components/mds/useFormValidation.js'
-import { categoryTree, flattenCategories, removeCategory, type CategoryNode } from './mockCategories'
-import { toSlug as slugify } from '../films/mockFilms'
+import { categoriesApi, type ApiCategoryNode } from './categoriesApi'
 
 /**
- * Quản lý chuyên mục — GĐ 0.5 (mock). Master-Detail: cây chuyên mục bên trái,
- * form thêm/sửa bên phải. GĐ 2 gắn API categories module thật.
+ * Quản lý chuyên mục — GĐ2 (API thật). Master-Detail: cây chuyên mục bên trái,
+ * form thêm/sửa bên phải. Cha chỉ chọn được lúc tạo (giữ UX GĐ0.5); sửa chỉ
+ * đổi tên/mô tả (backend UpdateCategoryDto không nhận parentId).
  */
 const toast = useToast()
 
-const expanded = ref<string[]>(['phim-su-kien'])
-const selectedId = ref<string | null>(null)
+const tree = ref<ApiCategoryNode[]>([])
+const loading = ref(false)
 
-// Tree hiển thị dùng label làm text chính (MTree cần {id,label,...})
-const treeNodes = computed(() => categoryTree)
+async function loadTree() {
+  loading.value = true
+  try {
+    tree.value = await categoriesApi.tree()
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : 'Không tải được chuyên mục')
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(loadTree)
 
-const parentOptions = computed(() =>
-  flattenCategories().map((c) => ({ label: c.label, value: c.id }))
-)
+// MTree cần field `label` để hiển thị — map name→label, giữ nguyên cấu trúc cây.
+interface TreeDisplayNode {
+  id: number
+  label: string
+  children?: TreeDisplayNode[]
+}
+function toDisplay(nodes: ApiCategoryNode[]): TreeDisplayNode[] {
+  return nodes.map((n) => ({ id: n.id, label: n.name, children: n.children ? toDisplay(n.children) : undefined }))
+}
+const treeNodes = computed(() => toDisplay(tree.value))
+
+function flatten(nodes: ApiCategoryNode[] = tree.value): ApiCategoryNode[] {
+  return nodes.flatMap((n) => [n, ...(n.children ? flatten(n.children) : [])])
+}
+
+const expanded = ref<number[]>([])
+const selectedId = ref<number | null>(null)
+
+const parentOptions = computed(() => flatten().map((c) => ({ label: c.name, value: c.id })))
 
 // parentId dùng undefined (không phải null) — MSelect không nhận null trong kiểu modelValue
-const form = reactive({ label: '', description: '', parentId: undefined as string | undefined })
-const editingId = ref<string | null>(null)
+const form = reactive({ name: '', description: '', parentId: undefined as number | undefined })
+const editingId = ref<number | null>(null)
 const isCreating = ref(false)
-const deleteTarget = ref<CategoryNode | null>(null)
+const deleteTarget = ref<ApiCategoryNode | null>(null)
+const submitting = ref(false)
 
-// useFormValidation.js là JS thuần → `errors` suy ra kiểu {}; ép kiểu tường minh để dùng errors.label
 const { errors, validate, clearErrors } = useFormValidation({
-  label: [rules.required('Tên chuyên mục không được để trống')],
+  name: [rules.required('Tên chuyên mục không được để trống')],
 }) as {
   errors: Record<string, string>
   validate: (values: Record<string, unknown>) => boolean
@@ -45,21 +71,21 @@ const { errors, validate, clearErrors } = useFormValidation({
 }
 
 function resetForm() {
-  form.label = ''
+  form.name = ''
   form.description = ''
   form.parentId = undefined
   clearErrors()
 }
 
-function selectNode(id: string) {
+function selectNode(id: number) {
   selectedId.value = id
   isCreating.value = false
-  const node = flattenCategories().find((c) => c.id === id)
+  const node = flatten().find((c) => c.id === id)
   if (!node) return
   editingId.value = id
-  form.label = node.label
+  form.name = node.name
   form.description = node.description || ''
-  form.parentId = node.parentId || undefined
+  form.parentId = node.parentId ?? undefined
 }
 
 function startCreate() {
@@ -69,51 +95,53 @@ function startCreate() {
   resetForm()
 }
 
-function save() {
+async function save() {
   if (!validate(form)) return
-
-  if (isCreating.value) {
-    const newNode: CategoryNode = {
-      id: slugify(form.label) || `chuyen-muc-${Date.now()}`,
-      label: form.label.trim(),
-      description: form.description.trim(),
-      parentId: form.parentId,
+  submitting.value = true
+  try {
+    if (isCreating.value) {
+      const created = await categoriesApi.create({
+        name: form.name.trim(),
+        description: form.description.trim() || undefined,
+        parentId: form.parentId,
+      })
+      toast.success(`Đã tạo chuyên mục "${created.name}"`)
+      if (form.parentId && !expanded.value.includes(form.parentId)) expanded.value.push(form.parentId)
+      await loadTree()
+      selectNode(created.id)
+    } else if (editingId.value) {
+      const updated = await categoriesApi.update(editingId.value, {
+        name: form.name.trim(),
+        description: form.description.trim() || undefined,
+      })
+      toast.success(`Đã cập nhật chuyên mục "${updated.name}"`)
+      await loadTree()
     }
-    if (form.parentId) {
-      const parent = flattenCategories().find((c) => c.id === form.parentId)
-      if (parent) {
-        parent.children = parent.children || []
-        parent.children.push(newNode)
-        if (!expanded.value.includes(parent.id)) expanded.value.push(parent.id)
-      }
-    } else {
-      categoryTree.push(newNode)
-    }
-    toast.success(`Đã tạo chuyên mục "${newNode.label}"`)
-    selectNode(newNode.id)
-  } else if (editingId.value) {
-    const node = flattenCategories().find((c) => c.id === editingId.value)
-    if (node) {
-      node.label = form.label.trim()
-      node.description = form.description.trim()
-      toast.success(`Đã cập nhật chuyên mục "${node.label}"`)
-    }
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : 'Lưu chuyên mục không thành công')
+  } finally {
+    submitting.value = false
   }
 }
 
 function askDelete() {
-  const node = flattenCategories().find((c) => c.id === (editingId.value || selectedId.value))
+  const node = flatten().find((c) => c.id === (editingId.value || selectedId.value))
   if (node) deleteTarget.value = node
 }
 
-function confirmDelete() {
+async function confirmDelete() {
   if (!deleteTarget.value) return
-  removeCategory(deleteTarget.value.id)
-  toast.success(`Đã xoá chuyên mục "${deleteTarget.value.label}"`)
-  deleteTarget.value = null
-  editingId.value = null
-  selectedId.value = null
-  resetForm()
+  try {
+    await categoriesApi.remove(deleteTarget.value.id)
+    toast.success(`Đã xoá chuyên mục "${deleteTarget.value.name}"`)
+    deleteTarget.value = null
+    editingId.value = null
+    selectedId.value = null
+    resetForm()
+    await loadTree()
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : 'Xoá chuyên mục không thành công')
+  }
 }
 </script>
 
@@ -136,7 +164,19 @@ function confirmDelete() {
         class="w-[320px] shrink-0 overflow-auto rounded-lg bg-white p-3"
         style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
       >
+        <div v-if="loading" class="flex items-center gap-2 p-3 text-[13px]" style="color: var(--mds-text-secondary)">
+          <MSpinner :size="14" /> Đang tải...
+        </div>
+        <div
+          v-else-if="!treeNodes.length"
+          class="flex flex-col items-center gap-2 p-6 text-center text-[13px]"
+          style="color: var(--mds-text-placeholder)"
+        >
+          <MIcon name="folder" :size="28" />
+          <span>Chưa có chuyên mục nào.<br />Bấm "Thêm chuyên mục" để tạo mới.</span>
+        </div>
         <MTree
+          v-else
           :nodes="treeNodes"
           v-model:selected="selectedId"
           v-model:expanded="expanded"
@@ -156,11 +196,11 @@ function confirmDelete() {
             </h3>
 
             <div class="flex flex-col gap-4">
-              <div data-field="label">
+              <div data-field="name">
                 <label class="mb-1 block text-[13px] font-medium" style="color: var(--mds-text-primary)">
                   Tên chuyên mục <span style="color: var(--mds-danger)">*</span>
                 </label>
-                <MInput v-model="form.label" placeholder="Nhập tên chuyên mục" :error="errors.label" />
+                <MInput v-model="form.name" placeholder="Nhập tên chuyên mục" :error="errors.name" />
               </div>
 
               <div v-if="isCreating">
@@ -181,12 +221,12 @@ function confirmDelete() {
 
           <!-- Footer ghim -->
           <footer class="flex shrink-0 items-center justify-between border-t px-5 py-3" style="border-color: var(--mds-border-light,#E9EAEB)">
-            <MButton v-if="!isCreating" variant="danger" @click="askDelete">
+            <MButton v-if="!isCreating" variant="danger" :disabled="submitting" @click="askDelete">
               <template #icon><MIcon name="trash" :size="16" /></template>
               Xoá
             </MButton>
             <span v-else />
-            <MButton variant="primary" @click="save">Lưu</MButton>
+            <MButton variant="primary" :loading="submitting" @click="save">Lưu</MButton>
           </footer>
         </div>
 
@@ -207,8 +247,8 @@ function confirmDelete() {
       @update:model-value="deleteTarget = null"
     >
       <p class="text-[13px]" style="color: var(--mds-text-primary)">
-        Bạn có chắc muốn xoá chuyên mục <strong>"{{ deleteTarget?.label }}"</strong>? Hành động này
-        không thể hoàn tác.
+        Bạn có chắc muốn xoá chuyên mục <strong>"{{ deleteTarget?.name }}"</strong>? Chuyên mục con (nếu
+        có) sẽ bị xoá theo; phim thuộc chuyên mục này chỉ mất liên kết, không bị xoá.
       </p>
       <template #footer>
         <MButton variant="secondary" @click="deleteTarget = null">Hủy</MButton>

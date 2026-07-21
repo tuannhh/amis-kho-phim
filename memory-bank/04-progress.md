@@ -4,10 +4,40 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
-- Giai đoạn hiện tại: **GĐ 1 — Auth & RBAC ĐÃ XONG & verify end-to-end trong Docker + trình duyệt**
-  (2026-07-21). Tiếp theo: **GĐ 2 — Chuyên mục & Phim (core API thật)**.
-- % hoàn thành tổng thể: ~48%
+- Giai đoạn hiện tại: **GĐ 2 — Chuyên mục & Phim (core API thật) ĐÃ XONG & verify end-to-end**
+  trong Docker + trình duyệt (2026-07-21, làm bằng Sonnet 5). Tiếp theo: **GĐ 3 — Storage & Thumbnail (MinIO thật)**.
+- % hoàn thành tổng thể: ~60%
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
+
+## Nhật ký GĐ 2 (Chuyên mục & Phim core) — 2026-07-21
+- [GĐ 2] Backend `CategoriesModule`: entity Category (cây cha-con qua `parent_id` self-FK
+  CASCADE), CRUD `/api/categories` (GET công khai cho user đăng nhập, POST/PATCH/DELETE
+  `@Roles('super_admin','admin')`), slug tự sinh + unique-suffix, cây dựng từ danh sách phẳng — DONE.
+- [GĐ 2] Backend `FilmsModule`: entity Film + FilmLink (youtube/vimeo/gdrive/misadrive) +
+  Hashtag + join table `film_hashtags`; CRUD `/api/films` (list/getBySlug/create/update/delete);
+  `FilmsService.assertCanManage` = OwnerGuard thật (super/admin bất kỳ, nhân viên chỉ phim
+  mình) — DONE. Migration `InitCatalog` (5 bảng, FK cascade/set-null đúng theo kiến trúc).
+- [GĐ 2] FE: `filmTypes.ts`/`filmsApi.ts`/`filmsStore.ts` (Pinia, refetch toàn bộ sau mutation),
+  `categoriesApi.ts` — thay hoàn toàn `mockFilms.ts`/`mockCategories.ts` (đã xoá 2 file).
+  `CategoryView`, `FilmListView`, `FilmDetailView` (+ nút Xoá giờ có handler thật + dialog xác
+  nhận), `FilmUploadView` nối API thật, giữ nguyên UI đã duyệt — DONE. Build BE+FE sạch.
+- [GĐ 2] Quyết định đáng chú ý (ADR-015→018): slug tự sinh ở BE; hashtag/link là bảng riêng
+  theo đúng kiến trúc GĐ0 (không JSON column); màu tag/gradient chuyên mục đổi sang suy ra từ
+  `categoryId` (ổn định hơn cách cũ theo vị trí danh sách); **storage/thumbnail thật CHƯA làm**
+  — form vẫn có MUpload nhưng chỉ xem trước phiên làm việc, có ghi chú rõ cho người dùng
+  (trung thực, không giả vờ đã lưu — đúng nguyên tắc skill MDS).
+- [GĐ 2] **Verify thật `docker compose down -v && up -d --build`** (fresh volume): 2 migration
+  chạy đủ (`InitAuth`+`InitCatalog`, kiểm bằng `SHOW TABLES`). Test qua curl: tạo chuyên mục
+  cha-con, xoá cha→con cascade xoá, xoá chuyên mục có phim→phim chỉ mất categoryId (SET NULL,
+  không mất phim); tạo/sửa/xoá phim; nhân viên sửa/xoá phim người khác→403, sửa/xoá phim mình→OK,
+  admin xoá phim nhân viên→OK. Verify trình duyệt: tạo 3 chuyên mục (kể cả cây cha-con hiển thị
+  đúng thụt lề), tạo phim với YouTube link → xuất bản → hiển thị đúng trong Kho phim (gradient
+  theo chuyên mục, tag "Phim mới", copy link); login nhân viên khác xem phim của super_admin →
+  ĐÚNG như thiết kế không thấy nút Sửa/Xoá; double-check API trực tiếp cũng chặn 403. 0 lỗi
+  console. Đã `docker compose down -v && up -d` lại để trả về DB sạch trước khi bàn giao.
+  **Lưu ý test:** 1 lần thao tác chọn "Chuyên mục cha" tưởng là bug (không cập nhật) hoá ra do
+  tool click nhầm toạ độ (screenshot-space không khớp) — dùng `read_page`+ref để click chính
+  xác thay vì đoán toạ độ từ ảnh chụp.
 
 ## Nhật ký GĐ 1 (Auth & RBAC) — 2026-07-21
 - [GĐ 1] Backend: `UsersModule` (entity User+Role, `password_hash` select:false), `AuthModule`

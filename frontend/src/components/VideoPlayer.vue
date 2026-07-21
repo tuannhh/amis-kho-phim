@@ -3,8 +3,8 @@ import { computed, ref } from 'vue'
 import MButton from '@/components/mds/MButton.vue'
 import MIcon from '@/components/mds/MIcon.vue'
 import { useToast } from '@/components/mds/toast.js'
-import type { FilmSource } from '@/features/films/mockFilms'
-import { SOURCE_LABEL } from '@/features/films/mockFilms'
+import type { FilmSource } from '@/features/films/filmTypes'
+import { SOURCE_LABEL } from '@/features/films/filmTypes'
 
 const toast = useToast()
 

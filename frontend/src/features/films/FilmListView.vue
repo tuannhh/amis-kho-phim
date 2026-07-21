@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import MButton from '@/components/mds/MButton.vue'
 import MSelect from '@/components/mds/MSelect.vue'
@@ -7,24 +7,27 @@ import MSwitch from '@/components/mds/MSwitch.vue'
 import MTag from '@/components/mds/MTag.vue'
 import MIcon from '@/components/mds/MIcon.vue'
 import MEmptyState from '@/components/mds/MEmptyState.vue'
+import MSpinner from '@/components/mds/MSpinner.vue'
 import { useToast } from '@/components/mds/toast.js'
-import { mockFilms, SOURCE_LABEL, isFilmNew, publishedTime } from './mockFilms'
+import { useFilmsStore } from './filmsStore'
+import { filmSources } from './filmsApi'
+import { SOURCE_LABEL, isFilmNew, publishedTime, categoryColorFor, thumbnailGradient, formatVNDate } from './filmTypes'
 import { filmSearchQuery } from './searchState'
 
 /**
- * Danh sách phim — GĐ 0.5 (mock data). GĐ 2 sẽ thay `mockFilms` bằng gọi API
- * thật của films module (giữ nguyên UI/props, chỉ đổi nguồn dữ liệu).
- * Tìm kiếm dùng CHUNG 1 ô duy nhất trên header (xem searchState.ts) — trang
- * này không có ô tìm kiếm riêng để tránh trùng lặp.
+ * Danh sách phim — GĐ2 (API thật qua filmsStore). Tìm kiếm dùng CHUNG 1 ô duy nhất
+ * trên header (searchState.ts) — trang này không có ô tìm kiếm riêng.
  */
 const router = useRouter()
 const toast = useToast()
+const store = useFilmsStore()
+
+onMounted(() => store.load())
 
 // undefined = xem tất cả chuyên mục (MSelect không nhận null trong kiểu modelValue)
 const categoryFilter = ref<string | undefined>(undefined)
 const onlyNew = ref(false)
 
-// Phân trang (GĐ 2 sẽ chuyển sang phân trang phía server)
 const pageSizeOptions = [
   { label: '20 / trang', value: 20 },
   { label: '30 / trang', value: 30 },
@@ -34,8 +37,7 @@ const pageSize = ref(20)
 const page = ref(1)
 
 const categoryOptions = computed(() => {
-  const set = new Set(mockFilms.map((f) => f.category))
-  // Option đầu tiên để quay về xem toàn bộ (value undefined)
+  const set = new Set(store.films.map((f) => f.categoryName).filter((c): c is string => !!c))
   return [
     { label: 'Tất cả chuyên mục', value: undefined as string | undefined },
     ...Array.from(set).map((c) => ({ label: c, value: c as string | undefined })),
@@ -44,18 +46,17 @@ const categoryOptions = computed(() => {
 
 const filtered = computed(() => {
   const q = filmSearchQuery.value.trim().toLowerCase()
-  return mockFilms
+  return store.films
     .filter((f) => {
-      if (onlyNew.value && !isFilmNew(f)) return false
-      if (categoryFilter.value && f.category !== categoryFilter.value) return false
+      if (onlyNew.value && !isFilmNew(f.publishedAt)) return false
+      if (categoryFilter.value && f.categoryName !== categoryFilter.value) return false
       if (!q) return true
       const inTitle = f.title.toLowerCase().includes(q)
       const inTags = f.hashtags.some((h) => h.toLowerCase().includes(q))
       return inTitle || inTags
     })
-    // Luôn hiển thị phim mới đưa lên trước tiên (publishedAt giảm dần)
     .slice()
-    .sort((a, b) => publishedTime(b) - publishedTime(a))
+    .sort((a, b) => publishedTime(b.publishedAt) - publishedTime(a.publishedAt))
 })
 
 const totalPages = computed(() => Math.max(1, Math.ceil(filtered.value.length / pageSize.value)))
@@ -73,7 +74,6 @@ const rangeText = computed(() => {
   return `${start}–${end} / ${total} phim`
 })
 
-// Đổi bộ lọc/kích thước trang → về trang 1; kẹp page trong khoảng hợp lệ
 watch([filtered, pageSize], () => {
   if (page.value > totalPages.value) page.value = totalPages.value
 })
@@ -104,9 +104,8 @@ function goUpload() {
   router.push({ name: 'upload' })
 }
 
-// Copy nhanh link nguồn (YouTube/Vimeo/Google Drive/MISA Drive/Nội bộ) ngay từ danh sách
 async function copyLink(url: string | undefined, label: string, event: Event) {
-  event.stopPropagation() // không mở trang chi tiết khi bấm nút copy trên thẻ
+  event.stopPropagation()
   if (!url) return
   try {
     await navigator.clipboard.writeText(url)
@@ -119,7 +118,6 @@ async function copyLink(url: string | undefined, label: string, event: Event) {
 
 <template>
   <section class="flex h-full flex-col">
-    <!-- Page header 56px -->
     <header
       class="flex h-14 shrink-0 items-center justify-between gap-3 bg-white px-5"
       style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
@@ -136,7 +134,6 @@ async function copyLink(url: string | undefined, label: string, event: Event) {
         class="flex flex-col gap-4 rounded-lg bg-white p-4"
         style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
       >
-        <!-- Toolbar lọc: chuyên mục + switch phim mới. Tìm kiếm dùng ô Enter trên header (1 ô duy nhất). -->
         <div class="flex flex-wrap items-center gap-3">
           <div class="w-full sm:w-[220px]">
             <MSelect v-model="categoryFilter" :options="categoryOptions" placeholder="Tất cả chuyên mục" />
@@ -145,7 +142,6 @@ async function copyLink(url: string | undefined, label: string, event: Event) {
             <MSwitch v-model="onlyNew" />
             Chỉ hiển thị phim mới
           </label>
-          <!-- Chip từ khoá đang tìm (nhập ở ô tìm kiếm trên header, Enter để áp dụng) -->
           <button
             v-if="filmSearchQuery"
             type="button"
@@ -158,12 +154,12 @@ async function copyLink(url: string | undefined, label: string, event: Event) {
             "{{ filmSearchQuery }}"
             <MIcon name="x" :size="12" />
           </button>
-          <span class="ml-auto text-[13px]" style="color: var(--mds-text-secondary)">
+          <span class="ml-auto flex items-center gap-2 text-[13px]" style="color: var(--mds-text-secondary)">
+            <MSpinner v-if="store.loading" :size="14" />
             {{ rangeText }}
           </span>
         </div>
 
-        <!-- Lưới thẻ phim 16:9 (phim mới nhất lên đầu) -->
         <div
           v-if="paged.length"
           class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
@@ -175,14 +171,10 @@ async function copyLink(url: string | undefined, label: string, event: Event) {
             style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
             @click="openFilm(film.slug)"
           >
-            <!-- Thumbnail 16:9 — ảnh thật nếu đã upload, không thì gradient mock -->
+            <!-- Thumbnail 16:9 — gradient theo chuyên mục (ảnh bìa thật là GĐ3) -->
             <div
               class="relative aspect-video w-full overflow-hidden"
-              :style="
-                film.thumbnailUrl
-                  ? { backgroundImage: `url(${film.thumbnailUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-                  : { background: `linear-gradient(135deg, ${film.thumbnailFrom}, ${film.thumbnailTo})` }
-              "
+              :style="{ background: `linear-gradient(135deg, ${thumbnailGradient(film.categoryId)[0]}, ${thumbnailGradient(film.categoryId)[1]})` }"
             >
               <span
                 class="absolute bottom-2 right-2 rounded px-1.5 py-0.5 text-[11px] font-medium text-white"
@@ -190,7 +182,6 @@ async function copyLink(url: string | undefined, label: string, event: Event) {
               >
                 {{ film.duration }}
               </span>
-              <!-- Play affordance (chưa có icon "play" chính thức trong MDS — TODO bổ sung registry) -->
               <span
                 class="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
                 style="background: rgba(0,0,0,0.15)"
@@ -207,7 +198,6 @@ async function copyLink(url: string | undefined, label: string, event: Event) {
               </span>
             </div>
 
-            <!-- Nội dung thẻ -->
             <div class="flex flex-1 flex-col gap-2 p-3">
               <h3
                 class="line-clamp-2 text-[14px] font-medium leading-[19px]"
@@ -218,12 +208,10 @@ async function copyLink(url: string | undefined, label: string, event: Event) {
               </h3>
 
               <div class="flex flex-wrap items-center gap-1.5">
-                <!-- Đặt trong hàng tag (không đè lên thumbnail) để luôn thấy rõ kể cả khi có ảnh bìa thật -->
-                <MTag v-if="isFilmNew(film)" color="danger" size="sm">Phim mới</MTag>
-                <MTag :color="film.categoryColor" size="sm">{{ film.category }}</MTag>
-                <!-- Nguồn phim: bấm để copy nhanh link (không mở trang chi tiết) -->
+                <MTag v-if="isFilmNew(film.publishedAt)" color="danger" size="sm">Phim mới</MTag>
+                <MTag v-if="film.categoryName" :color="categoryColorFor(film.categoryId)" size="sm">{{ film.categoryName }}</MTag>
                 <button
-                  v-for="src in film.sources"
+                  v-for="src in filmSources(film)"
                   :key="src"
                   type="button"
                   class="inline-flex h-5 items-center gap-1 rounded px-2 text-[12px] font-medium transition hover:brightness-95"
@@ -255,24 +243,22 @@ async function copyLink(url: string | undefined, label: string, event: Event) {
                   <MIcon name="eye" :size="12" />
                   {{ formatViews(film.viewCount) }} lượt xem
                 </span>
-                <span>{{ film.publishedAt }}</span>
+                <span>{{ formatVNDate(film.publishedAt) }}</span>
               </div>
               <div class="truncate text-[12px]" style="color: var(--mds-text-placeholder)">
-                {{ film.uploader }}
+                {{ film.uploaderName }}
               </div>
             </div>
           </article>
         </div>
 
-        <!-- Không có kết quả -->
         <MEmptyState
-          v-else
+          v-else-if="!store.loading"
           type="no-result"
           title="Không tìm thấy phim phù hợp"
           description="Thử đổi từ khóa tìm kiếm, bỏ bớt bộ lọc chuyên mục hoặc tắt 'Chỉ hiển thị phim mới'."
         />
 
-        <!-- Phân trang: số phim/trang (20/30/50) + prev/next (MDS: không đánh số trang) -->
         <div
           v-if="filtered.length"
           class="flex flex-wrap items-center justify-between gap-3 border-t pt-3"

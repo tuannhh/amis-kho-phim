@@ -2,8 +2,38 @@
 
 > Ghi lại quyết định kiến trúc quan trọng + lý do. Thêm mục mới ở trên cùng.
 
-## ADR-014 — OwnerGuard hoãn tới GĐ2 (chưa có resource "phim" ở BE)
+## ADR-018 — GĐ2 chưa persist storage/thumbnail thật (đúng scope GĐ3)
+- **Quyết định:** `films` GĐ2 chỉ có metadata + `film_links` (youtube/vimeo/gdrive/misadrive).
+  MUpload (file phim + thumbnail) vẫn hiện trên form (giữ UI đã duyệt) nhưng CHỈ xem trước
+  trong phiên (object URL), KHÔNG gửi lên server — có ghi chú rõ ràng ngay trên form. Validate
+  "cần ít nhất 1 nguồn" chỉ tính link ngoài, bỏ qua file đã chọn.
+- **Lý do:** Trung thực với người dùng (nguyên tắc skill MDS: không báo "đã lưu" khi chưa lưu
+  thật) — tránh users tưởng đã upload xong rồi mất dữ liệu khi F5. Storage thật (MinIO) là GĐ3.
+
+## ADR-017 — Màu tag/gradient chuyên mục suy ra từ category id, không phải vị trí danh sách
+- **Quyết định:** `categoryColorFor(categoryId)` và `thumbnailGradient(categoryId)` = mảng cố
+  định lấy theo `categoryId % length` — thay vì cách cũ GĐ0.5 gán màu theo thứ tự xuất hiện
+  trong danh sách phim đang tải (`colorForCategory(category, categories)`).
+- **Lý do:** Cách cũ không ổn định — cùng 1 chuyên mục có thể ra màu khác nhau tuỳ tập phim
+  đang lọc/tải. Theo id là bất biến, đúng hơn về UX dù không ai yêu cầu, chấp nhận được vì
+  không tốn thêm chi phí thiết kế.
+
+## ADR-016 — Hashtag & FilmLink là bảng riêng (đúng theo 01-architecture.md), không JSON column
+- **Quyết định:** `hashtags` + `film_hashtags` (n-n) và `film_links` (1-n) là bảng SQL riêng,
+  không nhét mảng JSON vào cột `films`.
+- **Lý do:** Kiến trúc đã chốt từ GĐ0 (01-architecture.md §4); chuẩn hoá giúp tìm theo hashtag
+  (GĐ5) và validate/dedupe hashtag hiệu quả hơn JSON column.
+
+## ADR-015 — Category & Film slug tự sinh ở BE (không nhận từ FE)
+- **Quyết định:** Backend tự tạo slug từ `name`/`title` qua `slugify()` + hậu tố số nếu trùng
+  (`-2`, `-3`...). FE không gửi slug, chỉ nhận lại từ response.
+- **Lý do:** Slug là identifier suy ra được, để BE sinh + đảm bảo unique tránh race-condition
+  2 client tạo cùng lúc trùng slug; nhất quán với cách Category cha-con cũng dùng numeric id
+  (không dùng slug làm khoá như mock GĐ0.5 cũ).
+
+## ADR-014 — OwnerGuard hoãn tới GĐ2 (chưa có resource "phim" ở BE) — ✅ đã thêm ở GĐ2
 - **Quyết định:** GĐ1 mới có `RolesGuard` (toàn cục theo `@Roles`). Kiểm chủ sở hữu cho **quản trị người dùng** (ai khoá/xoá được ai, không tự khoá mình) đặt ở **tầng service** (`UsersService.assertCanManage`), không dựng class OwnerGuard rỗng. `OwnerGuard` thật (theo `uploader_id` của phim) sẽ thêm ở GĐ2 khi FilmsModule ra đời.
+- **Cập nhật GĐ2:** đã thêm `FilmsService.assertCanManage` (cùng pattern với Users) — super_admin/admin sửa/xoá bất kỳ phim, nhân viên chỉ phim của mình. Vẫn ở tầng service (không tách class `OwnerGuard` riêng) vì logic đơn giản, chỉ so `uploaderId === actor.id`.
 - **Lý do:** Owner theo nghĩa roadmap (§5) là "nhân viên chỉ sửa/xoá phim của mình" — chưa có phim ở BE nên guard chưa có gì để canh; tránh dead code. Vẫn giữ đúng tinh thần ADR-002 (kiểm quyền ở BE, không tin FE).
 
 ## ADR-013 — Buộc đổi mật khẩu lần đầu (must_change_password)

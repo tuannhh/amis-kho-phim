@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import MButton from '@/components/mds/MButton.vue'
 import MInput from '@/components/mds/MInput.vue'
@@ -11,40 +11,42 @@ import MDialog from '@/components/mds/MDialog.vue'
 import MIcon from '@/components/mds/MIcon.vue'
 import { useToast } from '@/components/mds/toast.js'
 import { useFormValidation, rules } from '@/components/mds/useFormValidation.js'
-import {
-  mockFilms,
-  toSlug,
-  listCategories,
-  listHashtags,
-  colorForCategory,
-  type FilmSource,
-} from '@/features/films/mockFilms'
-import { useAuthStore } from '@/features/auth/authStore'
+import { useFilmsStore } from '@/features/films/filmsStore'
+import { filmsApi, type UpsertFilmPayload } from '@/features/films/filmsApi'
+import { categoriesApi, flattenCategoryTree, type ApiCategoryNode } from '@/features/categories/categoriesApi'
 
 /**
- * Thêm/Sửa phim — GĐ 0.5 (mock, không backend thật):
- * - Upload file lên "storage nội bộ" + chèn link riêng cho từng nền tảng ngoài.
- * - Thumbnail 16:9.
- * - Phát hiện trùng tiêu đề → cảnh báo + hỏi cập nhật bản mới (MDialog).
- * GĐ 3 gắn upload MinIO thật; GĐ 2 gắn API films/categories thật.
+ * Thêm/Sửa phim — GĐ2 (API thật cho metadata + link ngoài). Upload file
+ * storage/thumbnail thật (MinIO) là GĐ3 — ở đây chỉ xem trước trong phiên
+ * làm việc (không gửi lên server), có ghi chú rõ cho người dùng.
  */
 const toast = useToast()
 const route = useRoute()
 const router = useRouter()
-const auth = useAuthStore()
+const store = useFilmsStore()
 
-// Sửa phim: /upload?edit=<slug>
+const categoriesTree = ref<ApiCategoryNode[]>([])
+onMounted(async () => {
+  await Promise.all([store.load(), categoriesApi.tree().then((t) => (categoriesTree.value = t))])
+  loadEditingFilm()
+})
+
 const editingSlug = computed(() => (route.query.edit as string) || '')
-const editingFilm = computed(() => mockFilms.find((f) => f.slug === editingSlug.value))
+const editingFilm = computed(() => store.films.find((f) => f.slug === editingSlug.value))
 const isEditMode = computed(() => !!editingFilm.value)
 
-const categoryOptions = computed(() => listCategories().map((c) => ({ label: c, value: c })))
-const hashtagOptions = computed(() => listHashtags().map((h) => ({ label: `#${h}`, value: h })))
+const categoryOptions = computed(() =>
+  flattenCategoryTree(categoriesTree.value).map((c) => ({ label: c.name, value: c.id })),
+)
+const hashtagOptions = computed(() => {
+  const set = new Set(store.films.flatMap((f) => f.hashtags))
+  return Array.from(set).map((h) => ({ label: `#${h}`, value: h }))
+})
 
 const form = reactive({
   title: '',
   // undefined (không phải null) — MSelect không nhận null trong kiểu modelValue
-  category: undefined as string | undefined,
+  categoryId: undefined as number | undefined,
   description: '',
   hashtags: [] as string[],
   youtube: '',
@@ -62,21 +64,18 @@ function loadEditingFilm() {
   const f = editingFilm.value
   if (!f) return
   form.title = f.title
-  form.category = f.category
-  form.description = f.description
+  form.categoryId = f.categoryId ?? undefined
+  form.description = f.description || ''
   form.hashtags = [...f.hashtags]
   form.youtube = f.links.youtube || ''
   form.vimeo = f.links.vimeo || ''
   form.gdrive = f.links.gdrive || ''
   form.misadrive = f.links.misadrive || ''
-  thumbnailUrl.value = f.thumbnailUrl || ''
 }
-loadEditingFilm()
 
-// useFormValidation.js là JS thuần → `errors` suy ra kiểu {}; ép kiểu tường minh để dùng errors.title/category
 const { errors, validate } = useFormValidation({
   title: [rules.required('Tên phim không được để trống')],
-  category: [rules.required('Vui lòng chọn chuyên mục')],
+  categoryId: [rules.required('Vui lòng chọn chuyên mục')],
 }) as {
   errors: Record<string, string>
   validate: (values: Record<string, unknown>) => boolean
@@ -110,104 +109,82 @@ function onRemoveThumbnail() {
 const duplicateFilm = computed(() => {
   const t = form.title.trim().toLowerCase()
   if (!t) return null
-  return mockFilms.find(
-    (f) => f.title.trim().toLowerCase() === t && f.slug !== editingSlug.value
-  )
+  return store.films.find((f) => f.title.trim().toLowerCase() === t && f.slug !== editingSlug.value)
 })
 
 const confirmDialogOpen = ref(false)
+const submitting = ref(false)
 
-function collectLinks(): Partial<Record<FilmSource, string>> {
-  const links: Partial<Record<FilmSource, string>> = {}
-  if (videoFile.value || (isEditMode.value && editingFilm.value?.links.storage)) {
-    links.storage = editingFilm.value?.links.storage || 'blob:mock-storage-upload'
+function hasAtLeastOneSource(): boolean {
+  return !!(form.youtube.trim() || form.vimeo.trim() || form.gdrive.trim() || form.misadrive.trim())
+}
+
+function buildPayload(): UpsertFilmPayload {
+  return {
+    title: form.title.trim(),
+    categoryId: form.categoryId!,
+    description: form.description.trim() || undefined,
+    hashtags: form.hashtags,
+    youtubeUrl: form.youtube.trim() || undefined,
+    vimeoUrl: form.vimeo.trim() || undefined,
+    gdriveUrl: form.gdrive.trim() || undefined,
+    misadriveUrl: form.misadrive.trim() || undefined,
   }
-  if (form.youtube.trim()) links.youtube = form.youtube.trim()
-  if (form.vimeo.trim()) links.vimeo = form.vimeo.trim()
-  if (form.gdrive.trim()) links.gdrive = form.gdrive.trim()
-  if (form.misadrive.trim()) links.misadrive = form.misadrive.trim()
-  return links
 }
 
-function today() {
-  return new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
-}
-
-function applyUpdateToFilm(target: (typeof mockFilms)[number]) {
-  target.title = form.title.trim()
-  target.category = form.category!
-  target.categoryColor = colorForCategory(form.category!, listCategories())
-  target.description = form.description.trim()
-  target.hashtags = [...form.hashtags]
-  target.links = { ...target.links, ...collectLinks() }
-  target.sources = Object.keys(target.links) as FilmSource[]
-  if (thumbnailUrl.value) target.thumbnailUrl = thumbnailUrl.value
-  // publishedAt = hôm nay → tự động được tính là "Phim mới" (isFilmNew), không cần cờ riêng
-  target.publishedAt = today()
-}
-
-function hasAtLeastOneSource() {
-  const editingHasStorage = isEditMode.value && !!editingFilm.value?.links.storage
-  return !!videoFile.value || editingHasStorage || Object.keys(collectLinks()).length > 0
-}
-
-function publish() {
+async function publish() {
   if (!validate(form)) return
 
   if (!hasAtLeastOneSource()) {
-    toast.error('Cần tải phim lên storage nội bộ hoặc nhập ít nhất một link ngoài')
+    toast.error('Cần nhập ít nhất một link ngoài (YouTube/Vimeo/Google Drive/MISA Drive)')
     return
   }
 
-  // Sửa phim đang có sẵn (không phải do trùng tiêu đề phát hiện lúc gõ)
   if (isEditMode.value && editingFilm.value) {
-    applyUpdateToFilm(editingFilm.value)
-    toast.success(`Đã cập nhật phim "${form.title}"`)
-    router.push({ name: 'film-detail', params: { slug: editingFilm.value.slug } })
+    await saveUpdate(editingFilm.value.id, `Đã cập nhật phim "${form.title}"`)
     return
   }
 
-  // Phát hiện trùng tiêu đề khi tạo mới → hỏi xác nhận trước khi ghi đè bản mới
   if (duplicateFilm.value) {
     confirmDialogOpen.value = true
     return
   }
 
-  createNewFilm()
+  await createNewFilm()
 }
 
-function createNewFilm() {
-  const slug = toSlug(form.title) || `phim-${Date.now()}`
-  const newFilm = {
-    id: Math.max(0, ...mockFilms.map((f) => f.id)) + 1,
-    slug,
-    title: form.title.trim(),
-    description: form.description.trim(),
-    category: form.category!,
-    categoryColor: colorForCategory(form.category!, listCategories()),
-    duration: videoFile.value ? '--:--' : '00:00',
-    viewCount: 0,
-    hashtags: [...form.hashtags],
-    sources: Object.keys(collectLinks()) as FilmSource[],
-    links: collectLinks(),
-    uploader: auth.user?.fullName ?? '—',
-    uploaderId: auth.user?.id ?? 0,
-    publishedAt: today(),
-    thumbnailFrom: '#245FDF',
-    thumbnailTo: '#68A6F2',
-    thumbnailUrl: thumbnailUrl.value || undefined,
+async function createNewFilm() {
+  submitting.value = true
+  try {
+    const created = await filmsApi.create(buildPayload())
+    toast.success(`Đã xuất bản phim mới "${created.title}"`)
+    await store.load()
+    router.push({ name: 'film-detail', params: { slug: created.slug } })
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : 'Xuất bản phim không thành công')
+  } finally {
+    submitting.value = false
   }
-  mockFilms.push(newFilm)
-  toast.success(`Đã xuất bản phim mới "${newFilm.title}"`)
-  router.push({ name: 'film-detail', params: { slug } })
 }
 
-function confirmUpdateVersion() {
+async function saveUpdate(id: number, successMessage: string) {
+  submitting.value = true
+  try {
+    const updated = await filmsApi.update(id, buildPayload())
+    toast.success(successMessage)
+    await store.load()
+    router.push({ name: 'film-detail', params: { slug: updated.slug } })
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : 'Lưu phim không thành công')
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function confirmUpdateVersion() {
   if (!duplicateFilm.value) return
-  applyUpdateToFilm(duplicateFilm.value)
   confirmDialogOpen.value = false
-  toast.success(`Đã cập nhật bản mới cho "${duplicateFilm.value.title}", gắn tag Phim mới`)
-  router.push({ name: 'film-detail', params: { slug: duplicateFilm.value.slug } })
+  await saveUpdate(duplicateFilm.value.id, `Đã cập nhật bản mới cho "${duplicateFilm.value.title}", gắn tag Phim mới`)
 }
 
 function cancel() {
@@ -246,8 +223,8 @@ function cancel() {
           <div class="text-[13px]" style="color: var(--mds-text-primary)">
             <p class="font-medium">Đã có phim trùng tiêu đề "{{ duplicateFilm.title }}"</p>
             <p style="color: var(--mds-text-secondary)">
-              Tải lên bởi {{ duplicateFilm.uploader }} ngày {{ duplicateFilm.publishedAt }}. Khi bấm
-              "Xuất bản", bạn sẽ được hỏi có muốn cập nhật thành bản mới của phim này không.
+              Tải lên bởi {{ duplicateFilm.uploaderName }}. Khi bấm "Xuất bản", bạn sẽ được hỏi có
+              muốn cập nhật thành bản mới của phim này không.
             </p>
           </div>
         </div>
@@ -268,11 +245,11 @@ function cancel() {
               <MInput v-model="form.title" placeholder="Nhập tên phim" :error="errors.title" />
             </div>
 
-            <div data-field="category">
+            <div data-field="categoryId">
               <label class="mb-1 block text-[13px] font-medium" style="color: var(--mds-text-primary)">
                 Chuyên mục <span style="color: var(--mds-danger)">*</span>
               </label>
-              <MSelect v-model="form.category" :options="categoryOptions" placeholder="Chọn chuyên mục" :error="errors.category" />
+              <MSelect v-model="form.categoryId" :options="categoryOptions" placeholder="Chọn chuyên mục" :error="errors.categoryId" />
             </div>
 
             <div>
@@ -307,15 +284,21 @@ function cancel() {
           </h3>
 
           <div class="flex flex-col gap-5">
-            <MUpload
-              label="Tải phim lên storage nội bộ"
-              accept="video/*"
-              :multiple="false"
-              :maxSizeMB="2048"
-              :model-value="videoFileMeta"
-              @select-files="onSelectVideo"
-              @remove="onRemoveVideo"
-            />
+            <div>
+              <MUpload
+                label="Tải phim lên storage nội bộ"
+                accept="video/*"
+                :multiple="false"
+                :maxSizeMB="2048"
+                :model-value="videoFileMeta"
+                @select-files="onSelectVideo"
+                @remove="onRemoveVideo"
+              />
+              <p class="mt-1 text-[12px]" style="color: var(--mds-text-secondary)">
+                Lưu trữ nội bộ thật (MinIO) sẽ có ở giai đoạn tiếp theo — hiện tại vui lòng dùng ít
+                nhất một link ngoài bên dưới để phim hiển thị được.
+              </p>
+            </div>
 
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
@@ -367,15 +350,21 @@ function cancel() {
               </div>
             </div>
 
-            <MUpload
-              label="Tải ảnh bìa"
-              accept="image/*"
-              :multiple="false"
-              :maxSizeMB="10"
-              :model-value="thumbnailMeta"
-              @select-files="onSelectThumbnail"
-              @remove="onRemoveThumbnail"
-            />
+            <div class="flex-1">
+              <MUpload
+                label="Tải ảnh bìa"
+                accept="image/*"
+                :multiple="false"
+                :maxSizeMB="10"
+                :model-value="thumbnailMeta"
+                @select-files="onSelectThumbnail"
+                @remove="onRemoveThumbnail"
+              />
+              <p class="mt-1 text-[12px]" style="color: var(--mds-text-secondary)">
+                Chỉ xem trước trong phiên làm việc này — chưa lưu lên server (đến ở giai đoạn Storage
+                &amp; Thumbnail). Kho phim hiện dùng ảnh gradient theo chuyên mục.
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -383,8 +372,8 @@ function cancel() {
 
     <!-- Footer sticky: Hủy trái, Lưu/Xuất bản phải (Primary ngoài cùng) -->
     <footer class="flex shrink-0 items-center justify-between bg-white px-4 py-3">
-      <MButton variant="secondary" @click="cancel">Hủy</MButton>
-      <MButton variant="primary" @click="publish">
+      <MButton variant="secondary" :disabled="submitting" @click="cancel">Hủy</MButton>
+      <MButton variant="primary" :loading="submitting" @click="publish">
         {{ isEditMode ? 'Lưu thay đổi' : 'Xuất bản' }}
       </MButton>
     </footer>

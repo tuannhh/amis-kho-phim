@@ -7,13 +7,15 @@ import { dbOptions } from './database/db-options'
 import { DatabaseModule } from './database/database.module'
 import { UsersModule } from './modules/users/users.module'
 import { AuthModule } from './modules/auth/auth.module'
+import { CategoriesModule } from './modules/categories/categories.module'
+import { FilmsModule } from './modules/films/films.module'
 import { JwtAuthGuard } from './common/auth/jwt-auth.guard'
 import { RolesGuard } from './common/auth/roles.guard'
 
 /**
  * AppModule — gốc lắp ráp các module domain (kiến trúc module hoá, 01-architecture.md).
- * GĐ1: thêm Auth + Users + RBAC. Guard toàn cục: JwtAuthGuard (xác thực) chạy TRƯỚC
- * RolesGuard (phân quyền). Route công khai gắn @Public (login/refresh/health).
+ * GĐ1: Auth + Users + RBAC. GĐ2: Categories + Films (metadata). Guard toàn cục:
+ * JwtAuthGuard (xác thực) chạy TRƯỚC RolesGuard (phân quyền). Route công khai gắn @Public.
  */
 const dbEnabled = process.env.DB_ENABLED !== 'false'
 
@@ -28,6 +30,8 @@ const dbEnabled = process.env.DB_ENABLED !== 'false'
           DatabaseModule,
           UsersModule,
           AuthModule,
+          CategoriesModule,
+          FilmsModule,
         ]
       : []),
   ],

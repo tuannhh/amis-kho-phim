@@ -1,26 +1,48 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import MButton from '@/components/mds/MButton.vue'
 import MIcon from '@/components/mds/MIcon.vue'
 import MTag from '@/components/mds/MTag.vue'
 import MEmptyState from '@/components/mds/MEmptyState.vue'
+import MDialog from '@/components/mds/MDialog.vue'
+import MSpinner from '@/components/mds/MSpinner.vue'
 import VideoPlayer from '@/components/VideoPlayer.vue'
-import { mockFilms, isFilmNew } from './mockFilms'
+import { useToast } from '@/components/mds/toast.js'
+import { filmsApi, filmSources, type ApiFilm } from './filmsApi'
+import { isFilmNew, categoryColorFor, formatVNDate } from './filmTypes'
 import { useAuthStore } from '@/features/auth/authStore'
 
 /**
- * Chi tiết/Xem phim — URL riêng /films/:slug (yêu cầu chủ đầu tư).
- * GĐ 0.5 dùng mock; GĐ 2 gắn API films, GĐ 4 hoàn thiện player thật.
+ * Chi tiết/Xem phim — URL riêng /films/:slug. GĐ2: fetch trực tiếp theo slug
+ * (không phụ thuộc filmsStore đã load hay chưa — vào thẳng link vẫn đúng).
  */
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const toast = useToast()
 
-const film = computed(() => mockFilms.find((f) => f.slug === route.params.slug))
+const film = ref<ApiFilm | null>(null)
+const loading = ref(true)
+const notFound = ref(false)
+
+async function load() {
+  loading.value = true
+  notFound.value = false
+  film.value = null
+  try {
+    film.value = await filmsApi.getBySlug(route.params.slug as string)
+  } catch {
+    notFound.value = true
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(load)
+watch(() => route.params.slug, load)
 
 // Quyền sửa/xoá: super_admin/admin bất kỳ phim; nhân viên chỉ phim của mình (ADR-002).
-// FE chỉ ẩn/hiện; GĐ2+ backend (OwnerGuard theo uploader_id) mới là nguồn kiểm quyền thật.
+// FE chỉ ẩn/hiện; backend (FilmsService.assertCanManage) mới là nguồn kiểm quyền thật.
 const canManage = computed(() => {
   if (!film.value) return false
   if (auth.role === 'super_admin' || auth.role === 'admin') return true
@@ -37,10 +59,31 @@ function goBack() {
 function goEdit() {
   if (film.value) router.push({ name: 'upload', query: { edit: film.value.slug } })
 }
+
+const deleteOpen = ref(false)
+const deleting = ref(false)
+async function confirmDelete() {
+  if (!film.value) return
+  deleting.value = true
+  try {
+    await filmsApi.remove(film.value.id)
+    toast.success(`Đã xoá phim "${film.value.title}"`)
+    router.push({ name: 'films' })
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : 'Xoá phim không thành công')
+  } finally {
+    deleting.value = false
+    deleteOpen.value = false
+  }
+}
 </script>
 
 <template>
-  <section v-if="film" class="flex h-full flex-col overflow-hidden">
+  <section v-if="loading" class="flex h-full items-center justify-center">
+    <MSpinner :size="24" />
+  </section>
+
+  <section v-else-if="film" class="flex h-full flex-col overflow-hidden">
     <!-- Header trắng: back + tiêu đề — nút thao tác ghim góc trên phải -->
     <header class="flex shrink-0 flex-wrap items-center justify-between gap-3 bg-white px-4 py-3">
       <div class="flex min-w-0 items-center gap-2">
@@ -56,7 +99,7 @@ function goEdit() {
         <h1 class="truncate text-[18px] font-semibold" style="color: var(--mds-text-primary)">
           {{ film.title }}
         </h1>
-        <MTag v-if="isFilmNew(film)" color="danger" size="sm">Phim mới</MTag>
+        <MTag v-if="isFilmNew(film.publishedAt)" color="danger" size="sm">Phim mới</MTag>
       </div>
 
       <div v-if="canManage" class="flex items-center gap-2">
@@ -64,7 +107,7 @@ function goEdit() {
           <template #icon><MIcon name="pencil" :size="16" /></template>
           Sửa
         </MButton>
-        <MButton variant="danger">
+        <MButton variant="danger" @click="deleteOpen = true">
           <template #icon><MIcon name="trash" :size="16" /></template>
           Xoá
         </MButton>
@@ -78,7 +121,7 @@ function goEdit() {
           class="rounded-lg bg-white p-3"
           style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
         >
-          <VideoPlayer :title="film.title" :sources="film.sources" :links="film.links" />
+          <VideoPlayer :title="film.title" :sources="filmSources(film)" :links="film.links" />
         </div>
 
         <!-- Thông tin phim -->
@@ -87,7 +130,7 @@ function goEdit() {
           style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
         >
           <div class="flex flex-wrap items-center gap-2">
-            <MTag :color="film.categoryColor" size="sm">{{ film.category }}</MTag>
+            <MTag v-if="film.categoryName" :color="categoryColorFor(film.categoryId)" size="sm">{{ film.categoryName }}</MTag>
             <span
               v-for="tag in film.hashtags"
               :key="tag"
@@ -98,7 +141,7 @@ function goEdit() {
             </span>
           </div>
 
-          <p class="text-[13px] leading-[19px]" style="color: var(--mds-text-primary)">
+          <p v-if="film.description" class="text-[13px] leading-[19px]" style="color: var(--mds-text-primary)">
             {{ film.description }}
           </p>
 
@@ -112,11 +155,11 @@ function goEdit() {
             </span>
             <span class="flex items-center gap-1">
               <MIcon name="user" :size="12" />
-              {{ film.uploader }}
+              {{ film.uploaderName }}
             </span>
             <span class="flex items-center gap-1">
               <MIcon name="calendar" :size="12" />
-              {{ film.publishedAt }}
+              {{ formatVNDate(film.publishedAt) }}
             </span>
 
             <a
@@ -134,6 +177,17 @@ function goEdit() {
         </div>
       </div>
     </div>
+
+    <!-- Xác nhận xoá phim -->
+    <MDialog v-model="deleteOpen" title="Xoá phim" type="danger" :width="440">
+      <p class="text-[13px]" style="color: var(--mds-text-primary)">
+        Bạn có chắc muốn xoá phim <strong>"{{ film.title }}"</strong>? Hành động này không thể hoàn tác.
+      </p>
+      <template #footer>
+        <MButton variant="secondary" :disabled="deleting" @click="deleteOpen = false">Hủy</MButton>
+        <MButton variant="danger" :loading="deleting" @click="confirmDelete">Xoá</MButton>
+      </template>
+    </MDialog>
   </section>
 
   <!-- Không tìm thấy phim (slug sai/đã xoá) -->
