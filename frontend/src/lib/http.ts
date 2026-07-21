@@ -23,7 +23,9 @@ export async function apiFetch<T = unknown>(
   const auth = useAuthStore()
 
   const headers = new Headers(options.headers || {})
-  if (!headers.has('Content-Type') && options.body) {
+  // FormData (upload multipart) tự set Content-Type kèm boundary — không ép JSON.
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
+  if (!headers.has('Content-Type') && options.body && !isFormData) {
     headers.set('Content-Type', 'application/json')
   }
   if (auth.accessToken) headers.set('Authorization', `Bearer ${auth.accessToken}`)

@@ -12,13 +12,14 @@ import MIcon from '@/components/mds/MIcon.vue'
 import { useToast } from '@/components/mds/toast.js'
 import { useFormValidation, rules } from '@/components/mds/useFormValidation.js'
 import { useFilmsStore } from '@/features/films/filmsStore'
-import { filmsApi, type UpsertFilmPayload } from '@/features/films/filmsApi'
+import { filmsApi, type UpsertFilmPayload, type ConfirmVersionPayload } from '@/features/films/filmsApi'
+import { putToStorage, readVideoDuration, formatDuration } from '@/features/films/storageUpload'
 import { categoriesApi, flattenCategoryTree, type ApiCategoryNode } from '@/features/categories/categoriesApi'
 
 /**
- * Thêm/Sửa phim — GĐ2 (API thật cho metadata + link ngoài). Upload file
- * storage/thumbnail thật (MinIO) là GĐ3 — ở đây chỉ xem trước trong phiên
- * làm việc (không gửi lên server), có ghi chú rõ cho người dùng.
+ * Thêm/Sửa phim — GĐ3 (API thật, storage MinIO thật). Luồng upload:
+ * lưu metadata → xin presigned URL → upload video thẳng lên MinIO (progress) →
+ * upload ảnh bìa 16:9 qua backend → xác nhận tạo bản mới (film_versions).
  */
 const toast = useToast()
 const route = useRoute()
@@ -55,10 +56,23 @@ const form = reactive({
   misadrive: '',
 })
 
+type UploadStatus = 'done' | 'uploading' | 'error'
+interface UploadMeta {
+  id: string
+  name: string
+  size: number
+  status: UploadStatus
+  progress?: number
+  errorMessage?: string
+}
+
 const videoFile = ref<File | null>(null)
-const videoFileMeta = ref<Array<{ id: string; name: string; size: number; status: 'done' }>>([])
+const videoFileMeta = ref<UploadMeta[]>([])
+const thumbnailFile = ref<File | null>(null)
 const thumbnailUrl = ref<string>('')
-const thumbnailMeta = ref<Array<{ id: string; name: string; size: number; status: 'done' }>>([])
+const thumbnailMeta = ref<UploadMeta[]>([])
+// Phim đang sửa đã có sẵn video/ảnh bìa trên storage hay chưa (để không bắt buộc chọn lại).
+const hasExistingStorage = ref(false)
 
 function loadEditingFilm() {
   const f = editingFilm.value
@@ -71,6 +85,8 @@ function loadEditingFilm() {
   form.vimeo = f.links.vimeo || ''
   form.gdrive = f.links.gdrive || ''
   form.misadrive = f.links.misadrive || ''
+  hasExistingStorage.value = !!f.links.storage
+  if (f.thumbnailUrl) thumbnailUrl.value = f.thumbnailUrl
 }
 
 const { errors, validate } = useFormValidation({
@@ -81,9 +97,20 @@ const { errors, validate } = useFormValidation({
   validate: (values: Record<string, unknown>) => boolean
 }
 
+const MAX_UPLOAD_MB = 2048
+const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-matroska']
+
 function onSelectVideo(files: File[]) {
   const file = files[0]
   if (!file) return
+  if (file.type && !ALLOWED_VIDEO_TYPES.includes(file.type)) {
+    toast.error('Định dạng video không được hỗ trợ (mp4/webm/ogg/mov/mkv)')
+    return
+  }
+  if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+    toast.error(`Tệp vượt giới hạn ${MAX_UPLOAD_MB}MB`)
+    return
+  }
   videoFile.value = file
   videoFileMeta.value = [{ id: 'video', name: file.name, size: file.size, status: 'done' }]
 }
@@ -95,12 +122,14 @@ function onRemoveVideo() {
 function onSelectThumbnail(files: File[]) {
   const file = files[0]
   if (!file) return
-  if (thumbnailUrl.value) URL.revokeObjectURL(thumbnailUrl.value)
+  if (thumbnailUrl.value && thumbnailUrl.value.startsWith('blob:')) URL.revokeObjectURL(thumbnailUrl.value)
+  thumbnailFile.value = file
   thumbnailUrl.value = URL.createObjectURL(file)
   thumbnailMeta.value = [{ id: 'thumb', name: file.name, size: file.size, status: 'done' }]
 }
 function onRemoveThumbnail() {
-  if (thumbnailUrl.value) URL.revokeObjectURL(thumbnailUrl.value)
+  if (thumbnailUrl.value && thumbnailUrl.value.startsWith('blob:')) URL.revokeObjectURL(thumbnailUrl.value)
+  thumbnailFile.value = null
   thumbnailUrl.value = ''
   thumbnailMeta.value = []
 }
@@ -116,7 +145,14 @@ const confirmDialogOpen = ref(false)
 const submitting = ref(false)
 
 function hasAtLeastOneSource(): boolean {
-  return !!(form.youtube.trim() || form.vimeo.trim() || form.gdrive.trim() || form.misadrive.trim())
+  return !!(
+    videoFile.value ||
+    hasExistingStorage.value ||
+    form.youtube.trim() ||
+    form.vimeo.trim() ||
+    form.gdrive.trim() ||
+    form.misadrive.trim()
+  )
 }
 
 function buildPayload(): UpsertFilmPayload {
@@ -136,7 +172,7 @@ async function publish() {
   if (!validate(form)) return
 
   if (!hasAtLeastOneSource()) {
-    toast.error('Cần nhập ít nhất một link ngoài (YouTube/Vimeo/Google Drive/MISA Drive)')
+    toast.error('Cần ít nhất một nguồn: tải video lên hoặc nhập link ngoài (YouTube/Vimeo/Google Drive/MISA Drive)')
     return
   }
 
@@ -153,10 +189,73 @@ async function publish() {
   await createNewFilm()
 }
 
+/**
+ * Upload video (presigned PUT + progress) và/hoặc ảnh bìa (multipart), rồi xác
+ * nhận tạo bản mới. Trả true nếu OK, false nếu có lỗi (đã hiện toast).
+ */
+async function uploadAssets(filmId: number): Promise<boolean> {
+  const payload: ConfirmVersionPayload = {}
+  let hasNewAsset = false
+
+  // 1) Video → presigned PUT thẳng lên MinIO
+  if (videoFile.value) {
+    const file = videoFile.value
+    const contentType = file.type || 'video/mp4'
+    videoFileMeta.value = [{ id: 'video', name: file.name, size: file.size, status: 'uploading', progress: 0 }]
+    try {
+      const { uploadUrl, storageKey } = await filmsApi.createUploadUrl(filmId, contentType, file.size)
+      await putToStorage(uploadUrl, file, contentType, (p) => {
+        if (videoFileMeta.value[0]) videoFileMeta.value[0].progress = p
+      })
+      videoFileMeta.value[0].status = 'done'
+      payload.storageKey = storageKey
+      const secs = await readVideoDuration(file)
+      if (secs != null) payload.duration = formatDuration(secs)
+      hasNewAsset = true
+    } catch (e: unknown) {
+      videoFileMeta.value[0].status = 'error'
+      videoFileMeta.value[0].errorMessage = e instanceof Error ? e.message : 'Upload video thất bại'
+      toast.error(videoFileMeta.value[0].errorMessage!)
+      return false
+    }
+  }
+
+  // 2) Ảnh bìa 16:9 → multipart qua backend (validate phía server)
+  if (thumbnailFile.value) {
+    thumbnailMeta.value = [
+      { id: 'thumb', name: thumbnailFile.value.name, size: thumbnailFile.value.size, status: 'uploading', progress: 50 },
+    ]
+    try {
+      const { thumbnailKey } = await filmsApi.uploadThumbnail(filmId, thumbnailFile.value)
+      thumbnailMeta.value[0].status = 'done'
+      payload.thumbnailKey = thumbnailKey
+      hasNewAsset = true
+    } catch (e: unknown) {
+      thumbnailMeta.value[0].status = 'error'
+      thumbnailMeta.value[0].errorMessage = e instanceof Error ? e.message : 'Upload ảnh bìa thất bại'
+      toast.error(thumbnailMeta.value[0].errorMessage!)
+      return false
+    }
+  }
+
+  // 3) Xác nhận tạo bản mới (chỉ khi có asset mới)
+  if (hasNewAsset) {
+    await filmsApi.confirmVersion(filmId, payload)
+  }
+  return true
+}
+
 async function createNewFilm() {
   submitting.value = true
   try {
     const created = await filmsApi.create(buildPayload())
+    const ok = await uploadAssets(created.id)
+    if (!ok) {
+      // Phim metadata đã tạo nhưng upload lỗi — báo rõ, giữ nguyên form để thử lại.
+      await store.load()
+      submitting.value = false
+      return
+    }
     toast.success(`Đã xuất bản phim mới "${created.title}"`)
     await store.load()
     router.push({ name: 'film-detail', params: { slug: created.slug } })
@@ -171,6 +270,12 @@ async function saveUpdate(id: number, successMessage: string) {
   submitting.value = true
   try {
     const updated = await filmsApi.update(id, buildPayload())
+    const ok = await uploadAssets(id)
+    if (!ok) {
+      await store.load()
+      submitting.value = false
+      return
+    }
     toast.success(successMessage)
     await store.load()
     router.push({ name: 'film-detail', params: { slug: updated.slug } })
@@ -286,17 +391,18 @@ function cancel() {
           <div class="flex flex-col gap-5">
             <div>
               <MUpload
-                label="Tải phim lên storage nội bộ"
-                accept="video/*"
+                label="Tải phim lên storage nội bộ (MinIO)"
+                accept="video/mp4,video/webm,video/ogg,video/quicktime,video/x-matroska"
                 :multiple="false"
                 :maxSizeMB="2048"
                 :model-value="videoFileMeta"
+                :disabled="submitting"
                 @select-files="onSelectVideo"
                 @remove="onRemoveVideo"
               />
               <p class="mt-1 text-[12px]" style="color: var(--mds-text-secondary)">
-                Lưu trữ nội bộ thật (MinIO) sẽ có ở giai đoạn tiếp theo — hiện tại vui lòng dùng ít
-                nhất một link ngoài bên dưới để phim hiển thị được.
+                Định dạng MP4/WebM/OGG/MOV/MKV. File được lưu trực tiếp lên storage nội bộ và phát
+                được ngay trong app (tua/seek). Hoặc dùng link ngoài bên dưới nếu phim ở nền tảng khác.
               </p>
             </div>
 
@@ -353,16 +459,17 @@ function cancel() {
             <div class="flex-1">
               <MUpload
                 label="Tải ảnh bìa"
-                accept="image/*"
+                accept="image/jpeg,image/png,image/webp"
                 :multiple="false"
-                :maxSizeMB="10"
+                :maxSizeMB="15"
                 :model-value="thumbnailMeta"
+                :disabled="submitting"
                 @select-files="onSelectThumbnail"
                 @remove="onRemoveThumbnail"
               />
               <p class="mt-1 text-[12px]" style="color: var(--mds-text-secondary)">
-                Chỉ xem trước trong phiên làm việc này — chưa lưu lên server (đến ở giai đoạn Storage
-                &amp; Thumbnail). Kho phim hiện dùng ảnh gradient theo chuyên mục.
+                JPG/PNG/WebP, bắt buộc tỷ lệ 16:9 (vd 1280×720, 1920×1080). Ảnh được lưu lên storage
+                và dùng làm bìa trong Kho phim. Bỏ trống thì Kho phim dùng ảnh gradient theo chuyên mục.
               </p>
             </div>
           </div>

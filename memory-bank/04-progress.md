@@ -4,11 +4,56 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
-- Giai đoạn hiện tại: **GĐ 2 — Chuyên mục & Phim (core API thật) ĐÃ XONG & verify end-to-end**
-  trong Docker + trình duyệt (2026-07-21, làm bằng Sonnet 5). Đã push GitHub (commit `7c857c4`).
-  Tiếp theo: **GĐ 3 — Storage & Thumbnail (MinIO thật)**.
-- % hoàn thành tổng thể: ~60%
+- Giai đoạn hiện tại: **GĐ 3 — Storage & Thumbnail (MinIO thật) ĐÃ XONG & verify end-to-end**
+  trong Docker + trình duyệt (2026-07-21, làm bằng Opus 4.8). Commit local (chưa push).
+  Tiếp theo: **GĐ 4 — Player & Link ngoài & View** (03-roadmap.md): đếm lượt xem (film_views),
+  hoàn thiện trang xem, nút link theo nguồn (phần lớn player đa nguồn đã có sẵn từ GĐ0.5/GĐ3).
+- % hoàn thành tổng thể: ~72%
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
+
+## Nhật ký GĐ 3 (Storage & Thumbnail, MinIO thật) — 2026-07-21
+- [GĐ 3] Backend `StorageModule`: `StorageService` bọc MinIO qua `@aws-sdk/client-s3` (2 client:
+  internal minio:9000 + presigner localhost:9200), `MediaController` GET/HEAD `/media/:key`
+  (@Public, ngoài prefix /api) stream Range 206. Deps mới: `@aws-sdk/client-s3`,
+  `@aws-sdk/s3-request-presigner`, `image-size`, `multer` (+@types) — DONE.
+- [GĐ 3] Data model: entity + migration `AddFilmVersions` (bảng `film_versions`, FK film CASCADE
+  + created_by SET NULL). `films` không đụng dữ liệu cũ; `toPublic` lấy version mới nhất →
+  `links.storage`/`thumbnailUrl`/duration. Migration chạy sạch trên volume GĐ2 cũ (không phá) — DONE.
+- [GĐ 3] Endpoint (trong FilmsModule, tái dùng `assertCanManage`): POST `/films/:id/upload-url`
+  (presigned PUT, validate MIME+size), POST `/films/:id/thumbnail` (multipart, validate 16:9 +
+  magic bytes), POST `/films/:id/versions` (head-check key trên MinIO, lấy size thật, tạo version,
+  kế thừa asset chưa thay) — DONE. storage_key/thumbnail_key sinh server-side (uuid).
+- [GĐ 3] FE: `filmsApi` +createUploadUrl/uploadThumbnail(FormData)/confirmVersion; `http.ts` bỏ
+  ép Content-Type khi body là FormData; `storageUpload.ts` (XHR PUT có progress + readVideoDuration
+  có timeout ADR-022). `FilmUploadView` luồng upload THẬT (chọn file → xin URL → PUT MinIO có
+  progress → thumbnail → confirmVersion), xoá hết ghi chú "chưa lưu". `VideoPlayer` dùng
+  `<video src="/media/:key">` thật; `FilmListView` hiện thumbnail thật (fallback gradient) — DONE.
+  Build BE (nest) + FE (vue-tsc) đều sạch.
+- [GĐ 3] Quyết định: ADR-019 (film_versions + trỏ bản mới nhất), ADR-020 (aws-sdk S3, key
+  server-side, 2 client), ADR-021 (Range 206 proxy + /media ngoài prefix, public-by-uuid),
+  ADR-022 (readVideoDuration timeout). ADR-018 hết hiệu lực.
+- [GĐ 3] **Verify thật `docker compose up -d --build`** (5 container Up/healthy, migration
+  `AddFilmVersions` chạy, bucket `kho-phim` tự tạo). **API (curl, file thật ffmpeg)**: presigned
+  PUT → MinIO 200; thumbnail 16:9 OK, ảnh 600×600 → 400 "phải tỷ lệ 16:9"; confirmVersion gắn
+  storage+thumbnail+duration; GET /media full 200 + Range `bytes=0-99`→206 `0-99/113422`,
+  `bytes=1000-`→206 đúng, HEAD 200, key sai→404; RBAC: nhân viên xin upload-url/thumbnail/
+  confirmVersion trên phim người khác→**403**, phim mình→201; oversized/bad-type→400; no-token→401.
+  **Trình duyệt (Chrome tự động)**: login super→Kho phim hiện thumbnail thật + tag "Nội bộ"; tạo
+  phim mới, set file qua DataTransfer → app tự chạy `onSelectVideo`; **presigned PUT từ trình
+  duyệt → MinIO 200** (CORS preflight OPTIONS trả Access-Control-Allow-Origin đúng); thumbnail
+  multipart OK; confirmVersion OK → điều hướng trang chi tiết (player `<video src=/media>` mount,
+  nút Tải về bật, tag Phim mới); **fetch /media trong trình duyệt: 200 full + 206 Range
+  `bytes 0-999/113422` đúng số byte, canPlayType H.264 "probably"**; F5/điều hướng lại vẫn còn
+  phim+ảnh (persist DB+MinIO, không phải blob URL). 0 lỗi console của app (2 AbortError là do
+  chính script test gọi play() rồi điều hướng, không phải app).
+  - **Quirk môi trường (không phải bug):** `<video>` trong Chrome tự động không tự decode/hiển
+    thị metadata (readyState 0) dù fetch 206 hoạt động và canPlayType "probably" → seek/play thật
+    kiểm bằng fetch Range thay vì phát hình. Trình duyệt người dùng thật sẽ phát+tua bình thường.
+  - **Bẫy gặp khi verify:** (1) publish treo do readVideoDuration không timeout → đã fix (ADR-022);
+    (2) MSelect "Chuyên mục" khó mở bằng click tự động (đã biết từ GĐ2) → chọn bằng cách gọi
+    click() trên phần tử option thật qua JS (tương đương click người dùng). Sau verify đã xoá
+    sạch dữ liệu test qua API (0 phim/chuyên mục, chỉ còn seed super_admin), `docker compose down`
+    (KHÔNG -v, giữ volume). Object MinIO test còn sót là vô hại (prototype).
 
 ## Nhật ký sau GĐ 2 — 2026-07-21
 - [Fix UI] Cây chuyên mục khi rỗng (0 chuyên mục) trước đây hiện khung trắng trơn (chủ đầu tư

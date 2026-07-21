@@ -15,10 +15,12 @@ import { Category } from '../../categories/entities/category.entity'
 import { User } from '../../users/entities/user.entity'
 import { FilmLink } from './film-link.entity'
 import { Hashtag } from './hashtag.entity'
+import { FilmVersion } from './film-version.entity'
 
 /**
- * Metadata phim (01-architecture.md §4). GĐ2: chưa có storage/thumbnail thật
- * (MinIO) — đó là GĐ3. `duration` là placeholder cho tới khi có probing thật.
+ * Metadata phim (01-architecture.md §4). Storage/thumbnail thật (MinIO) nằm ở
+ * `film_versions` (GĐ3): bản mới nhất giữ storage_key/thumbnail_key/duration.
+ * Cột `duration` ở đây là fallback khi phim chưa có version nào.
  */
 @Entity({ name: 'films' })
 export class Film {
@@ -74,4 +76,7 @@ export class Film {
     inverseJoinColumn: { name: 'hashtag_id' },
   })
   hashtags?: Hashtag[]
+
+  @OneToMany(() => FilmVersion, (v) => v.film)
+  versions?: FilmVersion[]
 }

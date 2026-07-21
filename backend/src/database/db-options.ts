@@ -5,8 +5,10 @@ import { Category } from '../modules/categories/entities/category.entity'
 import { Film } from '../modules/films/entities/film.entity'
 import { FilmLink } from '../modules/films/entities/film-link.entity'
 import { Hashtag } from '../modules/films/entities/hashtag.entity'
+import { FilmVersion } from '../modules/films/entities/film-version.entity'
 import { InitAuth1721500000000 } from './migrations/1721500000000-InitAuth'
 import { InitCatalog1721600000000 } from './migrations/1721600000000-InitCatalog'
+import { AddFilmVersions1721700000000 } from './migrations/1721700000000-AddFilmVersions'
 
 /**
  * Cấu hình kết nối MySQL DÙNG CHUNG cho AppModule (runtime) và DataSource CLI (migration).
@@ -22,8 +24,8 @@ export const dbOptions: DataSourceOptions = {
   password: process.env.DB_PASSWORD || 'khophim',
   database: process.env.DB_NAME || 'kho_phim',
   charset: 'utf8mb4',
-  entities: [User, Role, Category, Film, FilmLink, Hashtag],
-  migrations: [InitAuth1721500000000, InitCatalog1721600000000],
+  entities: [User, Role, Category, Film, FilmLink, Hashtag, FilmVersion],
+  migrations: [InitAuth1721500000000, InitCatalog1721600000000, AddFilmVersions1721700000000],
   synchronize: false,
   migrationsRun: true,
 }

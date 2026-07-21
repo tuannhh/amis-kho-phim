@@ -171,11 +171,18 @@ async function copyLink(url: string | undefined, label: string, event: Event) {
             style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
             @click="openFilm(film.slug)"
           >
-            <!-- Thumbnail 16:9 — gradient theo chuyên mục (ảnh bìa thật là GĐ3) -->
+            <!-- Thumbnail 16:9 — ảnh bìa thật (MinIO) nếu có, fallback gradient theo chuyên mục -->
             <div
               class="relative aspect-video w-full overflow-hidden"
               :style="{ background: `linear-gradient(135deg, ${thumbnailGradient(film.categoryId)[0]}, ${thumbnailGradient(film.categoryId)[1]})` }"
             >
+              <img
+                v-if="film.thumbnailUrl"
+                :src="film.thumbnailUrl"
+                :alt="film.title"
+                class="absolute inset-0 h-full w-full object-cover"
+                loading="lazy"
+              />
               <span
                 class="absolute bottom-2 right-2 rounded px-1.5 py-0.5 text-[11px] font-medium text-white"
                 style="background: rgba(0,0,0,0.55)"

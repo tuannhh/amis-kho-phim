@@ -67,6 +67,8 @@ services:
       SEED_SUPER_ADMIN_NAME: ${SEED_SUPER_ADMIN_NAME:-Super Admin}
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
+      # Endpoint trình duyệt gọi được để upload presigned PUT (ánh xạ cổng host MinIO).
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9200}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-kho-phim}

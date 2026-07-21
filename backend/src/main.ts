@@ -1,12 +1,18 @@
 import { NestFactory } from '@nestjs/core'
-import { ValidationPipe } from '@nestjs/common'
+import { RequestMethod, ValidationPipe } from '@nestjs/common'
 import { AppModule } from './app.module'
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule)
 
-  // Prefix chung cho API (nginx proxy /api → backend)
-  app.setGlobalPrefix('api')
+  // Prefix chung cho API (nginx proxy /api → backend). Loại trừ /media/:key
+  // (nginx location /media/ proxy thẳng, phát video theo Range — GĐ3).
+  app.setGlobalPrefix('api', {
+    exclude: [
+      { path: 'media/:key', method: RequestMethod.GET },
+      { path: 'media/:key', method: RequestMethod.HEAD },
+    ],
+  })
 
   // UTF-8 mặc định cho toàn bộ response JSON (tiếng Việt có dấu)
   app.use((_req: any, res: any, next: any) => {

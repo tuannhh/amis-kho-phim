@@ -2,7 +2,51 @@
 
 > Ghi lại quyết định kiến trúc quan trọng + lý do. Thêm mục mới ở trên cùng.
 
-## ADR-018 — GĐ2 chưa persist storage/thumbnail thật (đúng scope GĐ3)
+## ADR-022 — readVideoDuration có timeout (không bao giờ chặn xuất bản) [GĐ3]
+- **Quyết định:** FE đọc thời lượng video qua `<video>` tạm (loadedmetadata) chỉ để hiển
+  thị duration mm:ss, nhưng bọc `Promise.race` timeout 4s → trả `null` nếu metadata không
+  load. Duration là best-effort; thiếu thì hiển thị `--:--`, KHÔNG chặn luồng tạo bản mới.
+- **Lý do:** Phát hiện thật khi verify GĐ3: ở một số môi trường (vd Chromium tự động không
+  giải mã được, hoặc `<video>` detached) sự kiện `loadedmetadata`/`error` không bao giờ bắn
+  → publish treo vô hạn (nút "Xuất bản" quay mãi). Timeout là hardening bắt buộc.
+
+## ADR-021 — Stream Range qua backend proxy MinIO (206), route /media/:key ngoài prefix /api [GĐ3]
+- **Quyết định:** GET /media/:key (@Public) đọc object từ MinIO, chuyển thẳng header `Range`
+  cho MinIO rồi trả nguyên `Content-Range`/`Content-Length`/`Content-Type` MinIO tính sẵn →
+  206 Partial Content khi có Range, 200 khi không. Route đặt NGOÀI global prefix `api`
+  (`setGlobalPrefix('api', { exclude: ['media/:key' GET/HEAD] })`) để khớp nginx `location /media/`.
+  Phải @Public vì `<video src>`/link tải không gắn được Authorization header.
+- **Lý do:** Tua/seek mượt cần 206 đúng chuẩn; để MinIO tự tính range tránh tự parse sai.
+  storage_key là uuid không đoán được → chấp nhận public-by-key cho prototype nội bộ
+  (production có thể chuyển sang presigned GET ngắn hạn — ghi nhận nợ kỹ thuật). Verify:
+  curl + fetch trình duyệt đều trả 206 `bytes 0-999/113422`, đúng số byte.
+
+## ADR-020 — Chọn @aws-sdk/client-s3 (S3-compatible) cho MinIO, key sinh server-side [GĐ3]
+- **Quyết định:** Dùng `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner` (forcePathStyle)
+  thay vì `minio` client — chuẩn S3, dễ chuyển sang AMIS Drive/S3 thật khi bàn giao. Hai
+  S3Client: `internal` (minio:9000) cho thao tác backend (head/get-stream/put thumbnail/xoá),
+  `presigner` (MINIO_PUBLIC_ENDPOINT=localhost:9200) CHỈ để ký presigned PUT. `storage_key`
+  (`video-<uuid>.<ext>`) và `thumbnail_key` (`thumb-<uuid>.<ext>`) sinh 100% ở server từ
+  content-type đã validate — KHÔNG nhận key từ client (chống path traversal/đoán key). File
+  phẳng 1 segment (không có `/`) để route `/media/:key` khỏi vướng wildcard.
+- **Lý do:** Video lớn phải upload thẳng lên MinIO (không buffer qua Node) → cần presigned PUT;
+  nhưng chữ ký SigV4 gắn host nên URL phải ký bằng host trình duyệt gọi được (localhost:9200),
+  trong khi backend tự thao tác qua host nội bộ (minio:9000) → tách 2 client. Validate ở server:
+  MIME video (mp4/webm/ogg/mov/mkv), size ≤ MAX_UPLOAD_MB, ảnh bìa tỷ lệ 16:9 + magic bytes
+  (image-size). confirmVersion head-check lại key trên MinIO + lấy size thật (không tin client).
+
+## ADR-019 — film_versions là bảng thật; films trỏ bản mới nhất (version_no lớn nhất) [GĐ3]
+- **Quyết định:** Thêm bảng `film_versions`(storage_key, file_size, duration, thumbnail_key,
+  note, created_by...) qua migration `AddFilmVersions`. `toPublic` lấy bản version_no lớn nhất
+  làm nguồn `links.storage=/media/<key>` + `thumbnailUrl`. confirmVersion tạo version mới, KẾ
+  THỪA asset không thay từ bản trước (thêm mỗi ảnh bìa không làm mất video cũ) + set lại
+  `is_new`/publishedAt. RBAC dùng lại `FilmsService.assertCanManage` (owner policy) cho mọi
+  thao tác storage — nhân viên chỉ upload/tạo version cho phim của mình (verify: 403 đúng).
+- **Lý do:** Đúng kiến trúc 01-architecture.md §4 + ADR-005 (versioning, giữ lịch sử, rollback).
+  Endpoint storage đặt trong FilmsModule (import StorageModule) để tái dùng assertCanManage,
+  không lặp logic quyền. **ADR-018 hết hiệu lực** — storage/thumbnail giờ persist thật.
+
+## ADR-018 — GĐ2 chưa persist storage/thumbnail thật (đúng scope GĐ3) [ĐÃ THAY THẾ bởi ADR-019/020/021, GĐ3]
 - **Quyết định:** `films` GĐ2 chỉ có metadata + `film_links` (youtube/vimeo/gdrive/misadrive).
   MUpload (file phim + thumbnail) vẫn hiện trên form (giữ UI đã duyệt) nhưng CHỈ xem trước
   trong phiên (object URL), KHÔNG gửi lên server — có ghi chú rõ ràng ngay trên form. Validate

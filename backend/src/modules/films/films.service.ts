@@ -1,12 +1,18 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { In, Repository } from 'typeorm'
 import { Film } from './entities/film.entity'
 import { FilmLink, type ExternalFilmPlatform } from './entities/film-link.entity'
 import { Hashtag } from './entities/hashtag.entity'
-import { UpsertFilmDto } from './dto/film.dto'
+import { FilmVersion } from './entities/film-version.entity'
+import { UpsertFilmDto, ConfirmVersionDto, CreateUploadUrlDto } from './dto/film.dto'
 import type { AuthUser } from '../../common/auth/auth-user'
 import { slugify } from '../../common/slugify'
+import { StorageService } from '../storage/storage.service'
+import imageSize from 'image-size'
+
+/** Nguồn phát gồm cả 'storage' (MinIO) — GĐ3 có link thật. */
+type FilmSourceKey = ExternalFilmPlatform | 'storage'
 
 export interface PublicFilm {
   id: number
@@ -20,7 +26,8 @@ export interface PublicFilm {
   viewCount: number
   duration: string
   hashtags: string[]
-  links: Partial<Record<ExternalFilmPlatform, string>>
+  links: Partial<Record<FilmSourceKey, string>>
+  thumbnailUrl: string | null
   publishedAt: string
 }
 
@@ -37,11 +44,24 @@ export class FilmsService {
     @InjectRepository(Film) private readonly films: Repository<Film>,
     @InjectRepository(FilmLink) private readonly filmLinks: Repository<FilmLink>,
     @InjectRepository(Hashtag) private readonly hashtags: Repository<Hashtag>,
+    @InjectRepository(FilmVersion) private readonly versions: Repository<FilmVersion>,
+    private readonly storage: StorageService,
   ) {}
 
+  /** Bản mới nhất (version_no lớn nhất) — nguồn của storage_key/thumbnail_key/duration. */
+  private latestVersion(f: Film): FilmVersion | undefined {
+    if (!f.versions?.length) return undefined
+    return f.versions.reduce((a, b) => (b.versionNo > a.versionNo ? b : a))
+  }
+
   private toPublic(f: Film): PublicFilm {
-    const links: Partial<Record<ExternalFilmPlatform, string>> = {}
+    const links: Partial<Record<FilmSourceKey, string>> = {}
     for (const l of f.links || []) links[l.platform] = l.url
+
+    const current = this.latestVersion(f)
+    if (current?.storageKey) links.storage = `/media/${current.storageKey}`
+    const thumbnailUrl = current?.thumbnailKey ? `/media/${current.thumbnailKey}` : null
+
     return {
       id: f.id,
       slug: f.slug,
@@ -52,14 +72,15 @@ export class FilmsService {
       uploaderId: f.uploaderId,
       uploaderName: f.uploader?.fullName ?? '—',
       viewCount: f.viewCount,
-      duration: f.duration,
+      duration: current?.duration || f.duration,
       hashtags: (f.hashtags || []).map((h) => h.name),
       links,
+      thumbnailUrl,
       publishedAt: f.publishedAt,
     }
   }
 
-  private relations = ['category', 'uploader', 'links', 'hashtags']
+  private relations = ['category', 'uploader', 'links', 'hashtags', 'versions']
 
   async list(): Promise<PublicFilm[]> {
     const rows = await this.films.find({ relations: this.relations, order: { publishedAt: 'DESC', id: 'DESC' } })
@@ -176,5 +197,120 @@ export class FilmsService {
     if (!film) throw new NotFoundException('Không tìm thấy phim')
     this.assertCanManage(actor, film)
     await this.films.remove(film)
+  }
+
+  // ─── GĐ3: Storage (MinIO) ──────────────────────────────────────────────
+
+  /** Lấy phim + kiểm quyền quản lý (dùng chung cho các thao tác storage). */
+  private async findManageableFilm(actor: AuthUser, id: number): Promise<Film> {
+    const film = await this.films.findOne({ where: { id } })
+    if (!film) throw new NotFoundException('Không tìm thấy phim')
+    this.assertCanManage(actor, film)
+    return film
+  }
+
+  /**
+   * Xin presigned PUT URL cho file video — FE upload thẳng lên MinIO, không qua
+   * Node (tránh buffer file lớn). RBAC: chỉ người quản lý được phim đó. Validate
+   * MIME + size (MAX_UPLOAD_MB) ở SERVER, key sinh server-side.
+   */
+  async createUploadUrl(actor: AuthUser, id: number, dto: CreateUploadUrlDto) {
+    await this.findManageableFilm(actor, id)
+    if (!this.storage.isAllowedVideoType(dto.contentType)) {
+      throw new BadRequestException('Định dạng video không được hỗ trợ (mp4/webm/ogg/mov/mkv)')
+    }
+    if (!this.storage.isWithinLimit(dto.size)) {
+      const maxMb = process.env.MAX_UPLOAD_MB || '2048'
+      throw new BadRequestException(`Kích thước tệp vượt giới hạn ${maxMb}MB`)
+    }
+    return this.storage.createVideoUploadUrl(dto.contentType)
+  }
+
+  /**
+   * Upload ảnh bìa nhỏ qua backend (multipart). Validate MIME thật bằng magic
+   * bytes (image-size) + tỷ lệ 16:9 — không tin content-type client gửi. Trả
+   * thumbnail_key để FE gộp vào confirmVersion.
+   */
+  async saveThumbnail(actor: AuthUser, id: number, buffer: Buffer): Promise<{ thumbnailKey: string }> {
+    await this.findManageableFilm(actor, id)
+    if (!buffer?.length) throw new BadRequestException('Tệp ảnh rỗng')
+
+    let dim: { width?: number; height?: number; type?: string }
+    try {
+      dim = imageSize(buffer)
+    } catch {
+      throw new BadRequestException('Tệp không phải ảnh hợp lệ')
+    }
+    const type = dim.type || ''
+    if (!['jpg', 'jpeg', 'png', 'webp'].includes(type)) {
+      throw new BadRequestException('Ảnh bìa phải là JPG, PNG hoặc WebP')
+    }
+    const w = dim.width || 0
+    const h = dim.height || 0
+    if (!w || !h) throw new BadRequestException('Không đọc được kích thước ảnh')
+    // Tỷ lệ 16:9 (dung sai ~5%)
+    if (Math.abs(w / h - 16 / 9) > 16 / 9 * 0.05) {
+      throw new BadRequestException(`Ảnh bìa phải tỷ lệ 16:9 (ảnh hiện tại ${w}×${h})`)
+    }
+    const contentType = type === 'png' ? 'image/png' : type === 'webp' ? 'image/webp' : 'image/jpeg'
+    const thumbnailKey = await this.storage.putThumbnail(buffer, type, contentType)
+    return { thumbnailKey }
+  }
+
+  /**
+   * Xác nhận tạo bản mới sau khi FE upload xong file/ảnh. Head-check lại key
+   * trong MinIO (chống client bịa key/size), lấy size thật, tạo film_versions
+   * (version_no tăng dần), cập nhật duration + gắn lại "Phim mới" (publishedAt).
+   */
+  async confirmVersion(actor: AuthUser, id: number, dto: ConfirmVersionDto): Promise<PublicFilm> {
+    const film = await this.findManageableFilm(actor, id)
+    if (!dto.storageKey && !dto.thumbnailKey) {
+      throw new BadRequestException('Cần ít nhất file video hoặc ảnh bìa để tạo bản mới')
+    }
+
+    const last = await this.versions.findOne({
+      where: { filmId: film.id },
+      order: { versionNo: 'DESC' },
+    })
+
+    // Chỉ thay asset được upload mới; asset kia kế thừa từ bản trước (không để
+    // thêm mỗi ảnh bìa lại làm mất video cũ, vì toPublic chỉ dùng bản mới nhất).
+    let storageKey = dto.storageKey ?? last?.storageKey ?? null
+    let fileSize: string | null = last?.fileSize ?? null
+    let duration: string | null = dto.duration ?? last?.duration ?? null
+    if (dto.storageKey) {
+      const stat = await this.storage.stat(dto.storageKey)
+      if (!stat) throw new BadRequestException('Không tìm thấy file đã upload trên storage')
+      storageKey = dto.storageKey
+      fileSize = String(stat.size)
+    }
+
+    let thumbnailKey = dto.thumbnailKey ?? last?.thumbnailKey ?? null
+    if (dto.thumbnailKey) {
+      const stat = await this.storage.stat(dto.thumbnailKey)
+      if (!stat) throw new BadRequestException('Không tìm thấy ảnh bìa đã upload trên storage')
+      thumbnailKey = dto.thumbnailKey
+    }
+
+    const versionNo = (last?.versionNo || 0) + 1
+    await this.versions.save(
+      this.versions.create({
+        filmId: film.id,
+        versionNo,
+        storageKey,
+        fileSize,
+        duration,
+        thumbnailKey,
+        note: dto.note ?? null,
+        createdBy: actor.id,
+      }),
+    )
+
+    // Cập nhật bản mới → gắn lại tag "Phim mới"; đồng bộ duration ra films (fallback).
+    film.publishedAt = this.today()
+    if (duration) film.duration = duration
+    await this.films.save(film)
+
+    return this.getBySlug(film.slug)
   }
 }

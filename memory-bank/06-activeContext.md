@@ -4,24 +4,26 @@
 > (đặc biệt sau khi clear context — đọc file này trước, không cần đọc lại lịch sử chat).
 
 ## Tóm tắt nhanh (đọc 30 giây là hiểu hết)
-- **Đã xong**: GĐ 0 + GĐ 0.5 (UI mock) + GĐ 1 (Auth & RBAC thật) + **GĐ 2 (Chuyên mục & Phim
-  core API thật)** — GĐ 2 verify end-to-end Docker + trình duyệt (2026-07-21, làm bằng Sonnet 5).
-  Chi tiết: 04-progress.md mục "Nhật ký GĐ 2"; quyết định: ADR-015→018 trong 05-decisions.md.
-- **GĐ 2 làm gì**: CategoriesModule (cây cha-con, CRUD, slug tự sinh), FilmsModule (metadata +
-  link ngoài youtube/vimeo/gdrive/misadrive + hashtag, CRUD, slug tự sinh, `assertCanManage` =
-  OwnerGuard thật theo uploaderId). FE: `filmsApi`/`filmsStore`/`categoriesApi` thay hoàn toàn
-  `mockFilms.ts`/`mockCategories.ts` (đã xoá). **Chưa có storage/thumbnail thật** (MinIO) — form
-  vẫn có MUpload nhưng chỉ xem trước phiên làm việc, có ghi chú rõ (ADR-018, đúng scope GĐ3).
+- **Đã xong**: GĐ 0 + 0.5 (UI mock) + 1 (Auth & RBAC) + 2 (Chuyên mục & Phim core) + **GĐ 3
+  (Storage & Thumbnail, MinIO THẬT)** — GĐ 3 verify end-to-end Docker + trình duyệt (2026-07-21,
+  Opus 4.8). Chi tiết: 04-progress.md "Nhật ký GĐ 3"; quyết định: ADR-019→022 (05-decisions.md).
+- **GĐ 3 làm gì**: `StorageModule` (S3 client `@aws-sdk/client-s3` tới MinIO; presigned PUT cho
+  video upload thẳng từ FE; MediaController `/media/:key` stream Range 206). Bảng `film_versions`
+  (migration `AddFilmVersions`) giữ storage_key/thumbnail_key/duration; `films` trỏ bản mới nhất.
+  Endpoint (trong FilmsModule, tái dùng `assertCanManage`): `POST /films/:id/upload-url` (presigned,
+  validate MIME+size), `/thumbnail` (multipart, validate 16:9), `/versions` (confirm, head-check
+  key). FE: FilmUploadView luồng upload thật (progress), VideoPlayer `<video src=/media/:key>`
+  thật, FilmListView hiện thumbnail thật. **ADR-018 hết hiệu lực** (giờ persist thật).
 - **Đăng nhập** (seed từ .env): `superadmin@misa.com.vn` / `Admin@12345` (đổi ở prod!).
-- **DB hiện SẠCH** (đã `docker compose down -v && up -d` sau khi verify để trả về trạng thái
-  sạch trước khi bàn giao) — không còn user/category/film test nào ngoài seed super_admin.
-- **Fix nhỏ sau GĐ2**: cây chuyên mục rỗng (0 chuyên mục) trước đây để khung trắng trơn gây
-  hiểu lầm là lỗi — đã thêm empty state "Chưa có chuyên mục nào..." trong `CategoryView.vue`.
-- **Đã push GitHub GĐ 2**: commit `7c857c4` trên `main` (tổng 5 commit, gồm cả fix empty state
-  trên). Đã `docker compose down` để nghỉ phiên (KHÔNG dùng `-v` lần này — volume dữ liệu vẫn
-  giữ nguyên, hiện chỉ có seed sạch, chạy lại bằng `docker compose up -d`).
-- **Việc tiếp theo — GĐ 3 (Storage & Thumbnail, MinIO thật)**: xem checklist bên dưới.
-- **Model**: GĐ 3 nên dùng **Opus 4.8** (streaming/range dễ sai — theo 03-roadmap.md).
+- **DB hiện SẠCH**: sau verify đã xoá hết dữ liệu test qua API (0 phim/chuyên mục, chỉ seed
+  super_admin). Volume GIỮ NGUYÊN (`docker compose down` không `-v`). Bucket `kho-phim` còn vài
+  object test mồ côi trong MinIO — vô hại.
+- **Env mới**: `MINIO_PUBLIC_ENDPOINT=http://localhost:9200` (endpoint trình duyệt gọi để upload
+  presigned; đã thêm .env/.env.example/docker-compose). Đổi thành domain thật khi lên production.
+- **Chưa push**: commit local GĐ 3 (xem `git log`). Push cần người dùng xác nhận riêng.
+- **Việc tiếp theo — GĐ 4 (Player & Link ngoài & View)**: đếm lượt xem (bảng `film_views`, dedupe
+  session), hoàn thiện trang xem, nút link theo nguồn. Nhiều phần player đa nguồn đã có sẵn.
+- **Model**: GĐ 4 dùng **Opus 4.8** (player) → **Sonnet 5** (nút/link) theo 03-roadmap.md.
 
 ## Cách chạy lại nhanh
 ```bash
@@ -46,24 +48,39 @@ docker compose down               # tắt khi không dùng (volume vẫn giữ)
 - [x] Giữ UI đã duyệt; UTF-8 tiếng Việt; Review Gate (curl RBAC + browser: tạo cây chuyên mục,
   xuất bản phim YouTube, nhân viên không thấy nút Sửa/Xoá phim người khác)
 
-## GĐ 3 — checklist (Storage & Thumbnail, MinIO thật) — CHƯA BẮT ĐẦU
-- [ ] BE StorageModule: tích hợp MinIO SDK (@aws-sdk/client-s3 hoặc minio client), upload/presigned URL
-- [ ] BE stream Range (206 Partial Content) cho `/media/:key` (nginx đã cấu hình sẵn proxy Range ở GĐ0)
-- [ ] Thêm `film_versions` HOẶC field storage_key/thumbnail_key vào films (xem 01-architecture.md §4)
-- [ ] FE FilmUploadView: đổi ghi chú "chưa lưu" → thật sự gửi file lên `/api/storage/upload`, xoá TODO
-- [ ] FE VideoPlayer: nguồn `storage` dùng `<video src="/media/:key">` thật (đã có UI sẵn từ GĐ0.5)
-- [ ] Validate thumbnail tỷ lệ 16:9; giới hạn dung lượng (MAX_UPLOAD_MB trong .env)
-- [ ] Review Gate: upload file thật qua Docker, tua/seek (Range) hoạt động, F5 vẫn còn ảnh/phim
+## GĐ 3 — checklist (Storage & Thumbnail, MinIO thật) — ✅ ĐÃ XONG (2026-07-21)
+- [x] BE StorageModule: `@aws-sdk/client-s3` tới MinIO, presigned PUT (video) + multipart (thumbnail)
+- [x] BE stream Range (206 Partial Content) `/media/:key` (ngoài prefix /api, khớp nginx /media/)
+- [x] Bảng `film_versions` (migration `AddFilmVersions`); films trỏ bản mới nhất → storage/thumbnail
+- [x] FE FilmUploadView: luồng upload THẬT (presigned PUT có progress → thumbnail → confirmVersion), xoá TODO
+- [x] FE VideoPlayer: nguồn `storage` dùng `<video src="/media/:key">` thật; FilmListView thumbnail thật
+- [x] Validate thumbnail 16:9 (image-size magic bytes) + MIME video + MAX_UPLOAD_MB — enforce ở BE
+- [x] RBAC dùng lại `assertCanManage` cho mọi thao tác storage (verify nhân viên→403)
+- [x] Review Gate: Docker up, presigned PUT từ trình duyệt→MinIO 200 (CORS OK), Range 206, F5 vẫn còn
 
-## Cấu trúc code hiện tại (đã hết mock — toàn bộ API thật GĐ1+GĐ2)
-- `frontend/src/features/films/filmTypes.ts` — FilmSource, SOURCE_LABEL/ICON, categoryColorFor,
-  thumbnailGradient (suy ra từ categoryId — ADR-017), isFilmNew/publishedTime/formatVNDate (ISO date)
-- `frontend/src/features/films/filmsApi.ts` + `filmsStore.ts` (Pinia, refetch toàn bộ sau mutation)
-- `frontend/src/features/categories/categoriesApi.ts` — tree() + flattenCategoryTree()
-- `frontend/src/features/films/searchState.ts` — ô tìm kiếm DUY NHẤT dùng chung (header ghi, Kho phim đọc)
-- `frontend/src/components/VideoPlayer.vue` — player đa nguồn (storage chưa có link thật tới GĐ3)
-- Backend: `modules/categories/`, `modules/films/` (Film, FilmLink, Hashtag entities) — theo đúng
-  01-architecture.md §4 (bảng riêng, không JSON column — ADR-016)
+## GĐ 4 — checklist (Player & Link ngoài & View) — CHƯA BẮT ĐẦU
+- [ ] BE bảng `film_views` (id, film_id, user_id?, session_hash, viewed_at) + migration
+- [ ] BE đếm view: ghi film_views (dedupe user_id/session_hash cửa sổ 30') → tăng films.view_count
+- [ ] FE gọi API tăng view khi mở trang xem; hiển thị lượt xem thật
+- [ ] Hoàn thiện player đa nguồn + nút link theo nguồn (phần lớn đã có từ GĐ0.5/GĐ3 — rà lại)
+- [ ] Review Gate: mở phim nhiều lần trong 30' không tăng view trùng; đổi nguồn play OK
+
+## Cấu trúc code hiện tại (đã hết mock — API thật GĐ1→GĐ3)
+- `frontend/src/features/films/filmTypes.ts` — FilmSource (gồm 'storage'), SOURCE_LABEL/ICON,
+  categoryColorFor, thumbnailGradient (fallback khi chưa có ảnh bìa), isFilmNew/formatVNDate
+- `frontend/src/features/films/filmsApi.ts` — CRUD + createUploadUrl/uploadThumbnail/confirmVersion;
+  `ApiFilm` có `thumbnailUrl`. `filmsStore.ts` (Pinia, refetch sau mutation)
+- `frontend/src/features/films/storageUpload.ts` — **[GĐ3]** putToStorage (XHR PUT presigned có
+  progress), readVideoDuration (có timeout — ADR-022), formatDuration
+- `frontend/src/features/upload/FilmUploadView.vue` — **[GĐ3]** luồng upload thật (progress/lỗi qua MUpload)
+- `frontend/src/components/VideoPlayer.vue` — player đa nguồn; storage dùng `<video src=/media/:key>` thật
+- `frontend/src/lib/http.ts` — apiFetch; **[GĐ3]** bỏ ép Content-Type khi body là FormData
+- Backend `modules/storage/` — **[GĐ3]** StorageService (2 S3Client: internal+presigner),
+  MediaController (`/media/:key` Range 206, @Public, ngoài prefix /api)
+- Backend `modules/films/` — Film/FilmLink/Hashtag + **[GĐ3]** FilmVersion entity; FilmsController
+  thêm upload-url/thumbnail/versions; FilmsService.toPublic lấy version mới nhất → storage/thumbnail
+- Backend `modules/categories/` — cây cha-con (ADR-016 bảng riêng, không JSON column)
+- Migrations: InitAuth → InitCatalog → **AddFilmVersions** (đăng ký tường minh trong `db-options.ts`)
 
 ## Quyết định đã chốt (xem đầy đủ ở 05-decisions.md)
 - ORM: **TypeORM**. Nginx dùng từ GĐ 0. Tailwind **v4**. Theme MDS blue mặc định.
