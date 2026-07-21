@@ -4,12 +4,38 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
-- Giai đoạn hiện tại: **GĐ 1 — Auth & RBAC (chưa bắt đầu code)** — GĐ 0.5 đã CHỐT & duyệt,
-  Docker đã verify chạy thật. Đã tạm `docker compose down` để nghỉ phiên (2026-07-21).
-- % hoàn thành tổng thể: ~35%
+- Giai đoạn hiện tại: **GĐ 1 — Auth & RBAC ĐÃ XONG & verify end-to-end trong Docker + trình duyệt**
+  (2026-07-21). Tiếp theo: **GĐ 2 — Chuyên mục & Phim (core API thật)**.
+- % hoàn thành tổng thể: ~48%
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
 
-## Nhật ký
+## Nhật ký GĐ 1 (Auth & RBAC) — 2026-07-21
+- [GĐ 1] Backend: `UsersModule` (entity User+Role, `password_hash` select:false), `AuthModule`
+  (login/refresh/me/change-password, JWT access 15'+refresh 7d), RBAC toàn cục
+  (`JwtAuthGuard`→`RolesGuard`, `@Public`/`@Roles`/`@CurrentUser`), CRUD `/api/users` với
+  kiểm quyền ở service (`assertCanManage`, `creatableRoles`) — DONE. Deps mới: `@nestjs/jwt`, `bcryptjs`.
+- [GĐ 1] DB: migration `InitAuth` (users+roles, utf8mb4) tự chạy khi khởi động (`migrationsRun`);
+  seed roles + super_admin idempotent từ `.env` (`SEED_SUPER_ADMIN_*`) — DONE.
+- [GĐ 1] FE: Pinia `authStore` (token localStorage, restore/refresh/logout), `http.ts`
+  (Bearer + auto-refresh 401), `LoginView`, `ChangePasswordView` (buộc đổi lần đầu),
+  router guard (chưa đăng nhập→login, ép đổi mật khẩu, chặn theo role), menu user ở header
+  (đổi mật khẩu/đăng xuất), ẩn menu "Quản trị người dùng" theo role — DONE.
+- [GĐ 1] FE: `UserAdminView` nối API thật (list/create/lock/delete + dialog hiện mật khẩu tạm),
+  thay `CURRENT_MOCK_USER` (ở UserAdminView/FilmDetailView/FilmUploadView) bằng `authStore`;
+  xoá `mockUsers.ts` — DONE. Build FE (vue-tsc) + BE (nest build) đều sạch.
+- [GĐ 1] **2 lỗi typecheck bắt sớm khi build local** (trước Docker): (1) `retryAttempts/retryDelay`
+  không thuộc `DataSourceOptions` → tách ra chỉ thêm khi Nest gọi `forRoot`; (2) FE bật
+  `erasableSyntaxOnly` → cấm parameter-property trong constructor (`ApiError`) → khai báo field tường minh.
+- [GĐ 1] **Verify thật `docker compose up -d --build`**: 5 container Up/healthy, migration+seed chạy
+  (log "Đã tạo super_admin"), routes mapped đúng. Test RBAC bằng curl: no-token→401, sai pass→401
+  (thông báo mơ hồ), super tạo admin (trả mật khẩu tạm), admin đổi mật khẩu→204, admin tạo NV→OK,
+  admin tạo admin→403, employee GET/POST /users→403, tự khoá mình→403, refresh flow OK.
+  Verify trình duyệt: login super→Kho phim, Quản trị người dùng hiện DATA API THẬT (4 user, cột
+  "Người tạo" map id→tên), hàng của chính mình không có nút khoá/xoá, menu user OK, đăng xuất OK;
+  login nv2→**bị ép đổi mật khẩu**→vào app vai trò NV (ẩn menu quản trị), gõ thẳng `/admin/users`→
+  guard đẩy về Kho phim; 0 lỗi console. Đã chụp ảnh Review Gate.
+
+## Nhật ký GĐ 0 + 0.5
 - 2026-07-21 — [GĐ 0] Chốt stack: NestJS + MySQL + MinIO, FE Vue3+Tailwind+MDS, PWA, Docker — DONE
 - 2026-07-21 — [GĐ 0] Khởi tạo memory bank + chiến lược UI-first (Review Gate mỗi GĐ) — DONE
 - 2026-07-21 — [GĐ 0] Scaffold FE: Vite Vue3-TS + Tailwind v4 + copy bộ MDS (37 file) + tokens, theme blue — DONE

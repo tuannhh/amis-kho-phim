@@ -66,9 +66,6 @@ export const SOURCE_ICON: Record<FilmSource, string> = {
   misadrive: 'external-link',
 }
 
-// Mock "người dùng đang đăng nhập" GĐ 0.5 — thay bằng auth thật ở GĐ 1.
-export const CURRENT_MOCK_USER = { id: 1, name: 'Super Admin', role: 'super_admin' as const }
-
 /**
  * Dữ liệu mock GĐ 0.5 — thay bằng API thật ở GĐ 2 (films module).
  * `reactive` để form Thêm/Sửa phim (GĐ 0.5) mô phỏng được publish/update thật

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import MButton from '@/components/mds/MButton.vue'
 import MInput from '@/components/mds/MInput.vue'
 import MSelect from '@/components/mds/MSelect.vue'
@@ -7,57 +7,92 @@ import MDataTable from '@/components/mds/MDataTable.vue'
 import MTag from '@/components/mds/MTag.vue'
 import MIcon from '@/components/mds/MIcon.vue'
 import MDialog from '@/components/mds/MDialog.vue'
+import MSpinner from '@/components/mds/MSpinner.vue'
 import { useToast } from '@/components/mds/toast.js'
 import { useFormValidation, rules } from '@/components/mds/useFormValidation.js'
-import { CURRENT_MOCK_USER } from '@/features/films/mockFilms'
-import { mockUsers, ROLE_LABEL, ROLE_COLOR, creatableRoles, type UserRole, type MockAppUser } from './mockUsers'
+import { useAuthStore, type UserRole } from '@/features/auth/authStore'
+import {
+  usersApi,
+  ROLE_LABEL,
+  ROLE_COLOR,
+  creatableRoles,
+  type ApiUser,
+} from './usersApi'
 
 /**
- * Quản trị người dùng — GĐ 0.5 (mock). Super Admin tạo Admin+Nhân viên;
- * Admin chỉ tạo Nhân viên (ma trận phân quyền 01-architecture.md §5).
- * GĐ 1 gắn API auth/users module thật.
+ * Quản trị người dùng — GĐ1 (API thật). Super Admin tạo Admin+Nhân viên;
+ * Admin chỉ tạo Nhân viên. Quyền THỰC do backend kiểm (service layer);
+ * FE chỉ ẩn/hiện nút cho UX.
  */
 const toast = useToast()
+const auth = useAuthStore()
+
+const users = ref<ApiUser[]>([])
+const loading = ref(false)
+
+async function loadUsers() {
+  loading.value = true
+  try {
+    users.value = await usersApi.list()
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : 'Không tải được danh sách người dùng')
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(loadUsers)
 
 const search = ref('')
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
-  if (!q) return mockUsers
-  return mockUsers.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
+  if (!q) return users.value
+  return users.value.filter(
+    (u) => u.fullName.toLowerCase().includes(q) || u.email.toLowerCase().includes(q),
+  )
 })
 
 const columns = [
-  { key: 'name', label: 'Họ tên', width: 200 },
+  { key: 'fullName', label: 'Họ tên', width: 200 },
   { key: 'email', label: 'Email', width: 220 },
-  { key: 'role', label: 'Vai trò', width: 130 },
+  { key: 'roleCode', label: 'Vai trò', width: 130 },
   { key: 'createdBy', label: 'Người tạo', width: 180 },
   { key: 'createdAt', label: 'Ngày tạo', width: 110 },
   { key: 'isActive', label: 'Trạng thái', width: 120 },
 ]
 
 const roleOptions = computed(() =>
-  creatableRoles(CURRENT_MOCK_USER.role).map((r) => ({ label: ROLE_LABEL[r], value: r }))
+  creatableRoles(auth.role).map((r) => ({ label: ROLE_LABEL[r], value: r })),
 )
 
-// MDataTable là JS thuần → slot `row` suy ra kiểu unknown; ép kiểu tường minh ở nơi dùng
-function asUser(row: unknown): MockAppUser {
-  return row as MockAppUser
+function asUser(row: unknown): ApiUser {
+  return row as ApiUser
 }
 
-function canManage(row: (typeof mockUsers)[number]) {
-  if (row.id === CURRENT_MOCK_USER.id) return false // không tự khoá/xoá chính mình
-  if (CURRENT_MOCK_USER.role === 'super_admin') return row.role !== 'super_admin'
-  if (CURRENT_MOCK_USER.role === 'admin') return row.role === 'employee'
+/** Hiển thị tên người tạo (map id → tên trong danh sách); null = tài khoản hệ thống. */
+function createdByName(row: ApiUser): string {
+  if (row.createdBy == null) return 'Hệ thống'
+  return users.value.find((u) => u.id === row.createdBy)?.fullName ?? `#${row.createdBy}`
+}
+
+function formatDate(iso: string): string {
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? '' : d.toLocaleDateString('vi-VN')
+}
+
+/** Ai được khoá/xoá ai — khớp backend; chỉ để ẩn/hiện nút (backend vẫn chặn thật). */
+function canManage(row: ApiUser) {
+  if (row.id === auth.user?.id) return false
+  if (auth.role === 'super_admin') return row.roleCode !== 'super_admin'
+  if (auth.role === 'admin') return row.roleCode === 'employee'
   return false
 }
 
 const dialogOpen = ref(false)
-// undefined (không phải null) — MSelect không nhận null trong kiểu modelValue
-const form = reactive({ name: '', email: '', role: undefined as UserRole | undefined, tempPassword: '' })
+const submitting = ref(false)
+const form = reactive({ fullName: '', email: '', role: undefined as UserRole | undefined, tempPassword: '' })
 
-// useFormValidation.js là JS thuần → `errors` suy ra kiểu {}; ép kiểu tường minh để dùng errors.name/email/role
 const { errors, validate, clearErrors } = useFormValidation({
-  name: [rules.required('Họ tên không được để trống')],
+  fullName: [rules.required('Họ tên không được để trống')],
   email: [rules.required('Email không được để trống'), rules.email()],
   role: [rules.required('Vui lòng chọn vai trò')],
 }) as {
@@ -67,7 +102,7 @@ const { errors, validate, clearErrors } = useFormValidation({
 }
 
 function openCreate() {
-  form.name = ''
+  form.fullName = ''
   form.email = ''
   form.role = roleOptions.value[0]?.value ?? undefined
   form.tempPassword = ''
@@ -75,30 +110,63 @@ function openCreate() {
   dialogOpen.value = true
 }
 
-function createUser() {
+// Dialog hiện mật khẩu tạm hệ thống sinh (để bàn giao cho người dùng mới).
+const resultOpen = ref(false)
+const createdInfo = reactive({ name: '', password: '' })
+
+async function createUser() {
   if (!validate(form)) return
-  mockUsers.push({
-    id: Math.max(0, ...mockUsers.map((u) => u.id)) + 1,
-    name: form.name.trim(),
-    email: form.email.trim(),
-    role: form.role!,
-    createdBy: CURRENT_MOCK_USER.name,
-    createdAt: new Date().toLocaleDateString('vi-VN'),
-    isActive: true,
-  })
-  toast.success(`Đã tạo tài khoản ${ROLE_LABEL[form.role!]} cho "${form.name}"`)
-  dialogOpen.value = false
+  submitting.value = true
+  try {
+    const res = await usersApi.create({
+      email: form.email.trim(),
+      fullName: form.fullName.trim(),
+      roleCode: form.role as Exclude<UserRole, 'super_admin'>,
+      password: form.tempPassword.trim() || undefined,
+    })
+    dialogOpen.value = false
+    await loadUsers()
+    if (res.generatedPassword) {
+      createdInfo.name = res.user.fullName
+      createdInfo.password = res.generatedPassword
+      resultOpen.value = true
+    } else {
+      toast.success(`Đã tạo tài khoản ${ROLE_LABEL[res.user.roleCode]} cho "${res.user.fullName}"`)
+    }
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : 'Tạo tài khoản không thành công')
+  } finally {
+    submitting.value = false
+  }
 }
 
-function toggleActive(row: (typeof mockUsers)[number]) {
-  row.isActive = !row.isActive
-  toast.success(row.isActive ? `Đã mở khoá "${row.name}"` : `Đã khoá "${row.name}"`)
+async function toggleActive(row: ApiUser) {
+  try {
+    await usersApi.setStatus(row.id, !row.isActive)
+    await loadUsers()
+    toast.success(row.isActive ? `Đã khoá "${row.fullName}"` : `Đã mở khoá "${row.fullName}"`)
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : 'Không đổi được trạng thái')
+  }
 }
 
-function removeUser(row: (typeof mockUsers)[number]) {
-  const idx = mockUsers.findIndex((u) => u.id === row.id)
-  if (idx !== -1) mockUsers.splice(idx, 1)
-  toast.success(`Đã xoá tài khoản "${row.name}"`)
+async function removeUser(row: ApiUser) {
+  try {
+    await usersApi.remove(row.id)
+    await loadUsers()
+    toast.success(`Đã xoá tài khoản "${row.fullName}"`)
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : 'Xoá tài khoản không thành công')
+  }
+}
+
+async function copyPassword() {
+  try {
+    await navigator.clipboard.writeText(createdInfo.password)
+    toast.success('Đã copy mật khẩu tạm')
+  } catch {
+    toast.error('Không copy được, vui lòng copy thủ công')
+  }
 }
 </script>
 
@@ -131,9 +199,12 @@ function removeUser(row: (typeof mockUsers)[number]) {
           </div>
         </template>
 
-        <template #cell-role="{ row }">
-          <MTag :color="ROLE_COLOR[asUser(row).role]" size="sm">{{ ROLE_LABEL[asUser(row).role] }}</MTag>
+        <template #cell-roleCode="{ row }">
+          <MTag :color="ROLE_COLOR[asUser(row).roleCode]" size="sm">{{ ROLE_LABEL[asUser(row).roleCode] }}</MTag>
         </template>
+
+        <template #cell-createdBy="{ row }">{{ createdByName(asUser(row)) }}</template>
+        <template #cell-createdAt="{ row }">{{ formatDate(asUser(row).createdAt) }}</template>
 
         <template #cell-isActive="{ row }">
           <MTag :color="asUser(row).isActive ? 'success' : 'neutral'" size="sm">
@@ -164,18 +235,21 @@ function removeUser(row: (typeof mockUsers)[number]) {
           </template>
         </template>
 
-        <template #footer-info>Tổng số người dùng: {{ filtered.length }}</template>
+        <template #footer-info>
+          <span v-if="loading" class="flex items-center gap-2"><MSpinner :size="14" /> Đang tải...</span>
+          <span v-else>Tổng số người dùng: {{ filtered.length }}</span>
+        </template>
       </MDataTable>
     </div>
 
     <!-- Dialog thêm người dùng -->
     <MDialog v-model="dialogOpen" title="Thêm người dùng" :width="480">
       <div class="flex flex-col gap-4">
-        <div data-field="name">
+        <div data-field="fullName">
           <label class="mb-1 block text-[13px] font-medium" style="color: var(--mds-text-primary)">
             Họ tên <span style="color: var(--mds-danger)">*</span>
           </label>
-          <MInput v-model="form.name" placeholder="Nhập họ tên" :error="errors.name" />
+          <MInput v-model="form.fullName" placeholder="Nhập họ tên" :error="errors.fullName" />
         </div>
         <div data-field="email">
           <label class="mb-1 block text-[13px] font-medium" style="color: var(--mds-text-primary)">
@@ -200,8 +274,31 @@ function removeUser(row: (typeof mockUsers)[number]) {
         </div>
       </div>
       <template #footer>
-        <MButton variant="secondary" @click="dialogOpen = false">Hủy</MButton>
-        <MButton variant="primary" @click="createUser">Tạo tài khoản</MButton>
+        <MButton variant="secondary" :disabled="submitting" @click="dialogOpen = false">Hủy</MButton>
+        <MButton variant="primary" :loading="submitting" @click="createUser">Tạo tài khoản</MButton>
+      </template>
+    </MDialog>
+
+    <!-- Dialog hiện mật khẩu tạm sau khi tạo -->
+    <MDialog v-model="resultOpen" title="Đã tạo tài khoản" :width="440">
+      <div class="flex flex-col gap-3">
+        <p class="text-[13px]" style="color: var(--mds-text-primary)">
+          Tài khoản cho <strong>{{ createdInfo.name }}</strong> đã được tạo. Gửi mật khẩu tạm dưới đây
+          cho người dùng — họ sẽ đổi mật khẩu ở lần đăng nhập đầu.
+        </p>
+        <div
+          class="flex items-center justify-between gap-2 rounded-md px-3 py-2"
+          style="background: var(--mds-bg-hover-soft, #F2F4F7)"
+        >
+          <code class="text-[14px] font-semibold" style="color: var(--mds-text-primary)">{{ createdInfo.password }}</code>
+          <MButton variant="secondary" size="sm" @click="copyPassword">
+            <template #icon><MIcon name="copy" :size="14" /></template>
+            Copy
+          </MButton>
+        </div>
+      </div>
+      <template #footer>
+        <MButton variant="primary" @click="resultOpen = false">Đã hiểu</MButton>
       </template>
     </MDialog>
   </section>

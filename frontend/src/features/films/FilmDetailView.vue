@@ -6,7 +6,8 @@ import MIcon from '@/components/mds/MIcon.vue'
 import MTag from '@/components/mds/MTag.vue'
 import MEmptyState from '@/components/mds/MEmptyState.vue'
 import VideoPlayer from '@/components/VideoPlayer.vue'
-import { mockFilms, CURRENT_MOCK_USER, isFilmNew } from './mockFilms'
+import { mockFilms, isFilmNew } from './mockFilms'
+import { useAuthStore } from '@/features/auth/authStore'
 
 /**
  * Chi tiết/Xem phim — URL riêng /films/:slug (yêu cầu chủ đầu tư).
@@ -14,14 +15,16 @@ import { mockFilms, CURRENT_MOCK_USER, isFilmNew } from './mockFilms'
  */
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 
 const film = computed(() => mockFilms.find((f) => f.slug === route.params.slug))
 
-// Quyền sửa/xoá: super_admin/admin bất kỳ phim; nhân viên chỉ phim của mình (ADR-002)
+// Quyền sửa/xoá: super_admin/admin bất kỳ phim; nhân viên chỉ phim của mình (ADR-002).
+// FE chỉ ẩn/hiện; GĐ2+ backend (OwnerGuard theo uploader_id) mới là nguồn kiểm quyền thật.
 const canManage = computed(() => {
   if (!film.value) return false
-  if (CURRENT_MOCK_USER.role === 'super_admin' || CURRENT_MOCK_USER.role === 'admin') return true
-  return film.value.uploaderId === CURRENT_MOCK_USER.id
+  if (auth.role === 'super_admin' || auth.role === 'admin') return true
+  return film.value.uploaderId === auth.user?.id
 })
 
 function formatViews(n: number) {

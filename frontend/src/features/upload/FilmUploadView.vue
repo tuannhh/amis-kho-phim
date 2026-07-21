@@ -17,9 +17,9 @@ import {
   listCategories,
   listHashtags,
   colorForCategory,
-  CURRENT_MOCK_USER,
   type FilmSource,
 } from '@/features/films/mockFilms'
+import { useAuthStore } from '@/features/auth/authStore'
 
 /**
  * Thêm/Sửa phim — GĐ 0.5 (mock, không backend thật):
@@ -31,6 +31,7 @@ import {
 const toast = useToast()
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 
 // Sửa phim: /upload?edit=<slug>
 const editingSlug = computed(() => (route.query.edit as string) || '')
@@ -189,8 +190,8 @@ function createNewFilm() {
     hashtags: [...form.hashtags],
     sources: Object.keys(collectLinks()) as FilmSource[],
     links: collectLinks(),
-    uploader: CURRENT_MOCK_USER.name,
-    uploaderId: CURRENT_MOCK_USER.id,
+    uploader: auth.user?.fullName ?? '—',
+    uploaderId: auth.user?.id ?? 0,
     publishedAt: today(),
     thumbnailFrom: '#245FDF',
     thumbnailTo: '#68A6F2',

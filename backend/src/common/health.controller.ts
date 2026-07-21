@@ -1,8 +1,10 @@
 import { Controller, Get } from '@nestjs/common'
+import { Public } from './auth/public.decorator'
 
-/** Health check — dùng cho nginx/docker healthcheck & smoke test. */
+/** Health check — dùng cho nginx/docker healthcheck & smoke test. Công khai (không cần đăng nhập). */
 @Controller('health')
 export class HealthController {
+  @Public()
   @Get()
   check() {
     return {

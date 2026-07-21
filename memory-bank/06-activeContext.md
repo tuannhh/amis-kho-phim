@@ -4,19 +4,21 @@
 > (đặc biệt sau khi clear context — đọc file này trước, không cần đọc lại lịch sử chat).
 
 ## Tóm tắt nhanh (đọc 30 giây là hiểu hết)
-- **Đã xong**: GĐ 0 (nền móng Docker) + GĐ 0.5 (UI Prototype 5 màn hình, mock data) —
-  đã được chủ đầu tư duyệt "còn lại OK". Đã verify **toàn bộ chạy thật trong Docker**
-  (không chỉ cấu hình trên giấy — xem 04-progress.md mục "Docker" cho 5 lỗi đã sửa).
-- **Đã push GitHub**: `github.com/tuannhh/amis-kho-phim` (private, nhánh `main`),
-  2 commit: `e4f8aef` (nền móng+UI) và `051d894` (fix build/Docker).
-- **Đang KHÔNG chạy**: đã `docker compose down` trước khi clear context để giải phóng
-  máy. Volume dữ liệu (`amis-kho-phim_mysql_data`, `amis-kho-phim_minio_data`) vẫn còn.
-  Chạy lại: `cd /Users/tuanbui/amis-kho-phim && docker compose up -d`.
-- **Việc tiếp theo — GĐ 1 (Auth & RBAC)**: xem checklist bên dưới. **Chưa viết code
-  nào của GĐ 1** — 6 task đã tạo trong TaskList của phiên trước (không còn sau clear,
-  cần tạo lại nếu muốn track: xem checklist dưới để biết nội dung).
-- **Model**: đang ở Sonnet 5. Đổi sang **Opus 4.8** khi bắt đầu code Auth/RBAC (việc
-  phân quyền/bảo mật nhạy cảm — theo nguyên tắc chọn model trong 03-roadmap.md).
+- **Đã xong**: GĐ 0 (nền móng) + GĐ 0.5 (UI Prototype, mock) + **GĐ 1 (Auth & RBAC thật)** —
+  GĐ 1 verify end-to-end trong Docker + trình duyệt (2026-07-21, làm bằng Opus 4.8). Chi tiết:
+  04-progress.md mục "Nhật ký GĐ 1"; quyết định: ADR-011→014 trong 05-decisions.md.
+- **GĐ 1 làm gì**: đăng nhập JWT (access 15'+refresh 7d), seed super_admin, 3 role, RBAC
+  (RolesGuard toàn cục + owner-check ở service), CRUD `/api/users`, màn Login + đổi mật khẩu
+  buộc-lần-đầu, router guard, UserAdminView nối API thật. Đã bỏ `CURRENT_MOCK_USER`/`mockUsers.ts`.
+- **Đăng nhập** (seed từ .env): `superadmin@misa.com.vn` / `Admin@12345` (đổi ở prod!).
+  Volume hiện có sẵn vài user test tạo lúc verify: admin1@ (Admin), nv1@/nv2@ (Nhân viên) —
+  nv2 mật khẩu đã đổi thành `Nhanvien@456`. Xoá sạch làm lại: `docker compose down -v`.
+- **Chưa push GitHub GĐ 1** — làm việc tiếp theo là commit (khi chủ đầu tư đồng ý). Trước GĐ1
+  có 3 commit; GĐ1 chưa commit. Docker hiện **đang chạy** (chưa `down`).
+- **Việc tiếp theo — GĐ 2 (Chuyên mục & Phim core, API thật)**: xem roadmap. Nguyên tắc: giữ UI
+  đã duyệt, thay hàm mock (`mockCategories`, `mockFilms`) bằng gọi API; thêm FilmsModule +
+  **OwnerGuard thật theo `uploader_id`** (ADR-014 đã hoãn từ GĐ1 sang đây).
+- **Model**: GĐ 2 phần lớn CRUD/UI → **Sonnet 5** đủ; giữ Opus cho versioning (GĐ5)/streaming (GĐ3).
 
 ## Cách chạy lại nhanh
 ```bash
@@ -33,15 +35,21 @@ docker compose down               # tắt khi không dùng (volume vẫn giữ)
 - Dev BE riêng: `cd backend && npm install && npm run start:dev` (cần mysql chạy qua
   `docker compose up -d mysql`)
 
-## GĐ 1 — checklist (Auth & RBAC) — CHƯA BẮT ĐẦU
-- [ ] Backend: UsersModule + entity User (role_code, created_by, is_active, password_hash argon2/bcrypt)
-- [ ] AuthModule: POST /api/auth/login (JWT access+refresh), guard JWT, chỗ cắm OIDC sau
-- [ ] RBAC: RolesGuard (@Roles) + OwnerGuard; seed super_admin lúc khởi động (từ .env)
-- [ ] Migration TypeORM cho bảng users/roles; chạy được trong Docker (backend + mysql)
-- [ ] FE: màn Login; Pinia auth store (token, user, role); router guard; thay CURRENT_MOCK_USER bằng user thật
-- [ ] Màn Quản trị người dùng: thay mockUsers bằng API /api/users (tạo/khoá/xoá theo quyền)
-- [ ] Review Gate: đăng nhập super_admin → tạo admin → tạo nhân viên; kiểm quyền ở BE
-- Bảo mật: kiểm quyền ở BE (không tin FE), owner policy ở tầng service — kế thừa bài học AMIS Kho ảnh v2.
+## GĐ 1 — checklist (Auth & RBAC) — ✅ ĐÃ XONG (2026-07-21)
+- [x] Backend UsersModule + entity User/Role (password_hash bcryptjs, select:false) + migration tự chạy
+- [x] AuthModule: login/refresh/me/change-password (JWT access+refresh), guard JWT toàn cục, seam OIDC
+- [x] RBAC: RolesGuard (@Roles) toàn cục; owner-check ở service (OwnerGuard phim hoãn GĐ2 — ADR-014); seed super_admin từ .env
+- [x] Migration users/roles chạy trong Docker (migrationsRun); seed idempotent
+- [x] FE: Login + đổi-mật-khẩu-buộc-lần-đầu; Pinia authStore + http.ts auto-refresh; router guard; bỏ CURRENT_MOCK_USER
+- [x] UserAdminView nối API /api/users thật (tạo/khoá/xoá theo quyền + hiện mật khẩu tạm)
+- [x] Review Gate: super→tạo admin→admin đổi mk→admin tạo NV; kiểm quyền BE (curl 401/403 đúng); verify browser + ảnh
+
+## GĐ 2 — checklist (Chuyên mục & Phim core) — CHƯA BẮT ĐẦU
+- [ ] BE CategoriesModule: entity + CRUD /api/categories (cây cha-con), @Roles super/admin cho ghi
+- [ ] BE FilmsModule: entity films + slug, CRUD /api/films (metadata, chưa file), status draft/published
+- [ ] BE **OwnerGuard** thật: nhân viên chỉ sửa/xoá phim `uploader_id === user.id` (ADR-002/014)
+- [ ] FE: CategoryView + FilmListView + FilmDetailView + FilmUploadView thay mock (`mockCategories`,`mockFilms`) bằng API
+- [ ] Giữ UI đã duyệt; UTF-8 tiếng Việt; Review Gate
 
 ## Cấu trúc code GĐ 0.5 (mock, sẽ thay dần bằng API thật ở GĐ 1/2)
 - `frontend/src/features/films/mockFilms.ts` — reactive mock phim + toSlug/colorForCategory/
