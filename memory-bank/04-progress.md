@@ -5,9 +5,15 @@
 
 ## Trạng thái tổng
 - Giai đoạn hiện tại: **GĐ 2 — Chuyên mục & Phim (core API thật) ĐÃ XONG & verify end-to-end**
-  trong Docker + trình duyệt (2026-07-21, làm bằng Sonnet 5). Tiếp theo: **GĐ 3 — Storage & Thumbnail (MinIO thật)**.
+  trong Docker + trình duyệt (2026-07-21, làm bằng Sonnet 5). Đã push GitHub (commit `7c857c4`).
+  Tiếp theo: **GĐ 3 — Storage & Thumbnail (MinIO thật)**.
 - % hoàn thành tổng thể: ~60%
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
+
+## Nhật ký sau GĐ 2 — 2026-07-21
+- [Fix UI] Cây chuyên mục khi rỗng (0 chuyên mục) trước đây hiện khung trắng trơn (chủ đầu tư
+  hỏi lại tưởng là lỗi) — đã thêm empty state "Chưa có chuyên mục nào. Bấm 'Thêm chuyên mục'
+  để tạo mới." trong `CategoryView.vue`, verify lại trên browser sau khi rebuild Docker — DONE.
 
 ## Nhật ký GĐ 2 (Chuyên mục & Phim core) — 2026-07-21
 - [GĐ 2] Backend `CategoriesModule`: entity Category (cây cha-con qua `parent_id` self-FK

@@ -15,9 +15,11 @@
 - **Đăng nhập** (seed từ .env): `superadmin@misa.com.vn` / `Admin@12345` (đổi ở prod!).
 - **DB hiện SẠCH** (đã `docker compose down -v && up -d` sau khi verify để trả về trạng thái
   sạch trước khi bàn giao) — không còn user/category/film test nào ngoài seed super_admin.
-- **Chưa push GitHub GĐ 2** — việc tiếp theo là commit (khi chủ đầu tư đồng ý). Docker hiện
-  **đang chạy**. Nghỉ phiên thì `docker compose down` (giữ volume — nhưng lưu ý volume hiện chỉ
-  có seed sạch, không có dữ liệu quan trọng cần giữ).
+- **Fix nhỏ sau GĐ2**: cây chuyên mục rỗng (0 chuyên mục) trước đây để khung trắng trơn gây
+  hiểu lầm là lỗi — đã thêm empty state "Chưa có chuyên mục nào..." trong `CategoryView.vue`.
+- **Đã push GitHub GĐ 2**: commit `7c857c4` trên `main` (tổng 5 commit, gồm cả fix empty state
+  trên). Đã `docker compose down` để nghỉ phiên (KHÔNG dùng `-v` lần này — volume dữ liệu vẫn
+  giữ nguyên, hiện chỉ có seed sạch, chạy lại bằng `docker compose up -d`).
 - **Việc tiếp theo — GĐ 3 (Storage & Thumbnail, MinIO thật)**: xem checklist bên dưới.
 - **Model**: GĐ 3 nên dùng **Opus 4.8** (streaming/range dễ sai — theo 03-roadmap.md).
 
