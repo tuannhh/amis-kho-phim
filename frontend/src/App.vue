@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import MHeaderBar from '@/components/mds/MHeaderBar.vue'
 import MSidebar from '@/components/mds/MSidebar.vue'
@@ -7,10 +7,26 @@ import MToast from '@/components/mds/MToast.vue'
 import MIcon from '@/components/mds/MIcon.vue'
 import { filmSearchQuery } from '@/features/films/searchState'
 import { useAuthStore, type UserRole } from '@/features/auth/authStore'
+import { useNotificationsStore } from '@/features/notifications/notificationsStore'
+import NotificationsPanel from '@/features/notifications/NotificationsPanel.vue'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
+const notifications = useNotificationsStore()
+
+// Poll số thông báo chưa đọc khi đã đăng nhập; dừng khi đăng xuất (GĐ5).
+watch(
+  () => auth.isAuthenticated,
+  (ok) => (ok ? notifications.startPolling() : notifications.stopPolling()),
+  { immediate: true },
+)
+
+const notificationsPanelOpen = ref(false)
+function toggleNotificationsPanel() {
+  userMenuOpen.value = false
+  notificationsPanelOpen.value = !notificationsPanelOpen.value
+}
 
 // Trang auth (login/đổi mật khẩu) hiển thị full-page, không header/sidebar.
 const isBlank = computed(() => route.meta.blank === true)
@@ -28,6 +44,7 @@ const allSidebarItems = [
   { key: 'upload', label: 'Thêm phim', icon: 'upload' },
   { key: 'categories', label: 'Chuyên mục', icon: 'folder' },
   { key: 'admin-users', label: 'Quản trị người dùng', icon: 'users', roles: ['super_admin', 'admin'] as UserRole[] },
+  { key: 'admin-reports', label: 'Báo cáo', icon: 'chart-bar', roles: ['super_admin', 'admin'] as UserRole[] },
 ]
 const sidebarItems = computed(() =>
   allSidebarItems.filter((it) => !it.roles || (auth.role && it.roles.includes(auth.role))),
@@ -60,6 +77,7 @@ function goHome() {
 // Menu người dùng (đổi mật khẩu / đăng xuất) — popover nhẹ góc trên phải.
 const userMenuOpen = ref(false)
 function toggleUserMenu() {
+  notificationsPanelOpen.value = false
   userMenuOpen.value = !userMenuOpen.value
 }
 function goChangePassword() {
@@ -85,11 +103,14 @@ function logout() {
       company-name="MISA"
       search-placeholder="Tìm phim theo tên, hashtag... (Enter để tìm)"
       :user="currentUser"
-      :notification-count="0"
+      :notification-count="notifications.unreadCount"
       @search="onHeaderSearch"
       @logo-click="goHome"
       @user-click="toggleUserMenu"
+      @notifications="toggleNotificationsPanel"
     />
+
+    <NotificationsPanel v-model="notificationsPanelOpen" />
 
     <!-- Popover menu người dùng -->
     <template v-if="userMenuOpen">

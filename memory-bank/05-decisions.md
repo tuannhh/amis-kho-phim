@@ -2,6 +2,50 @@
 
 > Ghi lại quyết định kiến trúc quan trọng + lý do. Thêm mục mới ở trên cùng.
 
+## ADR-026 — Xuất CSV: cùng 1 endpoint `?format=csv`, BOM UTF-8 thủ công [GĐ5]
+- **Quyết định:** `GET /reports/films` nhận thêm query `format=csv` (thay vì tách route
+  riêng `/reports/films/export` hoặc `/reports/films.csv`) — controller check
+  `query.format === 'csv'` rồi trả `res.send(csv)` với `Content-Type: text/csv;
+  charset=utf-8` + `Content-Disposition: attachment`, ngược lại trả JSON như thường.
+  CSV tự dựng bằng string join (không dùng thư viện `csv-stringify`/`json2csv` vì báo
+  cáo chỉ 5 cột cố định), mỗi field escape quote kiểu RFC4180, prepend BOM `﻿`
+  (byte `EF BB BF`) để Excel Windows nhận diện UTF-8 và hiện tiếng Việt đúng thay vì
+  ký tự lạ. Header cột bằng tiếng Việt có dấu ("Tên phim", "Người upload"...).
+- **Lý do:** 1 endpoint dùng chung tránh lặp logic lọc/join giữa 2 route; `?format=`
+  là quy ước phổ biến, dễ hiểu, không cần thêm route mapping. BOM là bắt buộc — đã xác
+  nhận qua `curl` + `xxd`: thiếu BOM thì Excel (không phải trình duyệt) đoán sai encoding
+  và hiện tiếng Việt lỗi font dù file thực chất là UTF-8 hợp lệ.
+
+## ADR-025 — Fan-out thông báo: notify() gọi trực tiếp trong FilmsService, không qua event bus [GĐ5]
+- **Quyết định:** `NotificationsService.notify(filmId, type, actorId)` được `FilmsService`
+  gọi TRỰC TIẾP (không dùng EventEmitter/queue) ngay tại 3 chỗ đã set lại tag "Phim mới"
+  (`create()`, `update()`, `confirmVersion()` khi `versionNo > 1`) — đúng yêu cầu "đặt
+  logic này đúng chỗ hiện tại đang set is_new/published, đừng tạo luồng song song rối".
+  `notify()` tạo 1 row `notifications` rồi fan-out `user_notifications` cho MỌI user
+  `isActive=true` TRỪ chính actor (lấy qua `UsersService.list()` có sẵn, không query
+  riêng). `confirmVersion()` chỉ notify khi `versionNo > 1` — version đầu tiên (upload
+  file lần đầu ngay sau khi tạo phim) đã được `create()` thông báo `new_film` rồi, tránh
+  2 thông báo cho cùng 1 lần đăng phim.
+- **Lý do:** App nội bộ quy mô nhỏ (vài chục user), không cần hạ tầng message queue;
+  gọi thẳng trong cùng transaction-ish flow đơn giản, dễ trace, đúng tinh thần "sửa 1
+  vùng ảnh hưởng tối thiểu" (NotificationsModule chỉ export 1 service, FilmsModule import
+  thẳng, không có phụ thuộc ngược). Đánh đổi: nếu sau này fan-out chậm (rất nhiều user)
+  sẽ cần chuyển sang xử lý nền — ghi nhận là nợ kỹ thuật, chưa cần ở quy mô hiện tại.
+
+## ADR-024 — NotificationsPanel: popover tự dựng, không dùng MDialog [GĐ5]
+- **Quyết định:** Panel danh sách thông báo (`NotificationsPanel.vue`) dựng bằng chính
+  pattern popover tự chế đã dùng cho menu người dùng ở `App.vue` — lớp phủ
+  `fixed inset-0` bắt click-ngoài-để-đóng + panel `fixed right-2 top-[52px]` (dưới
+  header 48px + margin), `box-shadow: var(--mds-shadow-md)` (overlay, không phải
+  `--mds-shadow-card` của box tĩnh), bo góc 8px, KHÔNG dùng `MDialog` (dialog che toàn
+  màn hình, sai ngữ nghĩa cho panel nhỏ góc trên — xác nhận qua skill misa-design-system,
+  bộ MDS hiện chưa có component "notification dropdown" đóng gói sẵn).
+- **Lý do:** Nhất quán với popover có sẵn trong cùng file `App.vue` (menu người dùng) —
+  cùng 1 pattern, dễ bảo trì, đúng token/shadow overlay theo quy chuẩn MDS thay vì tự
+  chế lệch. `notificationsStore.ts` (Pinia) poll `unread-count` mỗi 30s khi đã đăng
+  nhập (dừng khi logout) + load list khi mở panel lần đầu — đủ cho yêu cầu "không cần
+  realtime phức tạp", tránh WebSocket/SSE không cần thiết ở quy mô nội bộ hiện tại.
+
 ## ADR-023 — Đếm view: dedupe theo user_id (không dùng session_hash), tăng atomic [GĐ4]
 - **Quyết định:** Bảng `film_views`(id, film_id, user_id?, session_hash, viewed_at) đúng
   01-architecture.md §4. `POST /films/:id/view` (cần đăng nhập, không cần role đặc biệt —

@@ -54,6 +54,12 @@ const router = createRouter({
       component: () => import('@/features/admin/UserAdminView.vue'),
       meta: { title: 'Quản trị người dùng', roles: ['super_admin', 'admin'] as UserRole[] },
     },
+    {
+      path: '/admin/reports',
+      name: 'admin-reports',
+      component: () => import('@/features/reports/ReportsView.vue'),
+      meta: { title: 'Báo cáo quản trị', roles: ['super_admin', 'admin'] as UserRole[] },
+    },
   ],
 })
 

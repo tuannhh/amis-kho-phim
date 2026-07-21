@@ -9,6 +9,8 @@ import { UsersModule } from './modules/users/users.module'
 import { AuthModule } from './modules/auth/auth.module'
 import { CategoriesModule } from './modules/categories/categories.module'
 import { FilmsModule } from './modules/films/films.module'
+import { NotificationsModule } from './modules/notifications/notifications.module'
+import { ReportsModule } from './modules/reports/reports.module'
 import { JwtAuthGuard } from './common/auth/jwt-auth.guard'
 import { RolesGuard } from './common/auth/roles.guard'
 
@@ -32,6 +34,8 @@ const dbEnabled = process.env.DB_ENABLED !== 'false'
           AuthModule,
           CategoriesModule,
           FilmsModule,
+          NotificationsModule,
+          ReportsModule,
         ]
       : []),
   ],

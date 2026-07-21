@@ -11,6 +11,7 @@ import { UpsertFilmDto, ConfirmVersionDto, CreateUploadUrlDto } from './dto/film
 import type { AuthUser } from '../../common/auth/auth-user'
 import { slugify } from '../../common/slugify'
 import { StorageService } from '../storage/storage.service'
+import { NotificationsService } from '../notifications/notifications.service'
 import imageSize from 'image-size'
 
 /** Nguồn phát gồm cả 'storage' (MinIO) — GĐ3 có link thật. */
@@ -49,6 +50,7 @@ export class FilmsService {
     @InjectRepository(FilmVersion) private readonly versions: Repository<FilmVersion>,
     @InjectRepository(FilmView) private readonly filmViews: Repository<FilmView>,
     private readonly storage: StorageService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Bản mới nhất (version_no lớn nhất) — nguồn của storage_key/thumbnail_key/duration. */
@@ -162,6 +164,9 @@ export class FilmsService {
       await this.filmLinks.save(links.map((l) => this.filmLinks.create({ filmId: film.id, ...l })))
     }
 
+    // Phim mới xuất bản → thông báo cho mọi user active khác (GĐ5, không chặn response nếu lỗi).
+    await this.notifications.notify(film.id, 'new_film', actor.id)
+
     return this.getBySlug(slug)
   }
 
@@ -191,6 +196,10 @@ export class FilmsService {
     if (links.length) {
       await this.filmLinks.save(links.map((l) => this.filmLinks.create({ filmId: film.id, ...l })))
     }
+
+    // Sửa phim → gắn lại tag "Phim mới" (publishedAt ở trên) → coi như cập nhật bản mới,
+    // sinh thông báo type 'updated' (GĐ5).
+    await this.notifications.notify(film.id, 'updated', actor.id)
 
     return this.getBySlug(film.slug)
   }
@@ -351,6 +360,13 @@ export class FilmsService {
     film.publishedAt = this.today()
     if (duration) film.duration = duration
     await this.films.save(film)
+
+    // versionNo > 1: upload lại file/ảnh cho phim đã tồn tại = "cập nhật bản mới" → thông
+    // báo type 'updated'. versionNo === 1 là bản đầu (thuộc luồng xuất bản ban đầu, đã
+    // thông báo 'new_film' ở create() — tránh thông báo trùng cho cùng 1 lần đăng phim).
+    if (versionNo > 1) {
+      await this.notifications.notify(film.id, 'updated', actor.id)
+    }
 
     return this.getBySlug(film.slug)
   }

@@ -4,12 +4,52 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
-- Giai đoạn hiện tại: **GĐ 4 — Player & Link ngoài & View ĐÃ XONG & verify end-to-end**
-  trong Docker + trình duyệt (2026-07-21, Sonnet 5). Commit local (chưa push).
-  Tiếp theo: **GĐ 5 — Nghiệp vụ nâng cao** (03-roadmap.md): thông báo phim mới, báo cáo
-  Quản trị CSV (theo giai đoạn ai upload bao nhiêu phim + xuất CSV).
-- % hoàn thành tổng thể: ~80%
+- Giai đoạn hiện tại: **GĐ 5 — Nghiệp vụ nâng cao ĐÃ XONG & verify end-to-end** trong
+  Docker + trình duyệt (2026-07-21, Sonnet 5). Commit local (chưa push).
+  Tiếp theo: **GĐ 6 — PWA & Mobile & MDS polish** (03-roadmap.md).
+- % hoàn thành tổng thể: ~88%
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
+
+## Nhật ký GĐ 5 (Nghiệp vụ nâng cao) — 2026-07-21
+- Versioning/tag "Phim mới"/hashtag/search theo tên-hashtag-chuyên mục: đã có sẵn từ
+  GĐ2-4, verify lại — search FE (`searchState.ts` + `FilmListView.vue`) đã lọc cả
+  `title` lẫn `hashtags` (dòng `inTags`), KHÔNG cần sửa thêm.
+- BE module `notifications` mới: bảng `notifications`(id, film_id, type, created_at) +
+  `user_notifications`(id, user_id, notification_id, is_read, created_at) — migration
+  `AddNotifications`. `NotificationsService.notify()` tạo 1 notification rồi fan-out
+  cho mọi user `isActive` TRỪ actor. Gọi từ `FilmsService`: `create()` → `new_film`;
+  `update()` (sửa metadata, đã tự reset `publishedAt`/tag "mới" từ GĐ2) → `updated`;
+  `confirmVersion()` chỉ khi `versionNo > 1` (upload lại file cho phim đã có, tránh
+  thông báo trùng với `new_film` của lần xuất bản đầu) → `updated`. Endpoint
+  `GET /notifications`, `GET /notifications/unread-count`, `PATCH /notifications/:id/read`,
+  `PATCH /notifications/read-all` — ai đăng nhập cũng gọi được (chỉ thấy thông báo của mình).
+- FE: `notificationsStore.ts` (Pinia) poll `unread-count` mỗi 30s khi đã đăng nhập +
+  load danh sách khi mở panel lần đầu. `NotificationsPanel.vue` — popover tự dựng
+  (KHÔNG phải MDialog, theo hướng dẫn skill misa-design-system) góc trên phải dưới
+  chuông `MHeaderBar`, giống pattern popover menu người dùng đã có ở `App.vue`. Bấm
+  1 thông báo → đánh dấu đã đọc + điều hướng `/films/:slug`. Nút "Đánh dấu tất cả đã đọc".
+- BE module `reports` mới: `GET /reports/films?uploaderId=&from=&to=&format=csv` —
+  `@Roles('super_admin','admin')`. Trả `{ summary: [{uploaderId, uploaderName, count}],
+  films: [...] }` lọc theo `films.created_at` (ngày UPLOAD, khác `published_at` có thể
+  bị đẩy lại khi sửa/cập nhật bản mới). `format=csv` → cùng endpoint, trả CSV UTF-8 BOM
+  (`﻿`) + header tiếng Việt (Content-Disposition attachment).
+- FE trang mới `/admin/reports` (`ReportsView.vue`) — chỉ `super_admin`/`admin` (route
+  `meta.roles`, sidebar `App.vue` ẩn/hiện theo role giống "Quản trị người dùng"). Bộ lọc
+  `MSelect` (người upload, tái dùng `GET /users`) + `MDateRangePicker` (khoảng ngày) +
+  bảng `MDataTable` + nút "Xuất CSV" (`MButton` primary) tải file qua `fetch` kèm Bearer
+  token → blob → thẻ `<a download>` tạm (không dùng `apiFetch` vì nó luôn parse JSON).
+- Review Gate: `docker compose up -d --build` chạy sạch (BE log đủ 6 module + migration
+  `AddNotifications` tự chạy). Browser: super_admin xuất bản 1 phim mới → nhân viên khác
+  (tài khoản tạo test qua API) thấy badge chuông tăng lên 1, mở panel đúng nội dung
+  "Phim mới: <tên phim>" + "X phút trước", bấm vào → điều hướng đúng `/films/:slug` +
+  badge về 0. `/admin/reports` với super_admin hiển thị đúng thống kê + bảng chi tiết;
+  nhân viên vào `/admin/reports` bị router guard đẩy về `/films`, sidebar không hiện
+  "Báo cáo"/"Quản trị người dùng". Xuất CSV qua `curl` xác nhận byte đầu `EF BB BF`
+  (BOM) + nội dung tiếng Việt đúng (không lỗi font). Console chỉ có 2 lỗi
+  `AbortError: play() interrupted` từ YouTube iframe player (GĐ4, không liên quan thay
+  đổi GĐ5) — không có lỗi mới phát sinh từ code GĐ5.
+- Dữ liệu test (phim, chuyên mục, tài khoản nhân viên tạo để verify) đã xoá qua API
+  sau khi verify xong.
 
 ## Nhật ký GĐ 4 (Player & Link ngoài & View) — 2026-07-21
 - BE: bảng `film_views` (id, film_id, user_id?, session_hash, viewed_at) — migration

@@ -5,9 +5,19 @@
 
 ## Tóm tắt nhanh (đọc 30 giây là hiểu hết)
 - **Đã xong**: GĐ 0 + 0.5 (UI mock) + 1 (Auth & RBAC) + 2 (Chuyên mục & Phim core) + GĐ 3
-  (Storage & Thumbnail, MinIO THẬT) + **GĐ 4 (Player & Link ngoài & View)** — GĐ 4 verify
+  (Storage & Thumbnail, MinIO THẬT) + GĐ 4 (Player & Link ngoài & View) + **GĐ 5
+  (Nghiệp vụ nâng cao: thông báo phim mới + báo cáo Quản trị CSV)** — GĐ 5 verify
   end-to-end Docker + trình duyệt (2026-07-21, Sonnet 5). Chi tiết: 04-progress.md
-  "Nhật ký GĐ 4"; quyết định: ADR-023 (05-decisions.md).
+  "Nhật ký GĐ 5"; quyết định: ADR-024/025/026 (05-decisions.md).
+- **GĐ 5 làm gì**: module `notifications` (bảng `notifications`+`user_notifications`,
+  migration `AddNotifications`) — `FilmsService` gọi `notify()` khi phim mới xuất bản
+  (`create`), khi sửa metadata (`update`, đã tự set lại tag "mới" từ GĐ2) và khi upload
+  lại file cho phim đã có (`confirmVersion` với `versionNo>1`) → fan-out cho mọi user
+  active TRỪ actor. FE: `NotificationsPanel.vue` (popover tự dựng, không MDialog) nối
+  vào chuông `MHeaderBar`, poll 30s. Module `reports`: `GET /reports/films` (+ `?format=csv`
+  BOM UTF-8) chỉ super_admin/admin, trang FE `/admin/reports` (bộ lọc người
+  upload/khoảng ngày + bảng + Xuất CSV). Search hashtag: đã có sẵn từ trước, verify
+  không cần sửa.
 - **GĐ 4 làm gì**: bảng `film_views` (migration `AddFilmViews`) + `POST /films/:id/view`
   (ai đăng nhập cũng gọi được) — dedupe theo `user_id` trong cửa sổ 30' (KHÔNG dùng
   `session_hash` trong logic dedupe, chỉ ghi dự phòng — ADR-023), tăng `films.view_count`
@@ -35,12 +45,10 @@
   hiện đúng lúc, nháp khôi phục đúng, dán ảnh tạo preview đúng), build FE sạch.
 - **Đã push**: commit GĐ 3 + fix nhỏ trên đã lên GitHub `main` (xem `git log`). GĐ 4 mới
   commit LOCAL, CHƯA push (chờ xác nhận riêng).
-- **Việc tiếp theo — GĐ 5 (Nghiệp vụ nâng cao)**: xem 03-roadmap.md dòng GĐ 5. Trùng tiêu
-  đề/versioning + tag "Phim mới" đã có 1 phần từ GĐ2/GĐ3 — còn thiếu: thông báo phim mới
-  (bảng `notifications`/`user_notifications` đã thiết kế ở 01-architecture.md §4, chưa có
-  module thật) + báo cáo Quản trị: theo giai đoạn ai upload bao nhiêu phim + gồm phim gì
-  (lọc theo người upload/khoảng ngày, xuất CSV).
-- **Model**: GĐ 5 dùng **Sonnet 5** + **Opus 4.8** cho phần versioning nếu cần đào sâu (03-roadmap.md).
+- **Việc tiếp theo — GĐ 6 (PWA & Mobile & MDS polish)**: xem 03-roadmap.md dòng GĐ 6 —
+  vite-plugin-pwa (installable, offline shell); responsive mobile; chuẩn hoá UI theo
+  skill misa-design-system (dùng skill này trước khi sửa bất kỳ UI nào).
+- **Model**: GĐ 6 dùng **Sonnet 5** (dùng skill MDS) theo gợi ý 03-roadmap.md.
 
 ## Cách chạy lại nhanh
 ```bash
