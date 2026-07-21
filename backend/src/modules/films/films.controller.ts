@@ -8,10 +8,12 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Req,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
+import type { Request } from 'express'
 import { FilmsService } from './films.service'
 import { UpsertFilmDto, CreateUploadUrlDto, ConfirmVersionDto } from './dto/film.dto'
 import { CurrentUser } from '../../common/auth/current-user.decorator'
@@ -54,6 +56,19 @@ export class FilmsController {
   @HttpCode(204)
   async remove(@CurrentUser() actor: AuthUser, @Param('id', ParseIntPipe) id: number) {
     await this.films.remove(actor, id)
+  }
+
+  // ─── GĐ4: Đếm lượt xem ──────────────────────────────────────────────────
+
+  /** Ghi nhận 1 lượt xem khi vào trang xem phim (ai đã đăng nhập cũng gọi được). */
+  @Post(':id/view')
+  recordView(
+    @CurrentUser() actor: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: Request,
+  ) {
+    const sessionHash = FilmsService.sessionHashOf(req.ip, req.headers['user-agent'])
+    return this.films.recordView(actor, id, sessionHash)
   }
 
   // ─── GĐ3: Storage (MinIO) ──────────────────────────────────────────────

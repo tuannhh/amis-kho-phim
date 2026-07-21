@@ -4,9 +4,16 @@
 > (đặc biệt sau khi clear context — đọc file này trước, không cần đọc lại lịch sử chat).
 
 ## Tóm tắt nhanh (đọc 30 giây là hiểu hết)
-- **Đã xong**: GĐ 0 + 0.5 (UI mock) + 1 (Auth & RBAC) + 2 (Chuyên mục & Phim core) + **GĐ 3
-  (Storage & Thumbnail, MinIO THẬT)** — GĐ 3 verify end-to-end Docker + trình duyệt (2026-07-21,
-  Opus 4.8). Chi tiết: 04-progress.md "Nhật ký GĐ 3"; quyết định: ADR-019→022 (05-decisions.md).
+- **Đã xong**: GĐ 0 + 0.5 (UI mock) + 1 (Auth & RBAC) + 2 (Chuyên mục & Phim core) + GĐ 3
+  (Storage & Thumbnail, MinIO THẬT) + **GĐ 4 (Player & Link ngoài & View)** — GĐ 4 verify
+  end-to-end Docker + trình duyệt (2026-07-21, Sonnet 5). Chi tiết: 04-progress.md
+  "Nhật ký GĐ 4"; quyết định: ADR-023 (05-decisions.md).
+- **GĐ 4 làm gì**: bảng `film_views` (migration `AddFilmViews`) + `POST /films/:id/view`
+  (ai đăng nhập cũng gọi được) — dedupe theo `user_id` trong cửa sổ 30' (KHÔNG dùng
+  `session_hash` trong logic dedupe, chỉ ghi dự phòng — ADR-023), tăng `films.view_count`
+  atomic (`increment`, không đọc-rồi-ghi). FE `FilmDetailView` gọi 1 lần trong `onMounted`
+  sau khi load phim xong, cập nhật `viewCount` ngay từ response (không cần F5). Player đa
+  nguồn/nút link theo nguồn/fullscreen+volume đã rà lại — không có bug thật, giữ nguyên.
 - **GĐ 3 làm gì**: `StorageModule` (S3 client `@aws-sdk/client-s3` tới MinIO; presigned PUT cho
   video upload thẳng từ FE; MediaController `/media/:key` stream Range 206). Bảng `film_versions`
   (migration `AddFilmVersions`) giữ storage_key/thumbnail_key/duration; `films` trỏ bản mới nhất.
@@ -26,10 +33,14 @@
   phục khi quay lại, tự xoá sau khi xuất bản/lưu thành công. (2) `MUpload` thêm prop `pasteImage` —
   dán ảnh copy (Ctrl+V) thẳng vào dropzone, đã bật cho ô ảnh bìa phim. Đã verify browser (dialog
   hiện đúng lúc, nháp khôi phục đúng, dán ảnh tạo preview đúng), build FE sạch.
-- **Đã push**: commit GĐ 3 + fix nhỏ trên đã lên GitHub `main` (xem `git log`).
-- **Việc tiếp theo — GĐ 4 (Player & Link ngoài & View)**: đếm lượt xem (bảng `film_views`, dedupe
-  session), hoàn thiện trang xem, nút link theo nguồn. Nhiều phần player đa nguồn đã có sẵn.
-- **Model**: GĐ 4 dùng **Opus 4.8** (player) → **Sonnet 5** (nút/link) theo 03-roadmap.md.
+- **Đã push**: commit GĐ 3 + fix nhỏ trên đã lên GitHub `main` (xem `git log`). GĐ 4 mới
+  commit LOCAL, CHƯA push (chờ xác nhận riêng).
+- **Việc tiếp theo — GĐ 5 (Nghiệp vụ nâng cao)**: xem 03-roadmap.md dòng GĐ 5. Trùng tiêu
+  đề/versioning + tag "Phim mới" đã có 1 phần từ GĐ2/GĐ3 — còn thiếu: thông báo phim mới
+  (bảng `notifications`/`user_notifications` đã thiết kế ở 01-architecture.md §4, chưa có
+  module thật) + báo cáo Quản trị: theo giai đoạn ai upload bao nhiêu phim + gồm phim gì
+  (lọc theo người upload/khoảng ngày, xuất CSV).
+- **Model**: GĐ 5 dùng **Sonnet 5** + **Opus 4.8** cho phần versioning nếu cần đào sâu (03-roadmap.md).
 
 ## Cách chạy lại nhanh
 ```bash
@@ -64,18 +75,21 @@ docker compose down               # tắt khi không dùng (volume vẫn giữ)
 - [x] RBAC dùng lại `assertCanManage` cho mọi thao tác storage (verify nhân viên→403)
 - [x] Review Gate: Docker up, presigned PUT từ trình duyệt→MinIO 200 (CORS OK), Range 206, F5 vẫn còn
 
-## GĐ 4 — checklist (Player & Link ngoài & View) — CHƯA BẮT ĐẦU
-- [ ] BE bảng `film_views` (id, film_id, user_id?, session_hash, viewed_at) + migration
-- [ ] BE đếm view: ghi film_views (dedupe user_id/session_hash cửa sổ 30') → tăng films.view_count
-- [ ] FE gọi API tăng view khi mở trang xem; hiển thị lượt xem thật
-- [ ] Hoàn thiện player đa nguồn + nút link theo nguồn (phần lớn đã có từ GĐ0.5/GĐ3 — rà lại)
-- [ ] Review Gate: mở phim nhiều lần trong 30' không tăng view trùng; đổi nguồn play OK
+## GĐ 4 — checklist (Player & Link ngoài & View) — ✅ ĐÃ XONG (2026-07-21)
+- [x] BE bảng `film_views` (id, film_id, user_id?, session_hash, viewed_at) + migration `AddFilmViews`
+- [x] BE đếm view: `POST /films/:id/view`, dedupe theo user_id cửa sổ 30' → tăng films.view_count atomic
+- [x] FE gọi API tăng view khi mở trang xem (onMounted, 1 lần/slug); hiển thị lượt xem thật ngay
+- [x] Rà lại player đa nguồn + nút link theo nguồn (đã có từ GĐ0.5/GĐ3) — không có bug thật
+- [x] Review Gate: Docker up, mở phim → +1; F5 nhiều lần trong 30' không tăng thêm (verify browser
+  + SQL); gọi API 3 lần liên tiếp trên phim khác → chỉ tăng lần đầu; 0 lỗi console
 
-## Cấu trúc code hiện tại (đã hết mock — API thật GĐ1→GĐ3)
+## Cấu trúc code hiện tại (đã hết mock — API thật GĐ1→GĐ4)
 - `frontend/src/features/films/filmTypes.ts` — FilmSource (gồm 'storage'), SOURCE_LABEL/ICON,
   categoryColorFor, thumbnailGradient (fallback khi chưa có ảnh bìa), isFilmNew/formatVNDate
-- `frontend/src/features/films/filmsApi.ts` — CRUD + createUploadUrl/uploadThumbnail/confirmVersion;
-  `ApiFilm` có `thumbnailUrl`. `filmsStore.ts` (Pinia, refetch sau mutation)
+- `frontend/src/features/films/filmsApi.ts` — CRUD + createUploadUrl/uploadThumbnail/confirmVersion +
+  **[GĐ4]** `recordView(id)`; `ApiFilm` có `thumbnailUrl`. `filmsStore.ts` (Pinia, refetch sau mutation)
+- `frontend/src/features/films/FilmDetailView.vue` — **[GĐ4]** gọi `recordView` 1 lần trong
+  `onMounted` sau khi load phim xong (biến `viewedSlug` chống gọi lại khi chỉ re-render)
 - `frontend/src/features/films/storageUpload.ts` — **[GĐ3]** putToStorage (XHR PUT presigned có
   progress), readVideoDuration (có timeout — ADR-022), formatDuration
 - `frontend/src/features/upload/FilmUploadView.vue` — **[GĐ3]** luồng upload thật (progress/lỗi qua MUpload)
@@ -83,10 +97,12 @@ docker compose down               # tắt khi không dùng (volume vẫn giữ)
 - `frontend/src/lib/http.ts` — apiFetch; **[GĐ3]** bỏ ép Content-Type khi body là FormData
 - Backend `modules/storage/` — **[GĐ3]** StorageService (2 S3Client: internal+presigner),
   MediaController (`/media/:key` Range 206, @Public, ngoài prefix /api)
-- Backend `modules/films/` — Film/FilmLink/Hashtag + **[GĐ3]** FilmVersion entity; FilmsController
-  thêm upload-url/thumbnail/versions; FilmsService.toPublic lấy version mới nhất → storage/thumbnail
+- Backend `modules/films/` — Film/FilmLink/Hashtag + FilmVersion (GĐ3) + **[GĐ4]** FilmView entity
+  (`film-view.entity.ts`); FilmsController thêm upload-url/thumbnail/versions + **[GĐ4]** `:id/view`;
+  FilmsService.toPublic lấy version mới nhất → storage/thumbnail; `recordView`/`sessionHashOf` (GĐ4)
 - Backend `modules/categories/` — cây cha-con (ADR-016 bảng riêng, không JSON column)
-- Migrations: InitAuth → InitCatalog → **AddFilmVersions** (đăng ký tường minh trong `db-options.ts`)
+- Migrations: InitAuth → InitCatalog → AddFilmVersions → **AddFilmViews** (đăng ký tường minh
+  trong `db-options.ts`)
 
 ## Quyết định đã chốt (xem đầy đủ ở 05-decisions.md)
 - ORM: **TypeORM**. Nginx dùng từ GĐ 0. Tailwind **v4**. Theme MDS blue mặc định.

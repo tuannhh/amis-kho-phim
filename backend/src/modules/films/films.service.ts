@@ -1,10 +1,12 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { In, Repository } from 'typeorm'
+import { In, MoreThan, Repository } from 'typeorm'
+import { createHash } from 'node:crypto'
 import { Film } from './entities/film.entity'
 import { FilmLink, type ExternalFilmPlatform } from './entities/film-link.entity'
 import { Hashtag } from './entities/hashtag.entity'
 import { FilmVersion } from './entities/film-version.entity'
+import { FilmView } from './entities/film-view.entity'
 import { UpsertFilmDto, ConfirmVersionDto, CreateUploadUrlDto } from './dto/film.dto'
 import type { AuthUser } from '../../common/auth/auth-user'
 import { slugify } from '../../common/slugify'
@@ -45,6 +47,7 @@ export class FilmsService {
     @InjectRepository(FilmLink) private readonly filmLinks: Repository<FilmLink>,
     @InjectRepository(Hashtag) private readonly hashtags: Repository<Hashtag>,
     @InjectRepository(FilmVersion) private readonly versions: Repository<FilmVersion>,
+    @InjectRepository(FilmView) private readonly filmViews: Repository<FilmView>,
     private readonly storage: StorageService,
   ) {}
 
@@ -197,6 +200,44 @@ export class FilmsService {
     if (!film) throw new NotFoundException('Không tìm thấy phim')
     this.assertCanManage(actor, film)
     await this.films.remove(film)
+  }
+
+  // ─── GĐ4: Đếm lượt xem ──────────────────────────────────────────────────
+
+  /** Cửa sổ dedupe lượt xem (phút) — ADR-023. */
+  private static readonly VIEW_DEDUPE_MINUTES = 30
+
+  /**
+   * session_hash dự phòng: hash(IP + User-Agent) — không dùng trong dedupe hiện
+   * tại (mọi người dùng đều đã đăng nhập, dedupe theo user_id là đủ — ADR-023),
+   * chỉ ghi lại để dự phòng mở rộng sau này (khách ẩn danh nhiều thiết bị).
+   */
+  static sessionHashOf(ip: string | undefined, userAgent: string | undefined): string {
+    return createHash('sha256').update(`${ip || ''}|${userAgent || ''}`).digest('hex').slice(0, 64)
+  }
+
+  /**
+   * Ghi nhận 1 lượt xem khi vào trang xem phim. Dedupe: nếu user này đã có bản
+   * ghi film_views cho phim này trong 30' gần nhất → bỏ qua (không tăng view_count).
+   * Ngược lại: insert bản ghi mới + tăng `films.view_count` ATOMIC (increment,
+   * không đọc-rồi-ghi, tránh race condition khi nhiều request cùng lúc).
+   */
+  async recordView(actor: AuthUser, id: number, sessionHash: string): Promise<{ viewCount: number }> {
+    const film = await this.films.findOne({ where: { id } })
+    if (!film) throw new NotFoundException('Không tìm thấy phim')
+
+    const windowStart = new Date(Date.now() - FilmsService.VIEW_DEDUPE_MINUTES * 60 * 1000)
+    const dup = await this.filmViews.findOne({
+      where: { filmId: id, userId: actor.id, viewedAt: MoreThan(windowStart) },
+      order: { viewedAt: 'DESC' },
+    })
+    if (dup) return { viewCount: film.viewCount }
+
+    await this.filmViews.save(
+      this.filmViews.create({ filmId: id, userId: actor.id, sessionHash }),
+    )
+    await this.films.increment({ id }, 'viewCount', 1)
+    return { viewCount: film.viewCount + 1 }
   }
 
   // ─── GĐ3: Storage (MinIO) ──────────────────────────────────────────────

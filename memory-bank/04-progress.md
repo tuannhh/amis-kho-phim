@@ -4,12 +4,37 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
-- Giai đoạn hiện tại: **GĐ 3 — Storage & Thumbnail (MinIO thật) ĐÃ XONG & verify end-to-end**
-  trong Docker + trình duyệt (2026-07-21, làm bằng Opus 4.8). Commit local (chưa push).
-  Tiếp theo: **GĐ 4 — Player & Link ngoài & View** (03-roadmap.md): đếm lượt xem (film_views),
-  hoàn thiện trang xem, nút link theo nguồn (phần lớn player đa nguồn đã có sẵn từ GĐ0.5/GĐ3).
-- % hoàn thành tổng thể: ~72%
+- Giai đoạn hiện tại: **GĐ 4 — Player & Link ngoài & View ĐÃ XONG & verify end-to-end**
+  trong Docker + trình duyệt (2026-07-21, Sonnet 5). Commit local (chưa push).
+  Tiếp theo: **GĐ 5 — Nghiệp vụ nâng cao** (03-roadmap.md): thông báo phim mới, báo cáo
+  Quản trị CSV (theo giai đoạn ai upload bao nhiêu phim + xuất CSV).
+- % hoàn thành tổng thể: ~80%
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
+
+## Nhật ký GĐ 4 (Player & Link ngoài & View) — 2026-07-21
+- BE: bảng `film_views` (id, film_id, user_id?, session_hash, viewed_at) — migration
+  `AddFilmViews` (FK film_id→films CASCADE, user_id→users SET NULL, index film_id+user_id).
+  Đăng ký entity/migration tường minh trong `db-options.ts` (đúng pattern GĐ3).
+- BE: `POST /api/films/:id/view` — bất kỳ ai đã đăng nhập gọi được (không cần role đặc
+  biệt, chỉ cần qua `JwtAuthGuard` toàn cục sẵn có). `FilmsService.recordView`: dedupe theo
+  `user_id` trong cửa sổ 30' (query `MoreThan(now-30')`) → nếu trùng thì bỏ qua (không ghi
+  thêm dòng, không update lại `viewed_at` — chấp nhận đơn giản theo scope); ngược lại insert
+  `film_views` mới + `films.increment({id}, 'viewCount', 1)` (atomic, không đọc-rồi-ghi —
+  tránh race khi nhiều tab/nhiều request cùng lúc).
+- `session_hash`: sinh ở BE = `sha256(ip + '|' + user-agent)`, cột dự phòng — KHÔNG dùng
+  trong logic dedupe hiện tại (mọi người dùng đều đã đăng nhập nên `user_id` là đủ). Xem ADR-023.
+- FE: `filmsApi.recordView(id)` gọi `POST /films/:id/view`; `FilmDetailView.onMounted` gọi
+  1 lần sau khi `getBySlug` thành công (biến `viewedSlug` nhớ đã gọi cho slug nào, tránh gọi
+  lại khi component chỉ re-render); cập nhật `film.viewCount` từ response ngay (không cần F5).
+- Rà soát VideoPlayer.vue/FilmDetailView.vue (player đa nguồn, nút link/copy theo nguồn,
+  fullscreen/volume qua `<video controls>` gốc): **không phát hiện bug thật** — giữ nguyên,
+  đúng ADR-008 đã chốt từ GĐ0.5.
+- Verify: `docker compose up -d --build` (5 container Up/healthy). Backend `tsc --noEmit` +
+  FE `vue-tsc --noEmit` sạch trước khi build Docker. Trình duyệt: login super_admin → mở
+  phim có sẵn (view_count 0→1) → F5 lại nhiều lần cùng phim → **vẫn 1** (dedupe đúng, xác
+  nhận cả qua SQL `SELECT view_count, COUNT(film_views)` khớp 1/1). Tạo phim test riêng qua
+  API, gọi `POST /:id/view` 3 lần liên tiếp → chỉ tăng lần đầu (1,1,1), xoá phim test xong.
+  0 lỗi console. `docker compose down` (không `-v`) sau verify.
 
 ## Nhật ký GĐ 3 (Storage & Thumbnail, MinIO thật) — 2026-07-21
 - [GĐ 3] Backend `StorageModule`: `StorageService` bọc MinIO qua `@aws-sdk/client-s3` (2 client:
@@ -162,5 +187,9 @@
   - Kết quả: `docker compose ps` cả 5 container `Up`/`healthy`; `curl localhost:8180/api/health` → 200; FE qua nginx (build production, không phải dev server) hiển thị đúng, 0 lỗi console.
 
 ## Việc tiếp theo (next actions)
-1. **GĐ 1 (Auth & RBAC)** — đổi model sang **Opus 4.8** khi bắt đầu viết code. Backend thật: JWT login, seed super_admin, 3 role, RolesGuard + OwnerGuard, CRUD users; FE thay mock auth/admin bằng API thật.
+1. **GĐ 5 (Nghiệp vụ nâng cao)** — Sonnet 5 (+ Opus 4.8 cho phần versioning nếu cần đào sâu).
+   Còn thiếu theo 03-roadmap.md: thông báo phim mới (bảng `notifications`/`user_notifications`
+   đã có trong 01-architecture.md §4, chưa có module `notifications` thật); báo cáo Quản trị
+   theo giai đoạn ai upload bao nhiêu phim + gồm phim gì (lọc theo người upload/khoảng ngày,
+   xuất CSV). Trùng tiêu đề/versioning + tag "Phim mới" đã có 1 phần từ GĐ2/GĐ3.
 2. Docker stack đã verify chạy tốt — có thể `docker compose down` khi không cần chạy liên tục (đỡ chiếm cổng/RAM), `up -d` lại khi cần.

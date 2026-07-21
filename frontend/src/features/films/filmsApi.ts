@@ -51,6 +51,8 @@ export const filmsApi = {
   update: (id: number, payload: UpsertFilmPayload) =>
     apiFetch<ApiFilm>(`/films/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   remove: (id: number) => apiFetch<void>(`/films/${id}`, { method: 'DELETE' }),
+  /** Ghi nhận 1 lượt xem khi vào trang xem phim — BE dedupe theo user trong 30' (GĐ4). */
+  recordView: (id: number) => apiFetch<{ viewCount: number }>(`/films/${id}/view`, { method: 'POST' }),
 
   // ─── GĐ3: Storage (MinIO) ───────────────────────────────────────────────
   /** Xin presigned PUT URL cho file video (server sinh storage_key). */

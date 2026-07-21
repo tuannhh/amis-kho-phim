@@ -26,18 +26,39 @@ const film = ref<ApiFilm | null>(null)
 const loading = ref(true)
 const notFound = ref(false)
 
+/**
+ * Đếm lượt xem (GĐ4): gọi 1 lần mỗi khi vào phim khác (đổi slug), KHÔNG gọi lại
+ * khi component chỉ re-render — dùng biến này để nhớ đã tính lượt xem cho slug
+ * nào rồi, tránh double-count khi các phần khác của trang khiến `film` đổi tham
+ * chiếu. BE vẫn là nguồn dedupe thật (30'), đây chỉ là tránh gọi API thừa ở FE.
+ */
+let viewedSlug: string | null = null
+
 async function load() {
   loading.value = true
   notFound.value = false
   film.value = null
   try {
     film.value = await filmsApi.getBySlug(route.params.slug as string)
+    await recordViewOnce()
   } catch {
     notFound.value = true
   } finally {
     loading.value = false
   }
 }
+
+async function recordViewOnce() {
+  if (!film.value || viewedSlug === film.value.slug) return
+  viewedSlug = film.value.slug
+  try {
+    const { viewCount } = await filmsApi.recordView(film.value.id)
+    if (film.value && film.value.slug === viewedSlug) film.value.viewCount = viewCount
+  } catch {
+    // Không chặn xem phim nếu API đếm view lỗi — chỉ bỏ qua, không toast.
+  }
+}
+
 onMounted(load)
 watch(() => route.params.slug, load)
 

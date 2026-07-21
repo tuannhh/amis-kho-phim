@@ -2,6 +2,25 @@
 
 > Ghi lại quyết định kiến trúc quan trọng + lý do. Thêm mục mới ở trên cùng.
 
+## ADR-023 — Đếm view: dedupe theo user_id (không dùng session_hash), tăng atomic [GĐ4]
+- **Quyết định:** Bảng `film_views`(id, film_id, user_id?, session_hash, viewed_at) đúng
+  01-architecture.md §4. `POST /films/:id/view` (cần đăng nhập, không cần role đặc biệt —
+  qua `JwtAuthGuard` toàn cục sẵn có, không thêm `@Roles`). Dedupe: query `film_views` theo
+  `film_id + user_id` với `viewed_at > now - 30 phút`; nếu có → bỏ qua hoàn toàn (không ghi
+  thêm dòng, không cập nhật lại `viewed_at`); nếu không → insert 1 dòng mới + `films.increment
+  ({id}, 'viewCount', 1)` (câu lệnh SQL `UPDATE ... SET view_count = view_count + 1`, KHÔNG
+  đọc giá trị hiện tại rồi ghi lại — tránh mất lượt tăng khi 2 request chạm cùng lúc, race
+  condition kinh điển của đếm view). `session_hash = sha256(ip + '|' + user-agent)` sinh ở
+  BE, LUÔN ghi vào cột nhưng KHÔNG dùng trong điều kiện dedupe hiện tại.
+- **Lý do:** Toàn bộ người dùng AMIS Kho phim đều đã đăng nhập (nội bộ công ty, không có
+  khách ẩn danh) → `user_id` là khoá dedupe đáng tin cậy và đơn giản hơn nhiều so với việc
+  tự dựng/lưu session token phía FE (localStorage) rồi gửi lên mỗi request — vừa tốn công
+  vừa dễ sai (token mất khi xoá localStorage/trình duyệt riêng tư). `session_hash` giữ lại
+  đúng theo thiết kế cột trong kiến trúc gốc, xem như "nợ tính năng" cho tương lai (nếu có
+  luồng khách xem không cần đăng nhập, hoặc muốn dedupe theo thiết bị/IP khi 1 tài khoản
+  dùng chung nhiều máy) — không phát sinh phức tạp thừa ở GĐ4 vì chưa có yêu cầu đó.
+  FE gọi 1 lần trong `onMounted` (không chờ video play) — đúng scope "vào trang xem là tính".
+
 ## ADR-022 — readVideoDuration có timeout (không bao giờ chặn xuất bản) [GĐ3]
 - **Quyết định:** FE đọc thời lượng video qua `<video>` tạm (loadedmetadata) chỉ để hiển
   thị duration mm:ss, nhưng bọc `Promise.race` timeout 4s → trả `null` nếu metadata không
