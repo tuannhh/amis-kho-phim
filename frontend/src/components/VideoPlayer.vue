@@ -55,10 +55,6 @@ const vimeoEmbed = computed(() => {
   return id ? `https://player.vimeo.com/video/${id}` : ''
 })
 
-const isEmbeddable = computed(() =>
-  ['storage', 'youtube', 'vimeo'].includes(activeSource.value)
-)
-
 // Copy nhanh link phim theo từng nguồn (YouTube/Vimeo/Google Drive/MISA Drive)
 async function copyLink(url: string | undefined, label: string) {
   if (!url) return

@@ -20,8 +20,8 @@ import { filmSearchQuery } from './searchState'
 const router = useRouter()
 const toast = useToast()
 
-// null = xem tất cả chuyên mục
-const categoryFilter = ref<string | null>(null)
+// undefined = xem tất cả chuyên mục (MSelect không nhận null trong kiểu modelValue)
+const categoryFilter = ref<string | undefined>(undefined)
 const onlyNew = ref(false)
 
 // Phân trang (GĐ 2 sẽ chuyển sang phân trang phía server)
@@ -35,10 +35,10 @@ const page = ref(1)
 
 const categoryOptions = computed(() => {
   const set = new Set(mockFilms.map((f) => f.category))
-  // Option đầu tiên để quay về xem toàn bộ (value null)
+  // Option đầu tiên để quay về xem toàn bộ (value undefined)
   return [
-    { label: 'Tất cả chuyên mục', value: null as string | null },
-    ...Array.from(set).map((c) => ({ label: c, value: c as string | null })),
+    { label: 'Tất cả chuyên mục', value: undefined as string | undefined },
+    ...Array.from(set).map((c) => ({ label: c, value: c as string | undefined })),
   ]
 })
 

@@ -29,19 +29,25 @@ const parentOptions = computed(() =>
   flattenCategories().map((c) => ({ label: c.label, value: c.id }))
 )
 
-const form = reactive({ label: '', description: '', parentId: null as string | null })
+// parentId dùng undefined (không phải null) — MSelect không nhận null trong kiểu modelValue
+const form = reactive({ label: '', description: '', parentId: undefined as string | undefined })
 const editingId = ref<string | null>(null)
 const isCreating = ref(false)
 const deleteTarget = ref<CategoryNode | null>(null)
 
+// useFormValidation.js là JS thuần → `errors` suy ra kiểu {}; ép kiểu tường minh để dùng errors.label
 const { errors, validate, clearErrors } = useFormValidation({
   label: [rules.required('Tên chuyên mục không được để trống')],
-})
+}) as {
+  errors: Record<string, string>
+  validate: (values: Record<string, unknown>) => boolean
+  clearErrors: () => void
+}
 
 function resetForm() {
   form.label = ''
   form.description = ''
-  form.parentId = null
+  form.parentId = undefined
   clearErrors()
 }
 
@@ -53,7 +59,7 @@ function selectNode(id: string) {
   editingId.value = id
   form.label = node.label
   form.description = node.description || ''
-  form.parentId = node.parentId || null
+  form.parentId = node.parentId || undefined
 }
 
 function startCreate() {

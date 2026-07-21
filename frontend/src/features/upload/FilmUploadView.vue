@@ -42,7 +42,8 @@ const hashtagOptions = computed(() => listHashtags().map((h) => ({ label: `#${h}
 
 const form = reactive({
   title: '',
-  category: null as string | null,
+  // undefined (không phải null) — MSelect không nhận null trong kiểu modelValue
+  category: undefined as string | undefined,
   description: '',
   hashtags: [] as string[],
   youtube: '',
@@ -71,10 +72,14 @@ function loadEditingFilm() {
 }
 loadEditingFilm()
 
+// useFormValidation.js là JS thuần → `errors` suy ra kiểu {}; ép kiểu tường minh để dùng errors.title/category
 const { errors, validate } = useFormValidation({
   title: [rules.required('Tên phim không được để trống')],
   category: [rules.required('Vui lòng chọn chuyên mục')],
-})
+}) as {
+  errors: Record<string, string>
+  validate: (values: Record<string, unknown>) => boolean
+}
 
 function onSelectVideo(files: File[]) {
   const file = files[0]

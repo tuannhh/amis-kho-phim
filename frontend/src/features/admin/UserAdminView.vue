@@ -10,7 +10,7 @@ import MDialog from '@/components/mds/MDialog.vue'
 import { useToast } from '@/components/mds/toast.js'
 import { useFormValidation, rules } from '@/components/mds/useFormValidation.js'
 import { CURRENT_MOCK_USER } from '@/features/films/mockFilms'
-import { mockUsers, ROLE_LABEL, ROLE_COLOR, creatableRoles, type UserRole } from './mockUsers'
+import { mockUsers, ROLE_LABEL, ROLE_COLOR, creatableRoles, type UserRole, type MockAppUser } from './mockUsers'
 
 /**
  * Quản trị người dùng — GĐ 0.5 (mock). Super Admin tạo Admin+Nhân viên;
@@ -39,6 +39,11 @@ const roleOptions = computed(() =>
   creatableRoles(CURRENT_MOCK_USER.role).map((r) => ({ label: ROLE_LABEL[r], value: r }))
 )
 
+// MDataTable là JS thuần → slot `row` suy ra kiểu unknown; ép kiểu tường minh ở nơi dùng
+function asUser(row: unknown): MockAppUser {
+  return row as MockAppUser
+}
+
 function canManage(row: (typeof mockUsers)[number]) {
   if (row.id === CURRENT_MOCK_USER.id) return false // không tự khoá/xoá chính mình
   if (CURRENT_MOCK_USER.role === 'super_admin') return row.role !== 'super_admin'
@@ -47,18 +52,24 @@ function canManage(row: (typeof mockUsers)[number]) {
 }
 
 const dialogOpen = ref(false)
-const form = reactive({ name: '', email: '', role: null as UserRole | null, tempPassword: '' })
+// undefined (không phải null) — MSelect không nhận null trong kiểu modelValue
+const form = reactive({ name: '', email: '', role: undefined as UserRole | undefined, tempPassword: '' })
 
+// useFormValidation.js là JS thuần → `errors` suy ra kiểu {}; ép kiểu tường minh để dùng errors.name/email/role
 const { errors, validate, clearErrors } = useFormValidation({
   name: [rules.required('Họ tên không được để trống')],
   email: [rules.required('Email không được để trống'), rules.email()],
   role: [rules.required('Vui lòng chọn vai trò')],
-})
+}) as {
+  errors: Record<string, string>
+  validate: (values: Record<string, unknown>) => boolean
+  clearErrors: () => void
+}
 
 function openCreate() {
   form.name = ''
   form.email = ''
-  form.role = roleOptions.value[0]?.value ?? null
+  form.role = roleOptions.value[0]?.value ?? undefined
   form.tempPassword = ''
   clearErrors()
   dialogOpen.value = true
@@ -121,32 +132,32 @@ function removeUser(row: (typeof mockUsers)[number]) {
         </template>
 
         <template #cell-role="{ row }">
-          <MTag :color="ROLE_COLOR[row.role as UserRole]" size="sm">{{ ROLE_LABEL[row.role as UserRole] }}</MTag>
+          <MTag :color="ROLE_COLOR[asUser(row).role]" size="sm">{{ ROLE_LABEL[asUser(row).role] }}</MTag>
         </template>
 
         <template #cell-isActive="{ row }">
-          <MTag :color="row.isActive ? 'success' : 'neutral'" size="sm">
-            {{ row.isActive ? 'Đang hoạt động' : 'Đã khoá' }}
+          <MTag :color="asUser(row).isActive ? 'success' : 'neutral'" size="sm">
+            {{ asUser(row).isActive ? 'Đang hoạt động' : 'Đã khoá' }}
           </MTag>
         </template>
 
         <template #row-actions="{ row }">
-          <template v-if="canManage(row)">
+          <template v-if="canManage(asUser(row))">
             <button
               type="button"
-              :title="row.isActive ? 'Khoá tài khoản' : 'Mở khoá'"
+              :title="asUser(row).isActive ? 'Khoá tài khoản' : 'Mở khoá'"
               class="flex h-7 w-7 items-center justify-center rounded-md"
               style="border: 1px solid var(--mds-border,#CED1D6); color: var(--mds-icon-neutral)"
-              @click="toggleActive(row)"
+              @click="toggleActive(asUser(row))"
             >
-              <MIcon :name="row.isActive ? 'lock' : 'lock-open'" :size="12" />
+              <MIcon :name="asUser(row).isActive ? 'lock' : 'lock-open'" :size="12" />
             </button>
             <button
               type="button"
               title="Xoá"
               class="flex h-7 w-7 items-center justify-center rounded-md"
               style="border: 1px solid var(--mds-border,#CED1D6); color: var(--mds-danger)"
-              @click="removeUser(row)"
+              @click="removeUser(asUser(row))"
             >
               <MIcon name="trash" :size="12" />
             </button>

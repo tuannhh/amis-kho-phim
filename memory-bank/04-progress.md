@@ -42,8 +42,16 @@
   3. **Phân trang trang chủ**: chọn 20/30/50 phim/trang + prev/next (chuẩn MDS không đánh số trang) + dòng "1–N / tổng phim". **Luôn sắp phim mới nhất (publishedAt giảm dần) lên đầu.**
 - 2026-07-21 — [GĐ 0.5] Ghi nhận yêu cầu tương lai: **báo cáo Quản trị người dùng theo giai đoạn** (ai upload bao nhiêu phim, gồm phim gì) — thêm vào roadmap GĐ 5, chưa làm ở GĐ 0.5.
 - 2026-07-21 — [GĐ 0.5] ✅ CHỐT UI — chủ đầu tư duyệt "còn lại OK". Chuyển sang GĐ 1.
+- 2026-07-21 — [mốc] Push GitHub **github.com/tuannhh/amis-kho-phim** (PRIVATE, nhánh main). Force push đè bản MVP cũ (commit 14/07/2026 — chủ đầu tư đồng ý thay hoàn toàn). Remote `origin` đã cấu hình.
+
+- 2026-07-21 — [Docker] ✅ Verify toàn bộ stack chạy thật trong Docker (`docker compose up -d --build`), 3 lỗi thật phát hiện & sửa:
+  1. `tsconfig.app.json` thiếu `paths: {"@/*": ["./src/*"]}` → `vue-tsc` build production fail (dev server Vite chỉ transpile nên không lộ lỗi này). Thêm `paths` (không dùng `baseUrl` — TS mới deprecate).
+  2. Thiếu `allowJs: true` → `vue-tsc` không hiểu các component MDS gốc là `<script setup>` JS thuần (MSelect, MTree, toast.js...).
+  3. MSelect không nhận `null` trong kiểu `modelValue` → đổi toàn bộ state "chưa chọn" từ `null` sang `undefined` (categoryFilter, form.category/parentId/role). `useFormValidation.js` (JS) trả `errors: {}` không type → ép kiểu tường minh ở 3 nơi dùng. MDataTable slot `row` kiểu `unknown` → hàm `asUser()` ép kiểu tại điểm dùng (UserAdminView).
+  4. **Backend**: thiếu `class-validator`/`class-transformer` trong `package.json` dù `main.ts` dùng `ValidationPipe` → container restart-loop (exit code 1) không log rõ nguyên nhân. Thêm 2 dependency, `npm install` lại.
+  5. Port `9000/8080` trùng tiến trình khác đang chạy trên máy → đổi `NGINX_PORT=8180`, `MINIO_API_PORT=9200`, `MINIO_CONSOLE_PORT=9201` (cả `.env` và `.env.example`).
+  - Kết quả: `docker compose ps` cả 5 container `Up`/`healthy`; `curl localhost:8180/api/health` → 200; FE qua nginx (build production, không phải dev server) hiển thị đúng, 0 lỗi console.
 
 ## Việc tiếp theo (next actions)
-1. **GĐ 1 (Auth & RBAC)** — model **Opus 4.8** (đã đổi). Backend thật: JWT login, seed super_admin, 3 role, RolesGuard + OwnerGuard, CRUD users; FE thay mock auth/admin bằng API thật.
-2. Push GitHub `amis-kho-phim` (private) làm mốc trước khi vào backend.
-3. (Tuỳ chọn) `docker compose up -d --build` verify toàn stack.
+1. **GĐ 1 (Auth & RBAC)** — đổi model sang **Opus 4.8** khi bắt đầu viết code. Backend thật: JWT login, seed super_admin, 3 role, RolesGuard + OwnerGuard, CRUD users; FE thay mock auth/admin bằng API thật.
+2. Docker stack đã verify chạy tốt — có thể `docker compose down` khi không cần chạy liên tục (đỡ chiếm cổng/RAM), `up -d` lại khi cần.

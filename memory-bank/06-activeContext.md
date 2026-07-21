@@ -3,8 +3,21 @@
 > "Đang làm gì ngay lúc này". File đọc đầu tiên khi mở lại phiên làm việc.
 
 ## Focus hiện tại
-GĐ 0.5 (UI Prototype) ĐÃ CHỐT & duyệt (5 màn hình mock + 3 đợt feedback đã xử lý).
-Đã push GitHub `amis-kho-phim` (private). **Đang bắt đầu GĐ 1 — Auth & RBAC thật** (model Opus 4.8).
+GĐ 0.5 (UI Prototype) ĐÃ CHỐT & duyệt. Đã push GitHub `amis-kho-phim` (private).
+**Docker toàn stack đã verify chạy thật** (5 container Up/healthy, build production
+FE+BE thành công, xem chi tiết 04-progress.md mục "Docker"). Đã tạo sẵn 6 task GĐ 1
+(BE Auth/RBAC + FE Login/Users) — **chưa bắt đầu code**. Model hiện tại: Sonnet 5
+(đổi sang Opus 4.8 khi thực sự viết code Auth/RBAC theo roadmap).
+
+## Cách chạy Docker (đã verify — cổng đã đổi, xem ADR-010)
+```
+cd /Users/tuanbui/amis-kho-phim
+docker compose up -d --build   # lần đầu / sau khi sửa code
+docker compose up -d           # các lần sau (không build lại)
+docker compose down            # tắt hết khi không dùng
+```
+Truy cập: http://localhost:8180 (FE qua nginx) · http://localhost:8180/api/health (BE).
+MinIO console: http://localhost:9201 (minioadmin/minioadmin).
 
 ## GĐ 1 — checklist (Auth & RBAC)
 - [ ] Backend: UsersModule + entity User (role_code, created_by, is_active, password_hash argon2/bcrypt)
