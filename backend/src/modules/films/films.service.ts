@@ -164,8 +164,11 @@ export class FilmsService {
       await this.filmLinks.save(links.map((l) => this.filmLinks.create({ filmId: film.id, ...l })))
     }
 
-    // Phim mới xuất bản → thông báo cho mọi user active khác (GĐ5, không chặn response nếu lỗi).
-    await this.notifications.notify(film.id, 'new_film', actor.id)
+    // Thông báo "phim mới" tạm TẮT (2026-07-22, quyết định người dùng): thực tế sẽ có rất
+    // nhiều phim đăng lên, bắn thông báo cho mọi user mỗi lần sẽ gây spam. Hạ tầng
+    // (bảng notifications/user_notifications, endpoint, panel FE) vẫn giữ nguyên để bật
+    // lại sau với điều kiện phù hợp hơn (vd digest định kỳ, hoặc chọn lọc theo chuyên mục).
+    // await this.notifications.notify(film.id, 'new_film', actor.id)
 
     return this.getBySlug(slug)
   }
@@ -197,9 +200,8 @@ export class FilmsService {
       await this.filmLinks.save(links.map((l) => this.filmLinks.create({ filmId: film.id, ...l })))
     }
 
-    // Sửa phim → gắn lại tag "Phim mới" (publishedAt ở trên) → coi như cập nhật bản mới,
-    // sinh thông báo type 'updated' (GĐ5).
-    await this.notifications.notify(film.id, 'updated', actor.id)
+    // Thông báo "cập nhật" tạm TẮT — xem ghi chú ở create() (2026-07-22).
+    // await this.notifications.notify(film.id, 'updated', actor.id)
 
     return this.getBySlug(film.slug)
   }
@@ -361,12 +363,10 @@ export class FilmsService {
     if (duration) film.duration = duration
     await this.films.save(film)
 
-    // versionNo > 1: upload lại file/ảnh cho phim đã tồn tại = "cập nhật bản mới" → thông
-    // báo type 'updated'. versionNo === 1 là bản đầu (thuộc luồng xuất bản ban đầu, đã
-    // thông báo 'new_film' ở create() — tránh thông báo trùng cho cùng 1 lần đăng phim).
-    if (versionNo > 1) {
-      await this.notifications.notify(film.id, 'updated', actor.id)
-    }
+    // Thông báo "cập nhật bản mới" tạm TẮT — xem ghi chú ở create() (2026-07-22).
+    // if (versionNo > 1) {
+    //   await this.notifications.notify(film.id, 'updated', actor.id)
+    // }
 
     return this.getBySlug(film.slug)
   }

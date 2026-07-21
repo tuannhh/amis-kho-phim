@@ -10,14 +10,20 @@
   end-to-end Docker + trình duyệt (2026-07-21, Sonnet 5). Chi tiết: 04-progress.md
   "Nhật ký GĐ 5"; quyết định: ADR-024/025/026 (05-decisions.md).
 - **GĐ 5 làm gì**: module `notifications` (bảng `notifications`+`user_notifications`,
-  migration `AddNotifications`) — `FilmsService` gọi `notify()` khi phim mới xuất bản
-  (`create`), khi sửa metadata (`update`, đã tự set lại tag "mới" từ GĐ2) và khi upload
-  lại file cho phim đã có (`confirmVersion` với `versionNo>1`) → fan-out cho mọi user
-  active TRỪ actor. FE: `NotificationsPanel.vue` (popover tự dựng, không MDialog) nối
-  vào chuông `MHeaderBar`, poll 30s. Module `reports`: `GET /reports/films` (+ `?format=csv`
-  BOM UTF-8) chỉ super_admin/admin, trang FE `/admin/reports` (bộ lọc người
-  upload/khoảng ngày + bảng + Xuất CSV). Search hashtag: đã có sẵn từ trước, verify
-  không cần sửa.
+  migration `AddNotifications`) + module `reports` (`GET /reports/films` + `?format=csv`
+  BOM UTF-8, chỉ super_admin/admin, trang FE `/admin/reports` — bộ lọc người
+  upload/khoảng ngày + bảng + Xuất CSV). Search hashtag: đã có sẵn từ trước, verify không
+  cần sửa.
+- **Thông báo "phim mới" ĐÃ TẮT** (2026-07-22, quyết định người dùng ngay sau khi verify
+  GĐ5): 3 điểm gọi `notifications.notify()` trong `FilmsService` (`create`/`update`/
+  `confirmVersion`) đã bị COMMENT OUT — lý do: thực tế sẽ có rất nhiều phim đăng lên, bắn
+  thông báo mỗi lần cho toàn bộ user sẽ gây spam (đặc biệt vì `update()` tự gắn lại tag
+  "Phim mới" mỗi lần sửa metadata dù chỉ sửa mô tả — hành vi có từ GĐ2, GĐ5 chỉ khuếch đại
+  bằng thông báo thật). **Hạ tầng vẫn giữ nguyên** (bảng, `NotificationsService`, 4
+  endpoint, `NotificationsPanel.vue` nối chuông `MHeaderBar`) để bật lại sau với điều kiện
+  phù hợp hơn (vd chỉ digest định kỳ, hoặc chỉ khi thật sự có file mới qua GĐ3, không phải
+  mọi lần sửa metadata) — NẾU bật lại, cân nhắc sửa luôn hành vi tự gắn lại tag "Phim mới"
+  ở `update()` cho khớp. Hiện chuông thông báo sẽ luôn hiện rỗng, đó là chủ ý.
 - **GĐ 4 làm gì**: bảng `film_views` (migration `AddFilmViews`) + `POST /films/:id/view`
   (ai đăng nhập cũng gọi được) — dedupe theo `user_id` trong cửa sổ 30' (KHÔNG dùng
   `session_hash` trong logic dedupe, chỉ ghi dự phòng — ADR-023), tăng `films.view_count`
