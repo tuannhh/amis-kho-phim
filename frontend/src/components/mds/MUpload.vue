@@ -9,7 +9,7 @@
  * cho cha xử lý; cha tự quản lý mảng modelValue (id, name, size, status,
  * progress, errorMessage) để hiển thị tiến trình thật.
  */
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import MIcon from './MIcon.vue'
 import MSpinner from './MSpinner.vue'
 
@@ -21,6 +21,8 @@ const props = defineProps({
   maxSizeMB: { type: Number, default: 5 },
   disabled: { type: Boolean, default: false },
   label: { type: String, default: 'Đính kèm' },
+  // Cho phép dán ảnh đã copy (Ctrl+V) — chỉ bật cho các dropzone nhận ảnh
+  pasteImage: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['select-files', 'oversized', 'remove', 'retry'])
@@ -67,6 +69,30 @@ function onDrop(e) {
   if (props.disabled) return
   pickFiles(e.dataTransfer?.files)
 }
+
+// Dán ảnh đã copy (vd chụp màn hình) — chỉ lấy item đầu tiên là ảnh trong clipboard
+function onWindowPaste(e) {
+  if (props.disabled) return
+  const items = e.clipboardData?.items
+  if (!items) return
+  for (const item of items) {
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      const file = item.getAsFile()
+      if (file) {
+        e.preventDefault()
+        pickFiles([file])
+      }
+      break
+    }
+  }
+}
+
+onMounted(() => {
+  if (props.pasteImage) window.addEventListener('paste', onWindowPaste)
+})
+onBeforeUnmount(() => {
+  if (props.pasteImage) window.removeEventListener('paste', onWindowPaste)
+})
 </script>
 
 <template>
@@ -92,6 +118,7 @@ function onDrop(e) {
       @drop.prevent="onDrop"
     >
       Kéo/thả tệp vào đây hoặc bấm vào đây
+      <span v-if="pasteImage">&nbsp;• dán ảnh đã copy (Ctrl+V)</span>
       <input
         ref="inputRef"
         type="file"

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import MButton from '@/components/mds/MButton.vue'
 import MInput from '@/components/mds/MInput.vue'
 import MSelect from '@/components/mds/MSelect.vue'
@@ -30,6 +30,10 @@ const categoriesTree = ref<ApiCategoryNode[]>([])
 onMounted(async () => {
   await Promise.all([store.load(), categoriesApi.tree().then((t) => (categoriesTree.value = t))])
   loadEditingFilm()
+  // Baseline để so sánh "có thay đổi chưa lưu" — lấy SAU khi đã nạp dữ liệu phim đang sửa
+  // (hoặc rỗng nếu thêm mới), rồi mới khôi phục nháp (nếu có) đè lên baseline này.
+  pristineSnapshot.value = JSON.stringify(snapshotFields())
+  restoreDraftIfAny()
 })
 
 const editingSlug = computed(() => (route.query.edit as string) || '')
@@ -256,6 +260,8 @@ async function createNewFilm() {
       submitting.value = false
       return
     }
+    clearDraft()
+    pristineSnapshot.value = JSON.stringify(snapshotFields())
     toast.success(`Đã xuất bản phim mới "${created.title}"`)
     await store.load()
     router.push({ name: 'film-detail', params: { slug: created.slug } })
@@ -276,6 +282,8 @@ async function saveUpdate(id: number, successMessage: string) {
       submitting.value = false
       return
     }
+    clearDraft()
+    pristineSnapshot.value = JSON.stringify(snapshotFields())
     toast.success(successMessage)
     await store.load()
     router.push({ name: 'film-detail', params: { slug: updated.slug } })
@@ -294,6 +302,78 @@ async function confirmUpdateVersion() {
 
 function cancel() {
   router.push({ name: 'films' })
+}
+
+// ── Nháp & cảnh báo rời trang khi chưa lưu ──────────────────────────────
+// Chỉ lưu các trường văn bản (không lưu được video/ảnh đã chọn — File không
+// thể serialize bền qua localStorage), nên khi khôi phục người dùng vẫn cần
+// chọn lại tệp nếu có.
+const DRAFT_PREFIX = 'kho-phim:film-draft:'
+const draftKey = computed(() => DRAFT_PREFIX + (editingSlug.value ? `edit:${editingSlug.value}` : 'new'))
+
+function snapshotFields() {
+  return {
+    title: form.title,
+    categoryId: form.categoryId,
+    description: form.description,
+    hashtags: [...form.hashtags],
+    youtube: form.youtube,
+    vimeo: form.vimeo,
+    gdrive: form.gdrive,
+    misadrive: form.misadrive,
+  }
+}
+
+const pristineSnapshot = ref('')
+
+function isDirty() {
+  return JSON.stringify(snapshotFields()) !== pristineSnapshot.value
+}
+
+function saveDraft() {
+  localStorage.setItem(draftKey.value, JSON.stringify(snapshotFields()))
+}
+function clearDraft() {
+  localStorage.removeItem(draftKey.value)
+}
+function restoreDraftIfAny() {
+  const raw = localStorage.getItem(draftKey.value)
+  if (!raw) return
+  try {
+    Object.assign(form, JSON.parse(raw))
+    toast.info('Đã khôi phục nội dung nháp chưa lưu trước đó (cần chọn lại video/ảnh bìa nếu có)')
+  } catch {
+    clearDraft()
+  }
+}
+
+const leaveDialogOpen = ref(false)
+let leaveResolve: ((v: boolean) => void) | null = null
+
+onBeforeRouteLeave(() => {
+  if (submitting.value || !isDirty()) return true
+  leaveDialogOpen.value = true
+  return new Promise<boolean>((resolve) => {
+    leaveResolve = resolve
+  })
+})
+
+function resolveLeave(shouldLeave: boolean) {
+  leaveDialogOpen.value = false
+  leaveResolve?.(shouldLeave)
+  leaveResolve = null
+}
+function onLeaveStay() {
+  resolveLeave(false)
+}
+function onLeaveDiscard() {
+  clearDraft()
+  resolveLeave(true)
+}
+function onLeaveSaveDraft() {
+  saveDraft()
+  toast.success('Đã lưu nháp — quay lại màn hình này sẽ còn nguyên nội dung')
+  resolveLeave(true)
 }
 </script>
 
@@ -464,6 +544,7 @@ function cancel() {
                 :maxSizeMB="15"
                 :model-value="thumbnailMeta"
                 :disabled="submitting"
+                paste-image
                 @select-files="onSelectThumbnail"
                 @remove="onRemoveThumbnail"
               />
@@ -495,6 +576,19 @@ function cancel() {
       <template #footer>
         <MButton variant="secondary" @click="confirmDialogOpen = false">Hủy</MButton>
         <MButton variant="primary" @click="confirmUpdateVersion">Cập nhật bản mới</MButton>
+      </template>
+    </MDialog>
+
+    <!-- Cảnh báo rời trang khi còn nội dung chưa lưu -->
+    <MDialog v-model="leaveDialogOpen" title="Nội dung chưa lưu" @cancel="onLeaveStay">
+      <p class="text-[13px]" style="color: var(--mds-text-primary)">
+        Bạn có thông tin chưa lưu ở màn hình này. Lưu nháp lại để khi quay lại vẫn còn nguyên các
+        trường đã nhập (video/ảnh bìa đã chọn sẽ cần chọn lại)?
+      </p>
+      <template #footer>
+        <MButton variant="secondary" @click="onLeaveStay">Ở lại</MButton>
+        <MButton variant="secondary" @click="onLeaveDiscard">Không lưu</MButton>
+        <MButton variant="primary" @click="onLeaveSaveDraft">Lưu nháp</MButton>
       </template>
     </MDialog>
   </div>

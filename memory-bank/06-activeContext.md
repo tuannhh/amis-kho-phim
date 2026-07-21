@@ -20,7 +20,13 @@
   object test mồ côi trong MinIO — vô hại.
 - **Env mới**: `MINIO_PUBLIC_ENDPOINT=http://localhost:9200` (endpoint trình duyệt gọi để upload
   presigned; đã thêm .env/.env.example/docker-compose). Đổi thành domain thật khi lên production.
-- **Chưa push**: commit local GĐ 3 (xem `git log`). Push cần người dùng xác nhận riêng.
+- **Fix nhỏ sau GĐ3 (2026-07-21, Sonnet 5)**: (1) Cảnh báo rời trang khi `FilmUploadView` còn nội
+  dung chưa lưu (`onBeforeRouteLeave` + dialog "Ở lại/Không lưu/Lưu nháp") — nháp lưu localStorage
+  (`kho-phim:film-draft:new|edit:<slug>`, chỉ trường văn bản, không lưu được File đã chọn), tự khôi
+  phục khi quay lại, tự xoá sau khi xuất bản/lưu thành công. (2) `MUpload` thêm prop `pasteImage` —
+  dán ảnh copy (Ctrl+V) thẳng vào dropzone, đã bật cho ô ảnh bìa phim. Đã verify browser (dialog
+  hiện đúng lúc, nháp khôi phục đúng, dán ảnh tạo preview đúng), build FE sạch.
+- **Đã push**: commit GĐ 3 + fix nhỏ trên đã lên GitHub `main` (xem `git log`).
 - **Việc tiếp theo — GĐ 4 (Player & Link ngoài & View)**: đếm lượt xem (bảng `film_views`, dedupe
   session), hoàn thiện trang xem, nút link theo nguồn. Nhiều phần player đa nguồn đã có sẵn.
 - **Model**: GĐ 4 dùng **Opus 4.8** (player) → **Sonnet 5** (nút/link) theo 03-roadmap.md.
