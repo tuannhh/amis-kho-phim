@@ -1,0 +1,16 @@
+@import "tailwindcss";
+@import "./assets/mds/index.css";
+
+/* Nền & typography nền tảng theo MDS */
+html, body, #app {
+  height: 100%;
+}
+body {
+  margin: 0;
+  font-family: "InterVariable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 13px;               /* MDS body mặc định 13px */
+  color: var(--mds-text-primary, #1f2937);
+  background: var(--mds-bg-canvas, #ECEDEF);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}

@@ -1,0 +1,15 @@
+# deps & build
+node_modules/
+dist/
+*.log
+
+# env & secrets
+.env
+*.local
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

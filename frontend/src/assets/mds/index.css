@@ -1,0 +1,9 @@
+/* MDS entry — nạp font + toàn bộ token + theme mặc định (blue).
+   Đổi theme runtime bằng <html data-mds-theme="..."> (indigo, green, ...). */
+@import "./fonts/inter.css";
+@import "./tokens/font.css";
+@import "./tokens/number.css";
+@import "./tokens/space-standard.css";
+@import "./tokens/base-colors.css";
+@import "./tokens.css";
+@import "./tokens/themes/blue.css";
