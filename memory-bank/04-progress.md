@@ -4,8 +4,10 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
-- Giai đoạn hiện tại: **GĐ 1 — Auth & RBAC (bắt đầu)** — GĐ 0.5 đã CHỐT & duyệt.
+- Giai đoạn hiện tại: **GĐ 1 — Auth & RBAC (chưa bắt đầu code)** — GĐ 0.5 đã CHỐT & duyệt,
+  Docker đã verify chạy thật. Đã tạm `docker compose down` để nghỉ phiên (2026-07-21).
 - % hoàn thành tổng thể: ~35%
+- Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
 
 ## Nhật ký
 - 2026-07-21 — [GĐ 0] Chốt stack: NestJS + MySQL + MinIO, FE Vue3+Tailwind+MDS, PWA, Docker — DONE
