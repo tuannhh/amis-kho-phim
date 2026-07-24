@@ -558,8 +558,13 @@ function onLeaveSaveDraft() {
       </div>
     </main>
 
-    <!-- Footer sticky: Hủy trái, Lưu/Xuất bản phải (Primary ngoài cùng) -->
-    <footer class="flex shrink-0 items-center justify-between bg-white px-4 py-3">
+    <!-- Footer sticky: Hủy trái, Lưu/Xuất bản phải (Primary ngoài cùng). padding-bottom
+         chừa env(safe-area-inset-bottom) (mobile-pwa.md §2.6/§6) để không bị thanh cử chỉ
+         iOS/Android che khi PWA chạy standalone. -->
+    <footer
+      class="flex shrink-0 items-center justify-between bg-white px-4 pt-3"
+      style="padding-bottom: max(12px, env(safe-area-inset-bottom))"
+    >
       <MButton variant="secondary" :disabled="submitting" @click="cancel">Hủy</MButton>
       <MButton variant="primary" :loading="submitting" @click="publish">
         {{ isEditMode ? 'Lưu thay đổi' : 'Xuất bản' }}

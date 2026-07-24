@@ -2,6 +2,45 @@
 
 > Ghi lại quyết định kiến trúc quan trọng + lý do. Thêm mục mới ở trên cùng.
 
+## ADR-028 — Compact: bottom navigation (không drawer); Medium/Expanded KHÔNG tự ép rail [GĐ6]
+- **Quyết định:** Ở window size class Compact (&lt;600px), thay `MSidebar` cố định bằng
+  bottom navigation cố định 5 mục (đúng `sidebarItems` hiện có: Kho phim/Thêm phim/Chuyên
+  mục/Quản trị người dùng/Báo cáo — ẩn 2 mục cuối theo role như cũ). KHÔNG dùng drawer.
+  Ở Medium (600-839px) và Expanded (840-1199px), **giữ nguyên `MSidebar` đầy đủ** (200px
+  mở rộng / 64px thu gọn qua nút bấm thủ công có sẵn từ GĐ0) — KHÔNG tự động ép về dạng
+  rail/drawer theo breakpoint dù mobile-pwa.md gợi ý điều đó.
+- **Lý do:** mobile-pwa.md quy định "dùng bottom navigation khi có tối đa 5 điểm đến cấp
+  một ổn định" — `sidebarItems` đúng khớp giới hạn này (kể cả khi đủ quyền super_admin/
+  admin), không cần tới drawer phức tạp hơn. Với Medium/Expanded: `MSidebar` đã có sẵn cơ
+  chế thu gọn thủ công do người dùng chủ động bấm (không phải hành vi mới cần thêm) và
+  card grid `FilmListView` đã tự co giãn số cột theo bề rộng còn lại — ép tự động chuyển
+  rail theo breakpoint sẽ xung đột với lựa chọn thu gọn thủ công đã lưu của người dùng
+  (`v-model:collapsed`) mà không mang lại lợi ích rõ ràng ở quy mô app này. Ghi nhận là
+  đơn giản hoá có chủ đích, không phải bỏ sót — nếu sau này có nhu cầu thật (nội dung
+  chính bị bó hẹp ở Medium), có thể bổ sung tự động collapse khi `sizeClass==='medium'`.
+
+## ADR-027 — PWA: `registerType: 'prompt'` (không 'autoUpdate'); icon sinh bằng script `sharp` [GĐ6]
+- **Quyết định:** `vite-plugin-pwa` cấu hình `registerType: 'prompt'` — service worker
+  mới KHÔNG tự `skipWaiting()`/reload ngầm; thay vào đó `usePwaUpdate()` (bọc
+  `virtual:pwa-register/vue`) cấp cờ `needRefresh` cho `App.vue` hiện Global Inline
+  Notification "Có phiên bản mới" + nút "Cập nhật" — người dùng tự bấm mới
+  `updateServiceWorker(true)`. Cache chiến lược: precache app shell qua Workbox
+  `globPatterns`; `/api/*` NetworkFirst (timeout 8s); `/media/*` (stream video qua
+  backend proxy — ADR-021) `NetworkOnly` tuyệt đối không cache. Icon PWA (192/512/
+  512-maskable/apple-touch-icon) sinh bằng script Node `scripts/generate-pwa-icons.mjs`
+  dùng `sharp` render 1 SVG vẽ tay (nền brand `#245FDF` + glyph "device-tv" phong cách
+  Tabler stroke 1.5) — không dùng ảnh chụp màn hình hay icon ngoài.
+- **Lý do:** `FilmUploadView` có luồng nháp/cảnh báo thoát trang khi form dở dang (ADR
+  từ GĐ3) — nếu SW tự activate+reload theo `autoUpdate` giữa lúc người dùng đang nhập
+  form sẽ mất dữ liệu đang gõ mà không có dialog xác nhận nào chặn được (SW update nằm
+  ngoài luồng router/component), vi phạm trực tiếp mobile-pwa.md §7 "Không tự reload khi
+  form đang có thay đổi chưa lưu". `/media/*` không cache vì file video lớn (không hợp lý
+  chiếm cache storage) và có thể gắn với quyền truy cập theo phiên — cache dùng chung ở
+  SW là rủi ro rò rỉ giữa các người dùng dùng chung thiết bị/trình duyệt. Script sinh icon
+  bằng `sharp` (không phải service chuyển đổi ảnh online) giữ icon tái tạo được, không phụ
+  thuộc tài sản thiết kế bên ngoài chưa có (app chưa có bộ icon PNG chính thức từ Product
+  Design) — icon sẽ được thay bằng asset thật khi đội thiết kế cung cấp.
+
 ## ADR-026 — Xuất CSV: cùng 1 endpoint `?format=csv`, BOM UTF-8 thủ công [GĐ5]
 - **Quyết định:** `GET /reports/films` nhận thêm query `format=csv` (thay vì tách route
   riêng `/reports/films/export` hoặc `/reports/films.csv`) — controller check

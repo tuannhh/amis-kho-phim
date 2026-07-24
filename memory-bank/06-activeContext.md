@@ -5,10 +5,25 @@
 
 ## Tóm tắt nhanh (đọc 30 giây là hiểu hết)
 - **Đã xong**: GĐ 0 + 0.5 (UI mock) + 1 (Auth & RBAC) + 2 (Chuyên mục & Phim core) + GĐ 3
-  (Storage & Thumbnail, MinIO THẬT) + GĐ 4 (Player & Link ngoài & View) + **GĐ 5
-  (Nghiệp vụ nâng cao: thông báo phim mới + báo cáo Quản trị CSV)** — GĐ 5 verify
-  end-to-end Docker + trình duyệt (2026-07-21, Sonnet 5). Chi tiết: 04-progress.md
-  "Nhật ký GĐ 5"; quyết định: ADR-024/025/026 (05-decisions.md).
+  (Storage & Thumbnail, MinIO THẬT) + GĐ 4 (Player & Link ngoài & View) + GĐ 5
+  (Nghiệp vụ nâng cao: thông báo phim mới + báo cáo Quản trị CSV) + **GĐ 6 (PWA & Mobile
+  & MDS polish)** — GĐ 6 verify end-to-end Docker + trình duyệt nhiều viewport
+  (2026-07-24, Sonnet 5). Chi tiết: 04-progress.md "Nhật ký GĐ 6"; quyết định:
+  ADR-027/028 (05-decisions.md).
+- **GĐ 6 làm gì**: vite-plugin-pwa (`registerType:'prompt'`, manifest+icon sinh bằng
+  script `scripts/generate-pwa-icons.mjs`, Workbox NetworkFirst `/api/*` + KHÔNG cache
+  `/media/*`), banner Global Inline (offline/update/offline-ready) qua `MGlobalInline.vue`
+  mới + `useNetworkStatus`/`usePwaUpdate` (`src/lib/`); window size class dùng chung
+  (`src/lib/windowSize.ts`) — Compact (&lt;600px) bỏ `MSidebar` cố định, dùng bottom
+  navigation 5 mục; `MHeaderBar` thêm prop `compact` (search icon→overlay full-width,
+  Thiết lập/AVA/Chat/Hỗ trợ gộp More — KHÔNG đổi gì ở Medium/Expanded/Large);
+  `NotificationsPanel` full-screen ở compact; CSS toàn cục cho touch target 48px
+  (coarse pointer) + input 16px chống iOS zoom + chặn horizontal scroll toàn trang.
+  Đã build production sạch + verify browser thật (không chỉ đọc code) qua 320/375/768/
+  1024/1280px. **Việc tiếp theo: GĐ 7 — Hardening & Handoff** (security-review, test
+  coverage, tài liệu API, hướng dẫn DevOps — xem 03-roadmap.md).
+- **GĐ 5 (log cũ)**: verify end-to-end Docker + trình duyệt (2026-07-21, Sonnet 5).
+  Chi tiết: 04-progress.md "Nhật ký GĐ 5"; quyết định: ADR-024/025/026.
 - **GĐ 5 làm gì**: module `notifications` (bảng `notifications`+`user_notifications`,
   migration `AddNotifications`) + module `reports` (`GET /reports/films` + `?format=csv`
   BOM UTF-8, chỉ super_admin/admin, trang FE `/admin/reports` — bộ lọc người
@@ -49,12 +64,20 @@
   phục khi quay lại, tự xoá sau khi xuất bản/lưu thành công. (2) `MUpload` thêm prop `pasteImage` —
   dán ảnh copy (Ctrl+V) thẳng vào dropzone, đã bật cho ô ảnh bìa phim. Đã verify browser (dialog
   hiện đúng lúc, nháp khôi phục đúng, dán ảnh tạo preview đúng), build FE sạch.
-- **Đã push**: commit GĐ 3 + fix nhỏ trên đã lên GitHub `main` (xem `git log`). GĐ 4 mới
-  commit LOCAL, CHƯA push (chờ xác nhận riêng).
-- **Việc tiếp theo — GĐ 6 (PWA & Mobile & MDS polish)**: xem 03-roadmap.md dòng GĐ 6 —
-  vite-plugin-pwa (installable, offline shell); responsive mobile; chuẩn hoá UI theo
-  skill misa-design-system (dùng skill này trước khi sửa bất kỳ UI nào).
-- **Model**: GĐ 6 dùng **Sonnet 5** (dùng skill MDS) theo gợi ý 03-roadmap.md.
+- **Đã push**: commit GĐ 3 + fix nhỏ trên đã lên GitHub `main` (xem `git log`). GĐ 4, GĐ 5,
+  GĐ 6 mới commit LOCAL, CHƯA push (chờ xác nhận riêng).
+- **Việc tiếp theo — GĐ 7 (Hardening & Handoff)**: xem 03-roadmap.md dòng GĐ 7 —
+  security-review; test coverage; tài liệu API + quy trình nội bộ; hướng dẫn DevOps đưa
+  lên AMIS (cắm OIDC thay JWT nội bộ — ADR-012/003, đổi storage MinIO→AMIS Drive/S3 thật
+  — ADR-004/020). Gợi ý bắt đầu bằng skill/slash-command `security-review` có sẵn.
+- **Model**: GĐ 7 dùng **Opus 4.8** (review/bảo mật) + **Haiku 4.5** (docs/format) theo
+  gợi ý 03-roadmap.md.
+- **Việc chưa verify được ở GĐ 6** (môi trường phiên chỉ có browser desktop resize, không
+  phải thiết bị thật): test trên iOS Safari/Android Chrome thật (Add to Home Screen, push
+  permission, back-gesture, `pointer:coarse` thật); dev server FE riêng (`npm run dev --
+  port 5180`) thiếu proxy `/api` nên không login được qua cổng 5180 (có từ trước GĐ6,
+  không phải lỗi mới) — nếu cần dùng lại luồng hot-reload 5180 để login, cân nhắc thêm
+  `server.proxy` trong `vite.config.ts` trỏ `/api` + `/media` sang backend.
 
 ## Cách chạy lại nhanh
 ```bash

@@ -5,15 +5,25 @@ import MHeaderBar from '@/components/mds/MHeaderBar.vue'
 import MSidebar from '@/components/mds/MSidebar.vue'
 import MToast from '@/components/mds/MToast.vue'
 import MIcon from '@/components/mds/MIcon.vue'
+import MGlobalInline from '@/components/mds/MGlobalInline.vue'
 import { filmSearchQuery } from '@/features/films/searchState'
 import { useAuthStore, type UserRole } from '@/features/auth/authStore'
 import { useNotificationsStore } from '@/features/notifications/notificationsStore'
 import NotificationsPanel from '@/features/notifications/NotificationsPanel.vue'
+import { useWindowSize } from '@/lib/windowSize'
+import { useNetworkStatus } from '@/lib/useNetworkStatus'
+import { usePwaUpdate } from '@/lib/usePwaUpdate'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 const notifications = useNotificationsStore()
+
+// GĐ6 — PWA & Mobile: window size class (mobile-pwa.md §2), trạng thái mạng và
+// service worker cập nhật (mobile-pwa.md §7).
+const { isCompact } = useWindowSize()
+const { isOnline } = useNetworkStatus()
+const { needRefresh, offlineReady, applyUpdate, dismissOfflineReady } = usePwaUpdate()
 
 // Poll số thông báo chưa đọc khi đã đăng nhập; dừng khi đăng xuất (GĐ5).
 watch(
@@ -89,6 +99,28 @@ function logout() {
   auth.logout()
   router.replace({ name: 'login' })
 }
+
+// Chiều cao thật của khối banner (offline/update) + header — dùng làm điểm neo `top`
+// cho popover/panel nổi, vì banner Global Inline có thể hiện/ẩn động (mobile-pwa.md
+// §7) làm header trôi xuống; không được hardcode top cố định như trước GĐ6.
+const topBarEl = ref<HTMLElement | null>(null)
+const topBarHeight = ref(48)
+let topBarObserver: ResizeObserver | null = null
+watch(topBarEl, (el) => {
+  topBarObserver?.disconnect()
+  if (!el) return
+  topBarObserver = new ResizeObserver(([entry]) => {
+    topBarHeight.value = entry.contentRect.height
+  })
+  topBarObserver.observe(el)
+})
+
+// Tìm kiếm full-width overlay ở Compact (mobile-pwa.md §3): MHeaderBar tự ẩn ô input
+// và phát sự kiện này khi bấm icon tìm kiếm — App.vue chỉ cần forward tới cùng logic
+// onHeaderSearch đã có.
+function offlineRetry() {
+  location.reload()
+}
 </script>
 
 <template>
@@ -96,28 +128,47 @@ function logout() {
   <router-view v-if="isBlank" />
 
   <!-- Layout app: header + sidebar -->
-  <div v-else class="flex h-full flex-col" style="background: var(--mds-bg-canvas, #ECEDEF)">
-    <MHeaderBar
-      variant="brand"
-      app-name="AMIS Kho phim"
-      company-name="MISA"
-      search-placeholder="Tìm phim theo tên, hashtag... (Enter để tìm)"
-      :user="currentUser"
-      :notification-count="notifications.unreadCount"
-      @search="onHeaderSearch"
-      @logo-click="goHome"
-      @user-click="toggleUserMenu"
-      @notifications="toggleNotificationsPanel"
-    />
+  <div
+    v-else
+    class="flex flex-col"
+    style="background: var(--mds-bg-canvas, #ECEDEF); min-height: 100dvh; height: 100dvh"
+  >
+    <div ref="topBarEl" class="shrink-0" style="padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right)">
+      <!-- Global Inline: mất mạng (mobile-pwa.md §7 "Offline") -->
+      <MGlobalInline v-if="!isOnline" type="warning" icon="alert-triangle" action-label="Thử lại" @action="offlineRetry">
+        Mất kết nối mạng — bạn vẫn xem được dữ liệu đã tải trước đó, nhưng số liệu mới nhất và thao tác lưu/tải phim sẽ không hoạt động.
+      </MGlobalInline>
+      <!-- Global Inline: có phiên bản mới (KHÔNG tự reload nếu form đang có nội dung chưa lưu) -->
+      <MGlobalInline v-else-if="needRefresh" type="info" icon="refresh" action-label="Cập nhật" @action="applyUpdate">
+        Đã có phiên bản mới của Kho phim. Bấm Cập nhật để dùng bản mới nhất (trang sẽ tải lại).
+      </MGlobalInline>
+      <MGlobalInline v-else-if="offlineReady" type="success" icon="circle-check" closable @close="dismissOfflineReady">
+        Kho phim đã sẵn sàng dùng ngoại tuyến cho những phần đã xem qua.
+      </MGlobalInline>
 
-    <NotificationsPanel v-model="notificationsPanelOpen" />
+      <MHeaderBar
+        variant="brand"
+        app-name="AMIS Kho phim"
+        company-name="MISA"
+        search-placeholder="Tìm phim theo tên, hashtag... (Enter để tìm)"
+        :user="currentUser"
+        :notification-count="notifications.unreadCount"
+        :compact="isCompact"
+        @search="onHeaderSearch"
+        @logo-click="goHome"
+        @user-click="toggleUserMenu"
+        @notifications="toggleNotificationsPanel"
+      />
+    </div>
+
+    <NotificationsPanel v-model="notificationsPanelOpen" :top-offset="topBarHeight + 4" :full-screen="isCompact" />
 
     <!-- Popover menu người dùng -->
     <template v-if="userMenuOpen">
       <div class="fixed inset-0 z-40" @click="userMenuOpen = false" />
       <div
-        class="fixed right-2 top-[52px] z-50 w-56 overflow-hidden rounded-lg bg-white py-1"
-        style="box-shadow: var(--mds-shadow-md, 0 4px 12px 0 rgba(0,0,0,0.12))"
+        class="fixed right-2 z-50 w-56 overflow-hidden rounded-lg bg-white py-1"
+        :style="{ top: `${topBarHeight + 4}px`, boxShadow: 'var(--mds-shadow-md, 0 4px 12px 0 rgba(0,0,0,0.12))' }"
       >
         <div class="border-b px-3 py-2" style="border-color: var(--mds-border-light, #E9EAEB)">
           <p class="truncate text-[13px] font-semibold" style="color: var(--mds-text-primary)">
@@ -148,16 +199,43 @@ function logout() {
     </template>
 
     <div class="flex min-h-0 flex-1">
+      <!-- Compact (<600px): KHÔNG giữ sidebar cố định (mobile-pwa.md §2/§3) — thay bằng
+           bottom navigation vì sidebarItems tối đa 5 điểm đến ổn định, đủ điều kiện dùng
+           bottom nav thay vì drawer. -->
       <MSidebar
+        v-if="!isCompact"
         :items="sidebarItems"
         :model-value="activeKey"
         v-model:collapsed="collapsed"
         @update:model-value="onNavigate"
       />
-      <main class="min-w-0 flex-1 overflow-hidden">
+      <main class="min-w-0 flex-1 overflow-hidden" :style="isCompact ? { paddingBottom: 'calc(56px + env(safe-area-inset-bottom))' } : {}">
         <router-view />
       </main>
     </div>
+
+    <!-- Bottom navigation — Compact only. Icon MDS + nhãn theo đúng mục 3 "Điều hướng
+         và app shell": mỗi mục có icon + label, không dùng dãy icon không nhãn. -->
+    <nav
+      v-if="isCompact"
+      class="fixed inset-x-0 bottom-0 z-30 flex shrink-0 items-stretch border-t bg-white"
+      style="border-color: var(--mds-border-light, #E9EAEB); padding-bottom: env(safe-area-inset-bottom)"
+      aria-label="Điều hướng chính"
+    >
+      <button
+        v-for="item in sidebarItems"
+        :key="item.key"
+        type="button"
+        class="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px]"
+        style="min-height: 56px"
+        :class="activeKey === item.key ? 'font-semibold text-[var(--mds-brand-600)]' : 'text-[var(--mds-text-secondary)]'"
+        :aria-current="activeKey === item.key ? 'page' : undefined"
+        @click="onNavigate(item.key)"
+      >
+        <MIcon :name="item.icon" :size="20" />
+        <span class="max-w-full truncate px-1">{{ item.label }}</span>
+      </button>
+    </nav>
 
     <MToast />
   </div>

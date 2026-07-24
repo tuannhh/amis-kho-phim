@@ -3,6 +3,7 @@ import { watch } from 'vue'
 import { useRouter } from 'vue-router'
 import MEmptyState from '@/components/mds/MEmptyState.vue'
 import MSpinner from '@/components/mds/MSpinner.vue'
+import MIcon from '@/components/mds/MIcon.vue'
 import { useNotificationsStore } from './notificationsStore'
 import type { ApiNotification } from './notificationsApi'
 
@@ -13,7 +14,10 @@ import type { ApiNotification } from './notificationsApi'
  * shadow-md (overlay), KHÔNG dùng MDialog (dialog che toàn màn hình, không hợp
  * cho panel nhỏ góc trên — theo hướng dẫn skill misa-design-system).
  */
-const props = defineProps<{ modelValue: boolean }>()
+const props = withDefaults(
+  defineProps<{ modelValue: boolean; topOffset?: number; fullScreen?: boolean }>(),
+  { topOffset: 52, fullScreen: false },
+)
 const emit = defineEmits<{ 'update:modelValue': [boolean] }>()
 
 const store = useNotificationsStore()
@@ -54,15 +58,23 @@ async function onItemClick(n: ApiNotification) {
 <template>
   <template v-if="modelValue">
     <div class="fixed inset-0 z-40" @click="close" />
+    <!-- Compact: full-screen (mobile-pwa.md §4.5 "bottom sheet/dialog" — panel danh sách
+         dài hơn chọn full-screen thay vì popover hẹp). Medium+: giữ nguyên popover góc trên. -->
     <div
-      class="fixed right-2 top-[52px] z-50 flex max-h-[70vh] w-[360px] flex-col overflow-hidden rounded-lg bg-white"
-      style="box-shadow: var(--mds-shadow-md, 0 4px 12px 0 rgba(0,0,0,0.12))"
+      class="fixed z-50 flex flex-col overflow-hidden bg-white"
+      :class="fullScreen ? 'inset-0' : 'right-2 w-[360px] max-h-[70vh] rounded-lg'"
+      :style="fullScreen ? {} : { top: `${topOffset}px`, boxShadow: 'var(--mds-shadow-md, 0 4px 12px 0 rgba(0,0,0,0.12))' }"
     >
       <div
         class="flex shrink-0 items-center justify-between border-b px-3 py-2"
-        style="border-color: var(--mds-border-light, #E9EAEB)"
+        :style="{ borderColor: 'var(--mds-border-light, #E9EAEB)', paddingTop: fullScreen ? 'max(8px, env(safe-area-inset-top))' : undefined }"
       >
-        <p class="text-[13px] font-semibold" style="color: var(--mds-text-primary)">Thông báo</p>
+        <span class="flex items-center gap-2">
+          <button v-if="fullScreen" type="button" class="grid h-8 w-8 place-items-center rounded-lg" style="color: var(--mds-icon-neutral)" aria-label="Đóng" @click="close">
+            <MIcon name="chevron-left" :size="20" />
+          </button>
+          <p class="text-[13px] font-semibold" style="color: var(--mds-text-primary)">Thông báo</p>
+        </span>
         <button
           type="button"
           class="text-[12px] font-medium disabled:cursor-not-allowed disabled:opacity-40"

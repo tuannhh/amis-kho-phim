@@ -4,11 +4,108 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
-- Giai đoạn hiện tại: **GĐ 5 — Nghiệp vụ nâng cao ĐÃ XONG & verify end-to-end** trong
-  Docker + trình duyệt (2026-07-21, Sonnet 5). Commit local (chưa push).
-  Tiếp theo: **GĐ 6 — PWA & Mobile & MDS polish** (03-roadmap.md).
-- % hoàn thành tổng thể: ~88%
+- Giai đoạn hiện tại: **GĐ 6 — PWA & Mobile & MDS polish ĐÃ XONG & verify end-to-end** trong
+  Docker + trình duyệt nhiều viewport (2026-07-24, Sonnet 5). Commit local (chưa push).
+  Tiếp theo: **GĐ 7 — Hardening & Handoff** (03-roadmap.md).
+- % hoàn thành tổng thể: ~93%
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
+
+## Nhật ký GĐ 6 (PWA & Mobile & MDS polish) — 2026-07-24
+- **PWA**: cài `vite-plugin-pwa` + `sharp` (chỉ devDependency, dùng để render icon lúc
+  build, không đưa vào bundle chạy). `frontend/scripts/generate-pwa-icons.mjs` sinh
+  4 icon PNG (`public/icons/app-192.png`, `app-512.png`, `app-maskable-512.png`,
+  `apple-touch-icon.png`) từ 1 SVG vẽ tay (nền brand `#245FDF` + glyph "device-tv" style
+  Tabler stroke 1.5) — chạy lại bằng `node scripts/generate-pwa-icons.mjs` khi cần đổi icon.
+  `vite.config.ts`: `VitePWA({ registerType: 'prompt', ... })` — **CHỌN 'prompt' KHÔNG
+  phải 'autoUpdate'** để không tự activate/reload khi form đang có nội dung chưa lưu
+  (ADR-027). Manifest tối thiểu đúng mobile-pwa.md (name/short_name/theme_color
+  `#245fdf`/background `#ffffff`/3 icon). Workbox: precache app shell; `runtimeCaching`
+  NetworkFirst cho `/api/*` (timeout 8s, cache 1h); `/media/*` (video) `NetworkOnly` —
+  KHÔNG cache video/dữ liệu nhạy cảm. `index.html` thêm `viewport-fit=cover`,
+  `apple-touch-icon`, các meta `apple-mobile-web-app-*`.
+- **Trạng thái PWA trong App.vue**: `src/lib/useNetworkStatus.ts` (theo dõi
+  `navigator.onLine` + sự kiện online/offline), `src/lib/usePwaUpdate.ts` (bọc
+  `virtual:pwa-register/vue` — `needRefresh`/`offlineReady`/`updateServiceWorker`).
+  Component mới `src/components/mds/MGlobalInline.vue` ("Global Inline Notification"
+  theo `communication.md` mục 2.5 — dải banner trên cùng, TRÊN header) hiển thị 3
+  trạng thái: mất mạng (warning, nút "Thử lại"), có phiên bản mới (info, nút "Cập nhật"
+  → `updateServiceWorker(true)`), sẵn sàng dùng ngoại tuyến (success, đóng được) — đã
+  verify cả 3 bằng browser thật (mô phỏng offline qua dispatch event, offline-ready bắn
+  tự nhiên ngay lần load đầu sau khi SW cài xong).
+- **Window size class**: `src/lib/windowSize.ts` — composable dùng chung
+  (Compact&lt;600/Medium 600-839/Expanded 840-1199/Large&gt;=1200 theo `window.innerWidth`,
+  1 listener resize dùng chung qua reference-count). `App.vue`, `MHeaderBar.vue`,
+  `NotificationsPanel.vue` đều dùng composable này — **đổi layout khi resize KHÔNG cần
+  reload** (đã verify: kéo resize 1280→768→320 và ngược lại, panel/toolbar tự đổi ngay).
+- **App.vue (Compact &lt;600px)**: **bỏ hẳn `MSidebar` cố định**, thay bằng
+  **bottom navigation** (`<nav class="fixed inset-x-0 bottom-0">`, `env(safe-area-inset-bottom)`,
+  5 mục `sidebarItems` hiện có vừa đúng giới hạn ≤5 của mobile-pwa.md — xem ADR-028 lý
+  do chọn bottom-nav thay vì drawer). `main` có `padding-bottom` chừa chỗ cho bottom nav.
+  Root layout đổi `h-full`→`100dvh` (giữ `min-height`+`height` cùng lúc để Safari cũ vẫn
+  có fallback). Banner (`MGlobalInline`) + `MHeaderBar` đặt trong 1 wrapper đo chiều cao
+  thật qua `ResizeObserver` (`topBarHeight`) — popover menu người dùng + `NotificationsPanel`
+  dùng giá trị này làm `top` thay vì hardcode `top-[52px]` cũ (banner hiện/ẩn động sẽ đẩy
+  header xuống, không được hardcode nữa).
+- **MHeaderBar.vue**: thêm prop `compact` (mặc định `false` — **không đổi gì ở
+  Medium/Expanded/Large**, giao diện desktop giữ nguyên 100%). Khi `compact=true`: ô tìm
+  kiếm inline ẩn, thay bằng icon "Tìm kiếm" mở **overlay full-width** (input tự focus,
+  nút Back đóng) đè lên toàn header; Thiết lập/AVA/Chat/Hỗ trợ gộp vào popover "More"
+  (trước đó These bị `hidden md:grid` nên vô hình ở mobile — giờ hiện đúng vị trí, chỉ
+  còn Thông báo + avatar trực tiếp ngoài More theo đúng mobile-pwa.md §3).
+- **NotificationsPanel.vue**: thêm prop `topOffset` (thay hardcode) và `fullScreen`
+  (App.vue truyền `isCompact`) — Compact: panel full-screen có top bar Back; Medium+:
+  giữ nguyên popover góc trên phải như cũ.
+- **FilmListView/FilmDetailView**: đã là card grid responsive + toolbar flex-wrap từ
+  GĐ0.5/2 nên **không cần viết lại** — chỉ rà và xác nhận qua browser thật ở 320/375/768/
+  1024/1280 không tràn ngang, touch target đủ dùng, không có bảng ngang chật cần chuyển
+  card (đã là card sẵn).
+- **FilmUploadView.vue**: footer sticky Lưu/Hủy thêm `padding-bottom: max(12px,
+  env(safe-area-inset-bottom))` (trước đó không chừa safe-area, có thể bị thanh cử chỉ
+  iOS/Android che một phần) — không đổi các quy tắc nháp/cảnh báo thoát trang đã có.
+- **CSS toàn cục** (`style.css`) — áp dụng CHUNG thay vì sửa từng file: (1) `@media
+  (pointer: coarse)`: icon-button `h-8 w-8` (32px, gần như toàn bộ nút icon trong app
+  dùng đúng 2 class Tailwind liền kề này) được mở rộng vùng chạm ảo lên 48×48px bằng
+  `::after{inset:-8px}` — **không phóng to icon/nút thật**, giữ nguyên UI đã duyệt; input/
+  select/textarea `font-size:16px !important` (chặn iOS Safari tự zoom khi focus — cần
+  `!important` vì class Tailwind `text-[13px]` có specificity cao hơn selector element
+  thường). (2) `body{overflow-x:hidden}` chặn tràn ngang toàn trang. (3)
+  `prefers-reduced-motion: reduce` tắt animation. **Hạn chế đã biết**: công cụ browser
+  test dùng trong phiên này resize viewport nhưng KHÔNG giả lập `pointer: coarse` (luôn
+  báo `fine`/`maxTouchPoints:0`) — đã xác nhận rule tồn tại đúng trong CSS biên dịch
+  (`document.styleSheets`) nhưng KHÔNG tự bấm-thử được bằng ngón tay thật trên thiết bị
+  touch thật trong phiên này; cần verify thêm trên điện thoại/tablet thật hoặc DevTools
+  device toolbar (giả lập touch đầy đủ) trước khi coi 48px touch target là 100% chắc chắn.
+- **Không tự động thu gọn Sidebar ở Medium/Expanded**: mobile-pwa.md gợi ý Medium dùng
+  rail/drawer, nhưng `MSidebar` đã có sẵn nút thu gọn thủ công (200px⇄64px, từ GĐ0) và
+  card grid đã tự co giãn cột — **quyết định KHÔNG** tự động ép rail theo breakpoint để
+  tránh xung đột với lựa chọn thủ công của người dùng đã có từ trước; ghi nhận là điểm
+  đơn giản hoá có chủ đích (xem ADR-028).
+- **CategoryView/UserAdminView/ReportsView**: đã rà ở 320px — `MDataTable`/`MTree` đã tự
+  có `overflow-auto` container riêng nên KHÔNG tràn ngang toàn trang; **chưa chuyển
+  table→card** cho 2 trang admin (UserAdminView/ReportsView) vì đây là màn hình quản trị
+  ít dùng trên di động, bảng đã cuộn ngang gọn trong khung riêng — ghi nhận là điểm cố ý
+  bỏ qua theo đúng tinh thần "không được tự ý bỏ qua mà không nói": nếu cần dùng nhiều
+  trên mobile, GĐ7 có thể bổ sung.
+- **LoginView/ChangePasswordView**: đã vừa khung 320×568 không cần cuộn thêm gì, input
+  vốn đã `autocomplete`/`type` đúng từ GĐ1; áp dụng chung rule font-size 16px coarse-pointer
+  ở style.css nên không cần sửa riêng.
+- **VideoPlayer.vue**: giữ nguyên (ADR-008 — native `<video controls>`/iframe official
+  đã tự xử lý fullscreen + safe-area qua trình duyệt, không cần thêm CSS).
+- **Build & verify**: `npm run build` (vue-tsc + vite build) sạch, PWA sinh
+  `dist/sw.js`+`dist/workbox-*.js`+`dist/manifest.webmanifest` hợp lệ. Verify browser
+  thật (Claude_Browser, KHÔNG chỉ đọc code) qua Docker (`docker compose up -d --build`,
+  cổng 8180) — đăng nhập `superadmin@misa.com.vn`, tự bấm/resize qua 320×568, 375×667,
+  768×1024, 1024×768, 1280×800: xác nhận không sidebar cố định ở compact, bottom nav
+  5 mục hoạt động, search overlay + More popover hoạt động, NotificationsPanel
+  full-screen↔popover đổi đúng theo size class không reload, banner offline/offline-ready
+  hiện đúng vị trí không đè header, không trang nào tràn ngang (`scrollWidth===innerWidth`
+  đo trực tiếp qua JS ở nhiều trang), form Thêm phim sticky footer không bị cắt.
+  **Chưa verify được**: dev server FE riêng `npm run dev -- --port 5180` không có proxy
+  `/api` (thiếu từ trước GĐ6, không phải lỗi phát sinh ở GĐ6) nên không đăng nhập được
+  qua cổng 5180 trong phiên này — đã chuyển toàn bộ verify sang cổng 8180 (Docker nginx,
+  build production, cùng chất lượng kiểm thử); test thiết bị iOS/Android thật (Safari/
+  Chrome, Add to Home Screen, push permission, back-gesture) chưa thực hiện được vì môi
+  trường phiên này chỉ có browser desktop resize — cần verify thêm trên thiết bị thật.
 
 ## Nhật ký GĐ 5 (Nghiệp vụ nâng cao) — 2026-07-21
 - Versioning/tag "Phim mới"/hashtag/search theo tên-hashtag-chuyên mục: đã có sẵn từ

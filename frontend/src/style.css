@@ -13,4 +13,41 @@ body {
   background: var(--mds-bg-canvas, #ECEDEF);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  overflow-x: hidden;            /* GĐ6: chặn horizontal scroll toàn trang (mobile-pwa.md §5/§9) */
+}
+
+/* GĐ6 — Mobile/PWA (misa-design-system: references/patterns/mobile-pwa.md §5, §6):
+   áp dụng CHUNG cho toàn app, không sửa từng file, vì phần lớn icon-button trong dự án
+   dùng đúng 2 class Tailwind liền nhau "h-8 w-8" (32px) — dưới mức tối thiểu 48x48px
+   bắt buộc trên coarse pointer. Dùng ::after mở rộng vùng chạm ảo (invisible hit area)
+   thay vì phóng to icon/nút thật — giữ nguyên kích thước hiển thị 32px đã duyệt UI. */
+@media (pointer: coarse) {
+  button[class*="h-8 w-8"],
+  a[class*="h-8 w-8"] {
+    position: relative;
+  }
+  button[class*="h-8 w-8"]::after,
+  a[class*="h-8 w-8"]::after {
+    content: "";
+    position: absolute;
+    inset: -8px; /* 32px + 2*8px = 48px */
+  }
+
+  /* Text input trên compact touch: tối thiểu 16px để tránh iOS Safari tự động zoom
+     khi focus (mobile-pwa.md §5) — ghi đè cỡ chữ 13px mặc định MDS chỉ ở coarse pointer. */
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
