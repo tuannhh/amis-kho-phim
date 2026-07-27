@@ -74,6 +74,8 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-kho-phim}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-2048}
       NEW_FILM_TTL_DAYS: ${NEW_FILM_TTL_DAYS:-14}
+      # GĐ6.1 — SSO AMIS Mobile placeholder: rỗng = TẮT (an toàn mặc định). Xem .env.example.
+      AMIS_SSO_SHARED_SECRET: ${AMIS_SSO_SHARED_SECRET:-}
     depends_on:
       mysql:
         condition: service_healthy

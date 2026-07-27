@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { isEmbedded, registerBackHandler } from '@/lib/amisBridge'
 import MHeaderBar from '@/components/mds/MHeaderBar.vue'
 import MSidebar from '@/components/mds/MSidebar.vue'
 import MToast from '@/components/mds/MToast.vue'
@@ -40,6 +41,26 @@ function toggleNotificationsPanel() {
 
 // Trang auth (login/đổi mật khẩu) hiển thị full-page, không header/sidebar.
 const isBlank = computed(() => route.meta.blank === true)
+
+// GĐ6.1 — Chế độ nhúng trong WebView AMIS Mobile (scaffold, xem lib/amisBridge.ts):
+// app mẹ đã có chrome riêng (header/điều hướng của nó) nên Kho phim ẩn hẳn MHeaderBar +
+// sidebar/bottom-nav, chỉ render router-view full màn hình — tương tự cách isBlank xử lý
+// trang auth, nhưng áp dụng cho MỌI route khi đang nhúng.
+const isEmbeddedMode = isEmbedded()
+
+// Nút back cứng của app mẹ (Android) gọi vào đây qua window.__khoPhimHandleNativeBack.
+// TODO(AMIS Mobile bridge thật): điểm nối window.AMISBridge?.closeWebview?.() bên dưới là
+// giả định tạm — xác nhận lại tên hàm thật với đội AMIS Mobile.
+onMounted(() => {
+  if (!isEmbeddedMode) return
+  registerBackHandler(() => {
+    if (route.name !== 'films' && router.currentRoute.value.fullPath !== '/') {
+      router.back()
+    } else {
+      window.AMISBridge?.closeWebview?.()
+    }
+  })
+})
 
 const ROLE_LABEL: Record<UserRole, string> = {
   super_admin: 'Super Admin',
@@ -124,8 +145,24 @@ function offlineRetry() {
 </script>
 
 <template>
+  <!-- GĐ6.1 — đang thử SSO qua bridge AMIS Mobile lúc khởi động (embedded, xem authStore.restore).
+       Chỉ hiện khi embedded để không đổi hành vi màn hình mặc định (không query param). -->
+  <div
+    v-if="isEmbeddedMode && auth.bridgeAuthPending"
+    class="flex h-dvh w-full items-center justify-center"
+    style="background: var(--mds-bg-canvas, #ECEDEF)"
+  >
+    <p class="text-[13px]" style="color: var(--mds-text-secondary)">Đang xác thực...</p>
+  </div>
+
+  <!-- Layout embedded: full màn hình, không header/sidebar/bottom-nav (app mẹ tự có chrome) -->
+  <template v-else-if="isEmbeddedMode">
+    <router-view />
+    <MToast />
+  </template>
+
   <!-- Layout auth: full-page -->
-  <router-view v-if="isBlank" />
+  <router-view v-else-if="isBlank" />
 
   <!-- Layout app: header + sidebar -->
   <div

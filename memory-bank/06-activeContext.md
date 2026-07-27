@@ -6,10 +6,37 @@
 ## Tóm tắt nhanh (đọc 30 giây là hiểu hết)
 - **Đã xong**: GĐ 0 + 0.5 (UI mock) + 1 (Auth & RBAC) + 2 (Chuyên mục & Phim core) + GĐ 3
   (Storage & Thumbnail, MinIO THẬT) + GĐ 4 (Player & Link ngoài & View) + GĐ 5
-  (Nghiệp vụ nâng cao: thông báo phim mới + báo cáo Quản trị CSV) + **GĐ 6 (PWA & Mobile
-  & MDS polish)** — GĐ 6 verify end-to-end Docker + trình duyệt nhiều viewport
-  (2026-07-24, Sonnet 5). Chi tiết: 04-progress.md "Nhật ký GĐ 6"; quyết định:
-  ADR-027/028 (05-decisions.md).
+  (Nghiệp vụ nâng cao: thông báo phim mới + báo cáo Quản trị CSV) + GĐ 6 (PWA & Mobile
+  & MDS polish) + **GĐ 6.1 (AMIS Mobile Embed Readiness — SCAFFOLD, chờ DevOps)**
+  (2026-07-27, Sonnet 5). Chi tiết: 04-progress.md "Nhật ký GĐ 6.1"; quyết định:
+  ADR-029/030 (05-decisions.md).
+- **GĐ 6.1 là gì — QUAN TRỌNG, ĐỌC KỸ**: đây là **scaffold/đặt chỗ, KHÔNG PHẢI tích hợp
+  thật** với app khung AMIS Mobile. Phát sinh mới ngoài roadmap gốc: người dùng muốn sau
+  này Kho phim nhúng vào "AMIS Mobile" (super-app nhân viên MISA) qua WebView + bridge JS,
+  không phải app riêng cài từ store. Vì CHƯA có spec bridge chính thức từ đội AMIS Mobile,
+  toàn bộ phần xác thực/bridge ở đây là **giả định tạm**, đã đánh dấu TODO rõ trong code,
+  và **tắt theo mặc định** (an toàn — không mở lỗ hổng nào cho hệ thống đang chạy):
+  - BE: `POST /auth/sso/amis-mobile` — xác minh HMAC-SHA256 tạm (không phải OIDC/JWKS thật)
+    trên payload `{email, exp}`, secret đọc từ `AMIS_SSO_SHARED_SECRET` (rỗng = TẮT, trả
+    501 rõ ràng). Tìm user theo email, tái dùng `issueTokens` y hệt login thường. Xem
+    `backend/src/modules/auth/auth.service.ts` (method `ssoAmisMobile`/`verifySsoToken`).
+  - FE: `frontend/src/lib/amisBridge.ts` — phát hiện `?embedded=1`, lấy token qua
+    `window.AMISBridge?.getToken?.()` hoặc fallback query param `?ssoToken=...` (**CẢNH BÁO:
+    query param lộ token trong URL — KHÔNG dùng nguyên trạng production**), expose
+    `window.__khoPhimHandleNativeBack` cho nút back cứng. `App.vue` ẩn header/sidebar/
+    bottom-nav khi nhúng; `authStore.restore()` thử SSO bridge trước khi rơi về LoginView
+    (không khoá chết người dùng nếu bridge auth thất bại).
+  - **Đã verify**: build BE+FE sạch; curl `/auth/sso/amis-mobile` không có secret → 501 (không
+    500 crash); round-trip thật với secret tạm trong container test (không phải container
+    chính, không set sẵn secret thật vào repo) → nhận JWT hợp lệ; browser: mặc định (không
+    query param) giống hệt trước GĐ6.1, `?embedded=1` ẩn đúng header/sidebar + hiện LoginView
+    full-screen khi chưa có bridge thật, 0 lỗi console.
+  - **TRƯỚC KHI DÙNG THẬT**: cần đội AMIS Mobile cung cấp spec bridge chính thức (cách báo
+    "đang nhúng", cách truyền token — object native/postMessage, cách xác minh danh tính —
+    OIDC/JWKS...), rồi DevOps thay `verifySsoToken` (BE) và cách lấy token/phát hiện embedded
+    (FE `amisBridge.ts`) cho khớp — phần cấp JWT/RBAC phía sau giữ nguyên không đổi.
+- **GĐ 6 (log cũ)**: verify end-to-end Docker + trình duyệt nhiều viewport (2026-07-24,
+  Sonnet 5). Chi tiết: 04-progress.md "Nhật ký GĐ 6"; quyết định: ADR-027/028.
 - **GĐ 6 làm gì**: vite-plugin-pwa (`registerType:'prompt'`, manifest+icon sinh bằng
   script `scripts/generate-pwa-icons.mjs`, Workbox NetworkFirst `/api/*` + KHÔNG cache
   `/media/*`), banner Global Inline (offline/update/offline-ready) qua `MGlobalInline.vue`
@@ -65,11 +92,13 @@
   dán ảnh copy (Ctrl+V) thẳng vào dropzone, đã bật cho ô ảnh bìa phim. Đã verify browser (dialog
   hiện đúng lúc, nháp khôi phục đúng, dán ảnh tạo preview đúng), build FE sạch.
 - **Đã push**: commit GĐ 3 + fix nhỏ trên đã lên GitHub `main` (xem `git log`). GĐ 4, GĐ 5,
-  GĐ 6 mới commit LOCAL, CHƯA push (chờ xác nhận riêng).
+  GĐ 6, GĐ 6.1 mới commit LOCAL, CHƯA push (chờ xác nhận riêng).
 - **Việc tiếp theo — GĐ 7 (Hardening & Handoff)**: xem 03-roadmap.md dòng GĐ 7 —
   security-review; test coverage; tài liệu API + quy trình nội bộ; hướng dẫn DevOps đưa
   lên AMIS (cắm OIDC thay JWT nội bộ — ADR-012/003, đổi storage MinIO→AMIS Drive/S3 thật
   — ADR-004/020). Gợi ý bắt đầu bằng skill/slash-command `security-review` có sẵn.
+  **KHI làm GĐ 7, nhớ đưa cả phần SSO AMIS Mobile (GĐ 6.1) vào phạm vi review** — placeholder
+  HMAC + query-param token chưa qua security-review chính thức, chỉ mới tự verify cơ bản.
 - **Model**: GĐ 7 dùng **Opus 4.8** (review/bảo mật) + **Haiku 4.5** (docs/format) theo
   gợi ý 03-roadmap.md.
 - **Việc chưa verify được ở GĐ 6** (môi trường phiên chỉ có browser desktop resize, không

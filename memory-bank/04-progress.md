@@ -4,11 +4,71 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
-- Giai đoạn hiện tại: **GĐ 6 — PWA & Mobile & MDS polish ĐÃ XONG & verify end-to-end** trong
-  Docker + trình duyệt nhiều viewport (2026-07-24, Sonnet 5). Commit local (chưa push).
-  Tiếp theo: **GĐ 7 — Hardening & Handoff** (03-roadmap.md).
-- % hoàn thành tổng thể: ~93%
+- Giai đoạn hiện tại: **GĐ 6.1 — AMIS Mobile Embed Readiness (SCAFFOLD, chờ DevOps) ĐÃ XONG**
+  (2026-07-27, Sonnet 5). Commit local (chưa push). Tiếp theo: **GĐ 7 — Hardening &
+  Handoff** (03-roadmap.md), nhớ đưa cả GĐ 6.1 vào phạm vi security-review.
+- % hoàn thành tổng thể: ~94% (GĐ 6.1 là scaffold bổ sung, không tính vào % lộ trình chính)
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
+
+## Nhật ký GĐ 6.1 (AMIS Mobile Embed Readiness — scaffold, chờ DevOps) — 2026-07-27
+- **Bối cảnh**: phát sinh mới ngoài roadmap gốc — người dùng muốn Kho phim sau này nhúng
+  trong app khung "AMIS Mobile" (super-app nhân viên MISA) qua WebView + bridge JS, không
+  phải app riêng cài từ CH Play/App Store. CHƯA có spec bridge chính thức từ đội AMIS
+  Mobile → toàn bộ việc dưới đây là **scaffold/placeholder**, code sẽ chuyển DevOps tinh
+  chỉnh lại theo hạ tầng MISA thật, KHÔNG dùng được ngay.
+- **BE**: `POST /auth/sso/amis-mobile` trong `modules/auth/` (KHÔNG sửa login/refresh/me
+  hiện có). Xác minh tạm bằng HMAC-SHA256 trên payload JSON `{email, exp}`, secret đọc từ
+  env `AMIS_SSO_SHARED_SECRET` (rỗng = TẮT, trả 501 "Chưa cấu hình SSO AMIS Mobile" — không
+  throw 500). Map email → user MISA hiện có (`findByEmailWithHash`), không tìm thấy → 401
+  tiếng Việt. Tái dùng `issueTokens`/`AuthService` để cấp JWT y hệt luồng login thường —
+  tận dụng seam có sẵn "Seam để GĐ7 thay bằng OIDC AMIS" ở đầu `auth.service.ts`. Thêm
+  `AMIS_SSO_SHARED_SECRET` vào `.env.example` (rỗng) + `docker-compose.yml` (passthrough,
+  mặc định rỗng).
+- **FE**: `frontend/src/lib/amisBridge.ts` mới — `isEmbedded()` (đọc `?embedded=1` 1 lần,
+  cache module-level), `getBridgeToken()` (ưu tiên `window.AMISBridge?.getToken?.()`,
+  fallback query param `?ssoToken=...` — CẢNH BÁO lộ token trong URL, chỉ tạm cho scaffold),
+  `registerBackHandler`/`notifyBackPressed` (expose `window.__khoPhimHandleNativeBack` cho
+  nút back cứng app mẹ). `App.vue`: thêm `isEmbeddedMode` — ẩn `MHeaderBar`+sidebar/bottom-
+  nav khi nhúng, chỉ render `router-view` full màn hình; thêm màn "Đang xác thực..." trong
+  lúc thử SSO bridge. `authStore.ts`: thêm `loginViaBridge()` + tích hợp vào `restore()` —
+  nếu embedded và có bridge token thì thử SSO trước, thất bại thì rơi về LoginView thường
+  (không khoá chết người dùng); router guard hiện có tự động đợi đúng vì đã await
+  `auth.restore()` trước khi quyết định redirect.
+- **Verify đã làm**:
+  1. `cd backend && npm run build` — sạch (Nest build, không lỗi TS).
+  2. `cd frontend && npm run build` — sạch (`vue-tsc -b && vite build`, PWA build OK).
+  3. `docker compose up -d --build backend frontend` rồi `curl -X POST
+     http://localhost:8180/api/auth/sso/amis-mobile -d '{"token":"abc.def"}'` (chưa set
+     secret) → **501** `{"message":"Chưa cấu hình SSO AMIS Mobile", ...}` — không phải 500.
+  4. Round-trip thật: dựng container test riêng (`khophim-backend-test`, KHÔNG phải
+     container chính) với `AMIS_SSO_SHARED_SECRET=test-secret-round-trip`, ký payload cùng
+     secret bằng Node script, gọi endpoint → **200** kèm `accessToken`/`refreshToken`/`user`
+     hợp lệ (super_admin). Xoá container test ngay sau, khởi động lại `khophim-backend`
+     THẬT không có secret nào — xác nhận lại vẫn 501. `.env`/`.env.example`/
+     `docker-compose.yml` trong repo KHÔNG có secret thật nào được set sẵn.
+  5. Browser (sau khi unregister service worker cũ để tránh cache PWA stale — lưu ý cho
+     lần sau: đổi code FE mà test qua nginx production build phải xoá SW/cache cũ trước):
+     - Mặc định (không query param): giống hệt trước GĐ6.1 — header/sidebar/bottom-nav bình
+       thường, 0 lỗi console.
+     - `?embedded=1` (đã đăng nhập từ trước): ẩn đúng header/sidebar/bottom-nav, chỉ còn nội
+       dung route full màn hình, 0 lỗi console.
+     - `?embedded=1` + `localStorage.clear()` (chưa đăng nhập, chưa có bridge thật nên không
+       có `ssoToken`): rơi về LoginView bình thường nhưng vẫn full-screen (không header/
+       sidebar) — đúng như thiết kế fallback, 0 lỗi console.
+- **Danh sách placeholder/giả định tạm — DevOps PHẢI xác nhận lại với đội AMIS Mobile trước
+  khi dùng thật** (đã ghi TODO trong code):
+  1. Cơ chế báo "đang nhúng" = query param `?embedded=1` — có thể AMIS Mobile dùng cách khác
+     (User-Agent riêng, custom scheme...).
+  2. Cơ chế truyền token = `window.AMISBridge?.getToken?.()` (object native giả định, tên
+     hàm CHƯA xác nhận) hoặc fallback query param `?ssoToken=...` — **query param có RỦI RO
+     LỘ TOKEN trong URL/lịch sử trình duyệt/log server**, không dùng nguyên trạng production.
+  3. Cơ chế xác minh chữ ký BE = HMAC-SHA256 shared-secret tạm, KHÔNG phải OIDC/JWKS thật.
+  4. Endpoint `/auth/sso/amis-mobile` mới chỉ test với secret tạm tự ký, CHƯA test với bridge
+     thật/token thật từ đội AMIS Mobile.
+  5. Tên hàm `window.AMISBridge?.closeWebview?.()` (điểm đóng WebView khi back ở màn gốc) và
+     `window.__khoPhimHandleNativeBack` (app mẹ gọi khi back cứng) là tên GIẢ ĐỊNH, chưa xác
+     nhận với đội AMIS Mobile.
+- Xem ADR-029/030 (05-decisions.md) cho lý do quyết định chi tiết.
 
 ## Nhật ký GĐ 6 (PWA & Mobile & MDS polish) — 2026-07-24
 - **PWA**: cài `vite-plugin-pwa` + `sharp` (chỉ devDependency, dùng để render icon lúc

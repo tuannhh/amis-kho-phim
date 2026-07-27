@@ -21,6 +21,7 @@ Cột "Model" là gợi ý model Claude Code nên dùng (KHÔNG dùng Fable 5).
 | 4 ✅ | Player & Link ngoài & View | VideoPlayer đa nguồn (file/YouTube/Vimeo/GDrive/MISA Drive); trang xem `/films/:slug`; nút link theo nguồn; đếm lượt xem; fullscreen+volume | **Opus 4.8** (player đa nguồn) → **Sonnet 5** (nút/link) |
 | 5 ✅ | Nghiệp vụ nâng cao | Trùng tiêu đề → cảnh báo + update bản mới (versioning); tag "Phim mới"; hashtag; tìm theo tên/hashtag/chuyên mục; thông báo phim mới; **báo cáo Quản trị: theo giai đoạn ai upload bao nhiêu phim + gồm phim gì (lọc theo người upload/khoảng ngày, xuất CSV)** | **Sonnet 5** + **Opus 4.8** cho versioning |
 | 6 | PWA & Mobile & MDS polish | vite-plugin-pwa (installable, offline shell); responsive mobile; chuẩn hoá UI theo skill misa-design-system | **Sonnet 5** (dùng skill MDS) |
+| 6.1 | **GĐ 6.1 — AMIS Mobile Embed Readiness (scaffold, chờ DevOps)** | **SCAFFOLD/PLACEHOLDER — CHƯA phải tích hợp thật.** BE: `POST /auth/sso/amis-mobile` (xác minh HMAC tạm, tắt mặc định qua `AMIS_SSO_SHARED_SECRET` rỗng). FE: `lib/amisBridge.ts` (phát hiện `?embedded=1`, lấy token bridge, back cứng), `App.vue` ẩn header/sidebar khi nhúng, auth flow ưu tiên SSO bridge có fallback LoginView. Chờ đội AMIS Mobile cung cấp spec bridge/JWKS chính thức trước khi DevOps hoàn thiện. | **Sonnet 5** |
 | 7 | Hardening & Handoff | security-review; test coverage; tài liệu API + quy trình nội bộ; hướng dẫn DevOps đưa lên AMIS (cắm OIDC, đổi storage) | **Opus 4.8** (review) + **Haiku 4.5** (docs/format) |
 
 ## Nguyên tắc chọn model (tổng quát)

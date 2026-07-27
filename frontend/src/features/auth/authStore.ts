@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { isEmbedded, getBridgeToken } from '@/lib/amisBridge'
 
 export type UserRole = 'super_admin' | 'admin' | 'employee'
 
@@ -31,6 +32,10 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !!accessToken.value && !!user.value)
   const role = computed<UserRole | null>(() => user.value?.roleCode ?? null)
+  // GĐ6.1 — true trong lúc đang thử đăng nhập qua bridge AMIS Mobile lúc khởi động
+  // (router guard/App.vue dùng để hiện màn "Đang xác thực...", tránh nháy sang /login).
+  const bridgeAuthPending = ref(false)
+  const bridgeAuthError = ref<string | null>(null)
 
   function setTokens(access: string, refresh: string) {
     accessToken.value = access
@@ -81,11 +86,51 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  /** Khôi phục phiên lúc mở app: có refresh token thì lấy /me. */
+  /**
+   * GĐ6.1 — SSO placeholder cho chế độ nhúng AMIS Mobile: đổi token bridge lấy JWT nội bộ
+   * qua endpoint mới, TÁI DÙNG luồng cấp token y hệt login thường (không có JWT song song).
+   * Nếu thất bại thì KHÔNG khoá chết người dùng — chỉ ghi lỗi để UI fallback hiện LoginView
+   * thường (đăng nhập email/mật khẩu vẫn hoạt động bình thường).
+   */
+  async function loginViaBridge(token: string): Promise<boolean> {
+    bridgeAuthPending.value = true
+    bridgeAuthError.value = null
+    try {
+      const res = await fetch(`${API}/auth/sso/amis-mobile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        bridgeAuthError.value = data?.message || 'Đăng nhập qua AMIS Mobile không thành công'
+        return false
+      }
+      setTokens(data.accessToken, data.refreshToken)
+      user.value = data.user
+      return true
+    } catch {
+      bridgeAuthError.value = 'Không kết nối được máy chủ để xác thực qua AMIS Mobile'
+      return false
+    } finally {
+      bridgeAuthPending.value = false
+    }
+  }
+
+  /**
+   * Khôi phục phiên lúc mở app: có refresh token thì lấy /me. Nếu chưa có phiên và đang
+   * chạy nhúng trong AMIS Mobile (GĐ6.1, xem lib/amisBridge.ts) có token bridge → thử SSO
+   * trước khi coi như "chưa đăng nhập" (tránh nháy màn login rồi lại vào app).
+   */
   async function restore() {
     if (accessToken.value && refreshToken.value) {
       const ok = await refresh()
       if (!ok) clear()
+    } else if (isEmbedded()) {
+      const bridgeToken = getBridgeToken()
+      if (bridgeToken) await loginViaBridge(bridgeToken)
+      // Thất bại/không có token bridge → rơi xuống, ready=true, router cho hiện LoginView
+      // thường (embedded vẫn chấp nhận đăng nhập email/mật khẩu làm phương án dự phòng).
     }
     ready.value = true
   }
@@ -101,9 +146,12 @@ export const useAuthStore = defineStore('auth', () => {
     ready,
     isAuthenticated,
     role,
+    bridgeAuthPending,
+    bridgeAuthError,
     setTokens,
     clear,
     login,
+    loginViaBridge,
     refresh,
     restore,
     logout,

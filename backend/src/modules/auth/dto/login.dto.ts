@@ -16,6 +16,13 @@ export class RefreshDto {
   refreshToken!: string
 }
 
+/** GĐ6.1 — SSO placeholder cho khung AMIS Mobile. Xem ghi chú ở AuthService.ssoAmisMobile. */
+export class SsoAmisMobileDto {
+  @IsString()
+  @MinLength(1, { message: 'Thiếu token SSO' })
+  token!: string
+}
+
 export class ChangePasswordDto {
   @IsString()
   @MinLength(1)

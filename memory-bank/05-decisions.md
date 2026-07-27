@@ -2,6 +2,33 @@
 
 > Ghi lại quyết định kiến trúc quan trọng + lý do. Thêm mục mới ở trên cùng.
 
+## ADR-030 — SSO AMIS Mobile: HMAC shared-secret tạm thay OIDC/JWKS thật [GĐ6.1]
+- **Quyết định:** `POST /auth/sso/amis-mobile` xác minh token bằng HMAC-SHA256 trên payload
+  JSON `{email, exp}` với shared secret đọc từ `AMIS_SSO_SHARED_SECRET` (rỗng = TẮT, trả 501
+  rõ ràng — không throw 500). Tìm user theo email, tái dùng `issueTokens` y hệt luồng login
+  thường (không có JWT/kiến trúc song song). Tận dụng seam có sẵn "Seam để GĐ7 thay bằng OIDC
+  AMIS" ở đầu `auth.service.ts` thay vì tạo module xác thực riêng.
+- **Lý do:** Chưa có spec bridge/JWKS chính thức từ đội AMIS Mobile lúc làm scaffold này.
+  HMAC đơn giản, không cần hạ tầng JWKS, đủ để chứng minh luồng "app mẹ xác thực hộ → BE cấp
+  JWT nội bộ" chạy được end-to-end (đã test round-trip thật với secret tạm, xem 04-progress.md).
+  **PLACEHOLDER — BẮT BUỘC DevOps xác nhận lại với đội AMIS Mobile và thay `verifySsoToken`
+  bằng cơ chế xác minh thật (OIDC/JWKS hoặc khác) trước khi dùng production.** An toàn mặc
+  định: biến env rỗng trong mọi file cấu hình của repo (không set sẵn secret thật).
+
+## ADR-029 — Bridge token qua query param `?ssoToken=` tạm, không phải bridge thật [GĐ6.1]
+- **Quyết định:** FE phát hiện chế độ nhúng qua query param `?embedded=1` (đọc 1 lần lúc
+  khởi động, cache module-level — `lib/amisBridge.ts`). Lấy token SSO ưu tiên qua
+  `window.AMISBridge?.getToken?.()` (native tiêm sẵn), fallback query param `?ssoToken=...`
+  nếu không có object native.
+- **Lý do:** Chưa có spec bridge chính thức (postMessage? custom scheme? object khác?) từ
+  đội AMIS Mobile. Query param là cách đơn giản/đáng tin cậy nhất để scaffold chạy được và
+  test thủ công không cần app mẹ thật. **CẢNH BÁO BẢO MẬT đã ghi rõ trong code:** query param
+  lộ token trong URL (lịch sử trình duyệt, log server, referrer header) — KHÔNG được dùng
+  nguyên trạng ở production. Khi có spec thật, khả năng cao phải đổi sang `postMessage` hoặc
+  cơ chế native khác không lộ trong URL. Auth flow có fallback: bridge-auth thất bại vẫn hiện
+  `LoginView` thường (không khoá chết người dùng), và mặc định (không `?embedded=1`) hành vi
+  ứng dụng KHÔNG đổi so với trước GĐ6.1.
+
 ## ADR-028 — Compact: bottom navigation (không drawer); Medium/Expanded KHÔNG tự ép rail [GĐ6]
 - **Quyết định:** Ở window size class Compact (&lt;600px), thay `MSidebar` cố định bằng
   bottom navigation cố định 5 mục (đúng `sidebarItems` hiện có: Kho phim/Thêm phim/Chuyên
