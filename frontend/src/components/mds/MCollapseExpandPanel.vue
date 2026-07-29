@@ -64,6 +64,6 @@ function toggle() {
     :aria-expanded="!collapsed"
     @click="toggle"
   >
-    <MIcon :name="collapsed ? CHEVRON_ICON[side].collapsed : CHEVRON_ICON[side].expanded" :size="13" />
+    <MIcon :name="collapsed ? CHEVRON_ICON[side].collapsed : CHEVRON_ICON[side].expanded" :size="12" />
   </button>
 </template>

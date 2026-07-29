@@ -172,7 +172,7 @@ onBeforeUnmount(() => {
           aria-label="Xóa tệp"
           @click="emit('remove', item.id)"
         >
-          <MIcon name="x" :size="12" />
+          <MIcon name="x" :size="16" />
         </button>
       </li>
     </ul>

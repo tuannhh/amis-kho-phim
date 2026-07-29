@@ -125,7 +125,7 @@ function selectNode(node) {
         :aria-label="expanded.includes(node.id) ? 'Thu gọn' : 'Mở rộng'"
         @click.stop="toggleExpand(node)"
       >
-        <MIcon :name="expanded.includes(node.id) ? 'chevron-down' : 'chevron-right'" :size="12" />
+        <MIcon :name="expanded.includes(node.id) ? 'chevron-down' : 'chevron-right'" :size="16" />
       </button>
       <span v-else class="h-4 w-4 shrink-0" />
 

@@ -315,7 +315,7 @@ function changePageSize(e) {
                 :class="col.align === 'right' ? 'flex-row-reverse' : ''"
               >
                 <!-- Cột đang ghim: icon Pin đầu tiêu đề (spec MDS mục 8) -->
-                <MIcon v-if="col.pinned" name="map-pin" :size="13" class="text-[var(--mds-text-muted)]" />
+                <MIcon v-if="col.pinned" name="map-pin" :size="12" class="text-[var(--mds-text-muted)]" />
                 {{ col.label }}
                 <!-- Icon sort: mũi tên lên (asc) / xuống (desc); chưa sort thì chỉ hiện mờ khi hover header -->
                 <MIcon

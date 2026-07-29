@@ -157,7 +157,7 @@ function onSave() {
             class="relative flex h-16 w-full items-center justify-center overflow-hidden rounded-md border border-[var(--mds-border-light,var(--mds-border))]"
             :style="w.css ? { backgroundImage: w.css, backgroundSize: 'cover' } : { background: 'repeating-linear-gradient(45deg, var(--mds-bg-disabled), var(--mds-bg-disabled) 6px, var(--mds-bg) 6px, var(--mds-bg) 12px)' }"
           >
-            <MIcon v-if="!w.css" name="circle-x" :size="18" class="text-[var(--mds-text-placeholder)]" />
+            <MIcon v-if="!w.css" name="circle-x" :size="20" class="text-[var(--mds-text-placeholder)]" />
             <MIcon
               v-if="draftWallpaper === w.id"
               name="check"
