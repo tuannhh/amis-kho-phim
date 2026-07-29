@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { APP_GUARD } from '@nestjs/core'
 import { ConfigModule } from '@nestjs/config'
+import { ThrottlerModule } from '@nestjs/throttler'
 import { TypeOrmModule } from '@nestjs/typeorm'
 import { HealthController } from './common/health.controller'
 import { dbOptions } from './database/db-options'
@@ -24,6 +25,10 @@ const dbEnabled = process.env.DB_ENABLED !== 'false'
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // GĐ7 — hạ tầng rate limit. CỐ Ý KHÔNG đăng ký ThrottlerGuard toàn cục: route
+    // /media/:key phát video sinh rất nhiều request Range khi tua, giới hạn toàn cục
+    // sẽ làm gãy trình phát. Chỉ AuthController bật guard này (chống dò mật khẩu).
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 60 }]),
     // Kết nối MySQL utf8mb4 (config dùng chung với CLI migration). Tắt bằng DB_ENABLED=false.
     ...(dbEnabled
       ? [

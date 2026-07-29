@@ -51,6 +51,13 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
+      # GĐ7 — CỜ CHỈ DÀNH CHO MÁY DEV. Khi = "true", backend chấp nhận chạy với secret mẫu
+      # (change-me, minioadmin, localhost...) và chỉ in cảnh báo. Bỏ/đặt khác "true" thì
+      # backend TỪ CHỐI KHỞI ĐỘNG nếu còn giá trị mặc định. XOÁ khi triển khai thật —
+      # xem docs/devops-handoff.md (việc số 1).
+      ALLOW_INSECURE_CONFIG: ${ALLOW_INSECURE_CONFIG:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      ENABLE_API_DOCS: ${ENABLE_API_DOCS:-false}
       PORT: 3000
       DB_ENABLED: "true"
       DB_HOST: mysql
@@ -76,6 +83,7 @@ services:
       NEW_FILM_TTL_DAYS: ${NEW_FILM_TTL_DAYS:-14}
       # GĐ6.1 — SSO AMIS Mobile placeholder: rỗng = TẮT (an toàn mặc định). Xem .env.example.
       AMIS_SSO_SHARED_SECRET: ${AMIS_SSO_SHARED_SECRET:-}
+      AMIS_SSO_MAX_TTL_SECONDS: ${AMIS_SSO_MAX_TTL_SECONDS:-300}
     depends_on:
       mysql:
         condition: service_healthy

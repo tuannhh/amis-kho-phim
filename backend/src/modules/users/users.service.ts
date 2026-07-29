@@ -13,6 +13,7 @@ import { User } from './entities/user.entity'
 import type { RoleCode } from './entities/role.entity'
 import type { AuthUser } from '../../common/auth/auth-user'
 import { CreateUserDto } from './dto/create-user.dto'
+import { auditLog } from '../../common/audit/audit-log'
 
 /** Hình dạng user trả ra API — KHÔNG bao giờ kèm password_hash. */
 export interface PublicUser {
@@ -123,6 +124,13 @@ export class UsersService {
       mustChangePassword: true, // buộc đổi mật khẩu lần đăng nhập đầu
     })
     const saved = await this.repo.save(entity)
+    auditLog({
+      action: 'user.create',
+      actorId: actor.id,
+      targetId: saved.id,
+      outcome: 'success',
+      detail: { role: saved.roleCode },
+    })
     return { user: this.toPublic(saved), generatedPassword: generated }
   }
 
@@ -132,6 +140,13 @@ export class UsersService {
     this.assertCanManage(actor, target)
     target.isActive = isActive
     const saved = await this.repo.save(target)
+    auditLog({
+      action: 'user.status_change',
+      actorId: actor.id,
+      targetId: saved.id,
+      outcome: 'success',
+      detail: { isActive },
+    })
     return this.toPublic(saved)
   }
 
@@ -140,6 +155,7 @@ export class UsersService {
     if (!target) throw new NotFoundException('Không tìm thấy người dùng')
     this.assertCanManage(actor, target)
     await this.repo.remove(target)
+    auditLog({ action: 'user.delete', actorId: actor.id, targetId, outcome: 'success' })
   }
 
   /** Đổi mật khẩu của chính người dùng (dùng ở AuthModule). */

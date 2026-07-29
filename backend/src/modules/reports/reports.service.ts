@@ -76,10 +76,20 @@ export class ReportsService {
     return { summary, films }
   }
 
-  /** UTF-8 BOM để Excel mở tiếng Việt đúng; header tiếng Việt (ADR mới GĐ5). */
+  /**
+   * UTF-8 BOM để Excel mở tiếng Việt đúng; header tiếng Việt (ADR-026).
+   *
+   * GĐ7 — chống CSV/Formula Injection: tên phim do người dùng tự nhập. Nếu ai đó đặt tên
+   * phim là `=cmd|'/c calc'!A1` hay `@SUM(...)`, Excel/LibreOffice sẽ coi ô đó là CÔNG THỨC
+   * và thực thi khi người quản trị mở file báo cáo — biến báo cáo nội bộ thành đường tấn
+   * công vào máy admin. Cách chuẩn: thêm dấu nháy đơn dẫn đầu để ép về dạng text.
+   */
   toCsv(report: FilmsReport): string {
     const header = ['Tên phim', 'Người upload', 'Chuyên mục', 'Ngày upload', 'Lượt xem']
-    const escape = (v: string) => `"${v.replace(/"/g, '""')}"`
+    const escape = (v: string) => {
+      const neutralized = /^[=+\-@\t\r]/.test(v) ? `'${v}` : v
+      return `"${neutralized.replace(/"/g, '""')}"`
+    }
     const lines = [header.map(escape).join(',')]
     for (const f of report.films) {
       const date = new Date(f.createdAt)

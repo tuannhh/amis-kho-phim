@@ -2,6 +2,65 @@
 
 > Ghi lại quyết định kiến trúc quan trọng + lý do. Thêm mục mới ở trên cùng.
 
+## ADR-035 — Nhật ký kiểm toán ghi ra stdout dạng hàm module, không phải bảng DB/service DI [GĐ7]
+- **Quyết định:** `common/audit/audit-log.ts` export hàm `auditLog(event)` + `formatAuditEntry()`,
+  ghi qua `Logger` của Nest ra stdout với tiền tố `[Audit]`. Ghi 10 loại sự kiện nhạy cảm theo
+  02-security-baseline §7. Tự động che giá trị của khoá khớp
+  `/pass|secret|token|key|hash|authorization|credential/i`. KHÔNG bao giờ ném lỗi ra ngoài.
+- **Lý do (2 lựa chọn có chủ đích):**
+  1. *stdout thay vì bảng `audit_logs`*: bảng riêng cần migration + chốt chính sách thời hạn
+     lưu + cơ chế chống sửa đổi. Riêng yêu cầu "người bị điều tra không xoá được dấu vết"
+     về bản chất phải giải quyết ở tầng hạ tầng (gom log tập trung, quyền chỉ-ghi), không
+     phải tầng ứng dụng — làm bảng DB tạo cảm giác an toàn giả. Giới hạn này ghi rõ ngay
+     trong docstring của file để người sau không tin nhầm (rủi ro R-06).
+  2. *Hàm module thay vì service tiêm phụ thuộc (DI)*: đây là sink ghi log thuần, không giữ
+     trạng thái, không phụ thuộc gì. Làm service sẽ buộc đổi constructor của `AuthService`,
+     `UsersService`, `FilmsService`, `ReportsController` — vi phạm "phạm vi ảnh hưởng nhỏ
+     nhất" và phá toàn bộ test đang dựng service bằng tham số vị trí, mà không đổi lại được
+     lợi ích thực tế nào. Vẫn test được vì `formatAuditEntry` là hàm thuần.
+
+## ADR-034 — Health check tách liveness/readiness; DataSource tiêm dạng `@Optional()` [GĐ7]
+- **Quyết định:** `/api/health` (liveness) CỐ Ý không chạm DB; `/api/health/ready` (readiness)
+  chạy `SELECT 1`, trả 503 khi DB không tới được. `DataSource` tiêm bằng `@Optional()`.
+- **Lý do:** Theo 09-operations-reliability §1 — nếu liveness kiểm cả DB, khi DB chập chờn
+  orchestrator sẽ hiểu nhầm tiến trình đã chết và restart vô ích trong khi lỗi thật nằm ở DB.
+  `@Optional()` là bắt buộc vì chế độ `DB_ENABLED=false` (có từ GĐ0) không nạp TypeOrmModule
+  nên không có DataSource để tiêm — không đánh dấu optional là gãy chính chế độ đó.
+  Readiness cố ý KHÔNG trả thông điệp lỗi gốc của DB (tránh lộ chi tiết hạ tầng — baseline §5).
+
+## ADR-033 — Rate limit chỉ áp cho AuthController, KHÔNG đăng ký ThrottlerGuard toàn cục [GĐ7]
+- **Quyết định:** `ThrottlerModule.forRoot` khai báo ở `AppModule` nhưng KHÔNG đưa
+  `ThrottlerGuard` vào `APP_GUARD`. Chỉ `AuthController` bọc `@UseGuards(ThrottlerGuard)`:
+  login 10/phút/IP, refresh 30, SSO 10, đổi mật khẩu 10. Bật `trust proxy` để lấy đúng IP
+  người dùng từ `X-Forwarded-For` do nginx set.
+- **Lý do:** Route `/media/:key` phát video sinh RẤT NHIỀU request `Range` khi người dùng tua
+  — giới hạn toàn cục sẽ làm gãy trình phát, tức đánh đổi "chịu lỗi" để lấy "bảo mật" ở một
+  chỗ vốn không phải bề mặt brute force. Endpoint xác thực mới là bề mặt thật (baseline §8).
+  **Nợ kỹ thuật đã ghi nhận (R-08):** bộ đếm nằm trong bộ nhớ tiến trình → chạy nhiều bản sao
+  thì mỗi bản đếm riêng, cần store Redis dùng chung. Đã ghi vào devops-handoff.md.
+
+## ADR-032 — Cổng chặn cấu hình là `ALLOW_INSECURE_CONFIG`, KHÔNG phải `NODE_ENV` [GĐ7]
+- **Quyết định:** `assertSecureConfig()` chạy đầu `bootstrap()`, từ chối khởi động khi phát
+  hiện secret mặc định/yếu. Nhưng điều kiện kích hoạt chế độ nghiêm ngặt là
+  `NODE_ENV==='production' && ALLOW_INSECURE_CONFIG !== 'true'`, chứ không chỉ `NODE_ENV`.
+- **Lý do — BẪY KỸ THUẬT quan trọng:** `backend/Dockerfile` pin sẵn `ENV NODE_ENV=production`
+  và `docker-compose.yml` cũng đặt `NODE_ENV: production` cho **stack dev**. Nếu dùng riêng
+  `NODE_ENV` làm cổng chặn thì chính stack dev hiện có sẽ không khởi động nổi — hardening
+  làm gãy môi trường đang chạy là thất bại, không phải thành công. `ALLOW_INSECURE_CONFIG`
+  là cờ RIÊNG BIỆT, đúng tinh thần baseline §1 ("cơ chế nới lỏng phải khoá bằng cờ riêng,
+  không dùng chung cờ môi trường tổng quát"). Đặt `true` trong `.env.example` cho dev; XOÁ
+  là việc số 1 trong docs/devops-handoff.md. Mặc định trong compose là `false` để người lạ
+  clone về mà không có `.env` sẽ nhận chế độ an toàn kèm thông báo hướng dẫn rõ ràng.
+
+## ADR-031 — Swagger `/api/docs` TẮT mặc định ở production, bật qua `ENABLE_API_DOCS` [GĐ7]
+- **Quyết định:** Tài liệu OpenAPI sinh tự động bằng `@nestjs/swagger`, mount ở `/api/docs`.
+  Bật khi `NODE_ENV !== 'production'`, hoặc khi `ENABLE_API_DOCS=true` một cách có chủ đích.
+- **Lý do:** Trang docs phơi toàn bộ API surface (kể cả endpoint quản trị) cho bất kỳ ai gọi
+  được — đúng loại "công cụ nội bộ không nên mở song song ra internet" mà baseline §5 cảnh
+  báo. Nhưng cấm tuyệt đối lại bất tiện cho DevOps khi cần tra cứu trên môi trường thật, nên
+  để cờ bật có chủ đích kèm cảnh báo (`collectConfigIssues` sinh warn khi cờ bật). Đã verify
+  thật: mặc định trả 404; bật cờ thì render đủ 25 path.
+
 ## ADR-030 — SSO AMIS Mobile: HMAC shared-secret tạm thay OIDC/JWKS thật [GĐ6.1]
 - **Quyết định:** `POST /auth/sso/amis-mobile` xác minh token bằng HMAC-SHA256 trên payload
   JSON `{email, exp}` với shared secret đọc từ `AMIS_SSO_SHARED_SECRET` (rỗng = TẮT, trả 501

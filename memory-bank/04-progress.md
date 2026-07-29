@@ -4,11 +4,129 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
-- Giai đoạn hiện tại: **GĐ 6.1 — AMIS Mobile Embed Readiness (SCAFFOLD, chờ DevOps) ĐÃ XONG**
-  (2026-07-27, Sonnet 5). Commit local (chưa push). Tiếp theo: **GĐ 7 — Hardening &
-  Handoff** (03-roadmap.md), nhớ đưa cả GĐ 6.1 vào phạm vi security-review.
-- % hoàn thành tổng thể: ~94% (GĐ 6.1 là scaffold bổ sung, không tính vào % lộ trình chính)
+- Giai đoạn hiện tại: **GĐ 7 — Hardening & Handoff ĐÃ XONG (2026-07-29, Opus 5)**.
+  Đây là **giai đoạn CUỐI của roadmap chính** — GĐ 0 → GĐ 7 đã hoàn tất toàn bộ.
+  Commit local (chưa push).
+- % hoàn thành tổng thể: **100% lộ trình chính (GĐ 0–7)**. Việc treo duy nhất còn lại
+  không thuộc lộ trình: hoàn thiện GĐ 6.1 (SSO AMIS Mobile) khi đội AMIS Mobile cung cấp
+  spec bridge thật — xem checklist đầy đủ ở `docs/devops-handoff.md` mục 6.
+- **GĐ 7 áp dụng skill `misa-backend-standard`** (Quy chuẩn Backend MISA, tại
+  `~/.claude/skills/misa-backend-standard`) làm khung chuẩn cho phần đánh giá an ninh,
+  chiến lược kiểm thử và refactor. Phiên sau nếu sửa backend PHẢI dùng lại skill này.
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
+
+## Nhật ký GĐ 7 (Hardening & Handoff) — 2026-07-29 — ✅ XONG
+- **Chuẩn áp dụng**: skill `misa-backend-standard`. Đánh giá an ninh bám đúng khung 9 mục
+  của `references/02-security-baseline.md`; kiểm thử theo `07-testing-strategy.md`; cách
+  tiếp cận mã nguồn cũ theo `11-phase-refactor-legacy.md`; vận hành theo `09-operations-
+  reliability.md`. Kết quả đánh giá: `docs/danh-gia-an-ninh.md`.
+
+### A. Đã sửa (12 vấn đề)
+1. **[CAO] JWT secret mặc định `change-me`** — trước GĐ7, `jwt-auth.guard.ts` và
+   `auth.service.ts` fallback `process.env.JWT_SECRET || 'change-me'`; giá trị này nằm
+   công khai trong repo nên ai đọc mã nguồn cũng tự ký được token `super_admin`. Nay gom
+   về `common/config/security.config.ts`; `assertSecureConfig()` chạy đầu `bootstrap()`
+   và CHẶN KHỞI ĐỘNG nếu secret trống/mặc định/<32 ký tự, access trùng refresh, MinIO còn
+   `minioadmin`, endpoint còn `localhost`, mật khẩu seed còn mẫu, SSO secret yếu.
+   **BẪY KỸ THUẬT đã xử lý**: Dockerfile backend pin sẵn `NODE_ENV=production` và
+   docker-compose dev cũng đặt `NODE_ENV: production` → KHÔNG thể dùng `NODE_ENV` làm cổng
+   chặn (làm vậy là stack dev không khởi động nổi). Cổng thật là biến `ALLOW_INSECURE_CONFIG`
+   (đặt `true` trong `.env.example` cho dev; XOÁ ở production — việc số 1 của DevOps).
+2. **[CAO] Chưa có rate limit đăng nhập** — thêm `@nestjs/throttler`; `AuthController` bọc
+   `ThrottlerGuard`: login 10/phút/IP, refresh 30, SSO 10, đổi mật khẩu 10. CỐ Ý không
+   đăng ký guard toàn cục (route `/media/:key` sinh rất nhiều request Range khi tua video,
+   giới hạn toàn cục sẽ làm gãy trình phát).
+3. **[CAO] Thuật toán ký JWT không được ép cứng** — phát hiện khi đối chiếu baseline §1.
+   Thêm `JWT_ALGORITHM='HS256'` truyền vào cả `sign` lẫn `verify`. Có test chặn token khai
+   `alg:none` và token ký HS512.
+4. **[TB] CSV Injection** — tên phim do người dùng nhập, đặt tên `=cmd|'/c calc'!A1` thì
+   Excel coi ô đó là công thức khi quản trị viên mở báo cáo. Ô bắt đầu bằng `= + - @ Tab CR`
+   nay được thêm nháy đơn dẫn đầu. **Đã test end-to-end thật** (tạo phim tên độc hại → xuất
+   CSV → xác nhận bị vô hiệu hoá → xoá phim).
+5. **[TB] Presigned PUT không ràng buộc dung lượng** — client xin URL cho 1MB vẫn PUT được
+   50GB. `confirmVersion` nay kiểm size THẬT từ MinIO, vượt hạn thì từ chối + xoá object rác.
+6. **[TB] SSO AMIS Mobile** — secret <32 ký tự nay bị coi như TẮT (501, thà tắt còn hơn bật
+   với secret yếu); thêm trần TTL `AMIS_SSO_MAX_TTL_SECONDS=300` giới hạn cửa sổ replay.
+   *Đã kiểm và xác nhận ĐÚNG sẵn*: `timingSafeEqual` có so độ dài trước, và chữ ký được xác
+   minh TRƯỚC khi parse JSON.
+7. **[TB] Thiếu security header** — `helmet` (BE) + nosniff/Referrer-Policy/Permissions-
+   Policy/`server_tokens off` (nginx). `Referrer-Policy: no-referrer` đặc biệt quan trọng
+   vì URL scaffold GĐ6.1 có thể chứa `?ssoToken=`.
+8. **[TB] CORS phản chiếu mọi origin** — nay production mặc định không phản chiếu, mở qua
+   `CORS_ORIGINS`; dev giữ nguyên để không gãy Vite.
+9. **[THẤP] Dò tài khoản qua thời gian phản hồi** — email không tồn tại nay vẫn chạy một
+   lần `bcrypt.compare` giả (đo thật: 78ms, tương đương nhánh email có thật).
+10. **[Baseline §7] Chưa có nhật ký kiểm toán** — thêm `common/audit/audit-log.ts`, ghi 10
+    loại sự kiện nhạy cảm (đăng nhập thành/bại kèm lý do, đổi mật khẩu, SSO, tạo/khoá/xoá
+    tài khoản, xoá phim, xuất CSV). Tự che trường khớp `pass|secret|token|key|hash|...`.
+11. **[Baseline §5/§6] Dockerfile supply-chain** — `npm install` → `npm ci` + copy
+    `package-lock.json` tường minh; backend thêm `--ignore-scripts`. **Frontend CỐ Ý KHÔNG
+    dùng `--ignore-scripts`**: devDependency `sharp` cần postinstall tải binary, bỏ script
+    là gãy build (đã kiểm chứng).
+12. **[Baseline §9] Vận hành** — tách `/api/health` (liveness, KHÔNG chạm DB) và
+    `/api/health/ready` (readiness, `SELECT 1`, trả 503 khi DB chết); bật
+    `app.enableShutdownHooks()` cho tắt có kiểm soát.
+
+### B. Còn treo (11 rủi ro) — chi tiết + lý do ở `docs/danh-gia-an-ninh.md`
+R-09 `/media/:key` công khai chỉ dựa UUID (Cao, cần đổi presigned GET ở prod) · R-01 token ở
+`localStorage` · R-02 không thu hồi được refresh token khi đổi mật khẩu · R-03 SSO chưa có
+nonce chống replay · R-04 object mồ côi trên storage · R-05 `npm audit` còn cảnh báo
+(`multer@1.x`) · R-06 audit log ghi stdout, chưa chống sửa đổi · R-07 chưa chốt
+`X-Frame-Options` (chờ cách nhúng AMIS Mobile) · R-08 rate limit đếm trong bộ nhớ tiến trình
+· R-10 chưa phân trang `/films` `/users` · R-11 response không theo khuôn `{data}`/`{error}`.
+Tất cả đều thuộc loại đổi kiến trúc / phá vỡ hợp đồng API / cần quyết định nghiệp vụ —
+đúng loại việc mà `11-phase-refactor-legacy §5` yêu cầu BÁO CÁO thay vì tự sửa.
+
+### C. Kiểm thử — từ 0 lên 152 test
+- **BE (mới hoàn toàn)**: cài `jest` + `ts-jest` + `@nestjs/testing` + `supertest`,
+  `jest.config.js`, thêm `tsconfig.build.json` để spec không lọt vào `dist`.
+  **126 test / 8 file**: `security.config.spec.ts` (16 — chốt chặn cấu hình),
+  `jwt-auth.guard.spec.ts` (11 — gồm alg:none, HS512, refresh dùng thay access),
+  `roles.guard.spec.ts` (7), `auth.service.spec.ts` (24 — login/refresh/SSO),
+  `users.service.spec.ts` (21 — ma trận quản trị), `films.service.spec.ts` (17 — owner
+  policy/IDOR + validate upload), `reports.service.spec.ts` (13 — CSV injection),
+  `audit-log.spec.ts` (17 — gồm che dữ liệu nhạy cảm).
+- **FE (mới hoàn toàn)**: `vitest` + `jsdom` + `vitest.config.ts` tách khỏi `vite.config.ts`.
+  **26 test / 2 file**: `filmTypes.spec.ts` (14), `amisBridge.spec.ts` (12 — quan trọng
+  nhất: mặc định KHÔNG coi là nhúng, ưu tiên native hơn query param).
+- Ưu tiên theo rủi ro đúng `07-testing-strategy §1` + `11-phase-refactor-legacy §7`: phủ
+  guard/RBAC/auth/SSO/cấu hình/CSV, **cố ý KHÔNG** phủ CRUD đơn giản không có logic.
+- **CHƯA có**: integration test chạy DB thật, load/concurrency test, test component UI.
+  Xem mục "Giới hạn" ở `06-activeContext.md`.
+
+### D. Tài liệu tạo mới (thư mục `docs/`, trước GĐ7 rỗng)
+- `docs/danh-gia-an-ninh.md` — đánh giá an ninh theo đúng khung 9 mục của baseline MISA,
+  mỗi hạng mục có trạng thái + bằng chứng `file:dòng` + mức rủi ro + đã sửa hay còn treo.
+- `docs/api-overview.md` — 25 endpoint theo module, ai gọi được.
+- `docs/quy-trinh-noi-bo.md` — hướng dẫn người dùng cuối/vận hành (tiếng Việt, không kỹ thuật).
+- `docs/devops-handoff.md` — checklist đưa lên hạ tầng MISA: gỡ `ALLOW_INSECURE_CONFIG`,
+  bảng biến môi trường, `MINIO_PUBLIC_ENDPOINT`, đổi storage, **cắm OIDC AMIS (chỉ rõ seam)**,
+  **checklist hoàn thiện GĐ6.1**, migration/backup/rollback, checklist go-live.
+- Swagger `/api/docs` — tự sinh từ code, TẮT mặc định ở production (ADR-031).
+
+### E. Verify thực tế (nguyên tắc 4 của skill — không kết luận bằng đọc code)
+1. `cd backend && npm run build` sạch · `npm test` → **126/126 pass** · 0 file spec lọt `dist`.
+2. `cd frontend && npm run build` sạch · `npm test` → **26/26 pass**.
+3. `docker compose up -d --build` → 5 container chạy. Log backend in đúng 6 cảnh báo
+   "[CHẶN Ở MÔI TRƯỜNG THẬT]" + dòng giải thích đang ở chế độ nới lỏng.
+4. `/api/health` → 200 · `/api/health/ready` → 200 `{"database":"ok"}`.
+5. Header thật qua nginx: nosniff + Referrer-Policy + Permissions-Policy có mặt,
+   `Server: nginx` (đã ẩn phiên bản), không còn `X-Powered-By`.
+   **BẪY**: nginx mount config read-only nên phải `docker compose restart nginx` mới nạp
+   config mới — lần kiểm đầu tưởng header thiếu, thực ra là container chưa nạp lại.
+6. **Rate limit test thật** (không chỉ đọc code): gọi `/auth/login` 14 lần liên tiếp →
+   9 lần đầu 401, từ lần 10 trở đi **429** đúng ngưỡng.
+7. **Swagger**: mặc định `/api/docs` → **404** (không lộ ở production). Bật tạm
+   `ENABLE_API_DOCS=true` → 200, render đủ **25 path**, khớp `docs/api-overview.md`.
+   Đã khôi phục về mặc định sau khi kiểm.
+8. **JWT**: header token thật giải mã ra `{"alg":"HS256","typ":"JWT"}`.
+9. **Trình duyệt thật** (1280x720): đăng xuất → đăng nhập lại bằng form thật
+   `superadmin@misa.com.vn` → vào Kho phim → mở chi tiết phim (lượt xem tăng 2→3, chứng tỏ
+   `recordView` vẫn chạy) → vào Báo cáo quản trị. **0 lỗi console.**
+10. **CSV injection end-to-end**: tạo phim tên `=cmd|'/c calc'!A1` → xuất CSV → ô ra
+    `"'=cmd|'/c calc'!A1"` (đã ép text), BOM `efbbbf` còn nguyên → xoá phim test.
+    Audit log ghi đúng `report.export ... rows=2` và `film.delete ... target=8`.
+11. **DB sau khi test**: đã dọn sạch phim test, còn đúng 1 phim như trước khi bắt đầu.
 
 ## Nhật ký GĐ 6.1 (AMIS Mobile Embed Readiness — scaffold, chờ DevOps) — 2026-07-27
 - **Bối cảnh**: phát sinh mới ngoài roadmap gốc — người dùng muốn Kho phim sau này nhúng

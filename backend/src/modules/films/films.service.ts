@@ -13,6 +13,7 @@ import { slugify } from '../../common/slugify'
 import { StorageService } from '../storage/storage.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import imageSize from 'image-size'
+import { auditLog } from '../../common/audit/audit-log'
 
 /** Nguồn phát gồm cả 'storage' (MinIO) — GĐ3 có link thật. */
 type FilmSourceKey = ExternalFilmPlatform | 'storage'
@@ -211,6 +212,7 @@ export class FilmsService {
     if (!film) throw new NotFoundException('Không tìm thấy phim')
     this.assertCanManage(actor, film)
     await this.films.remove(film)
+    auditLog({ action: 'film.delete', actorId: actor.id, targetId: id, outcome: 'success', detail: { slug: film.slug } })
   }
 
   // ─── GĐ4: Đếm lượt xem ──────────────────────────────────────────────────
@@ -333,6 +335,16 @@ export class FilmsService {
     if (dto.storageKey) {
       const stat = await this.storage.stat(dto.storageKey)
       if (!stat) throw new BadRequestException('Không tìm thấy file đã upload trên storage')
+      // GĐ7 — presigned PUT KHÔNG ràng buộc dung lượng: client xin URL cho file 10MB rồi
+      // vẫn PUT được 50GB lên MinIO. Đây là chốt chặn thật duy nhất — kiểm size THẬT do
+      // MinIO báo, vượt hạn thì từ chối và dọn luôn object rác.
+      if (!this.storage.isWithinLimit(stat.size)) {
+        await this.storage.delete(dto.storageKey)
+        const maxMb = process.env.MAX_UPLOAD_MB || '2048'
+        throw new BadRequestException(
+          `File đã upload vượt giới hạn ${maxMb}MB (thực tế ${Math.round(stat.size / 1024 / 1024)}MB) — đã huỷ`,
+        )
+      }
       storageKey = dto.storageKey
       fileSize = String(stat.size)
     }

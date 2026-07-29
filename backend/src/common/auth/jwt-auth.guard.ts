@@ -7,6 +7,7 @@ import {
 import { Reflector } from '@nestjs/core'
 import { JwtService } from '@nestjs/jwt'
 import { IS_PUBLIC_KEY } from './public.decorator'
+import { JWT_ALGORITHM, jwtAccessSecret } from '../config/security.config'
 import type { AuthUser, JwtPayload } from './auth-user'
 
 /**
@@ -38,7 +39,10 @@ export class JwtAuthGuard implements CanActivate {
     let payload: JwtPayload
     try {
       payload = this.jwt.verify<JwtPayload>(token, {
-        secret: process.env.JWT_SECRET || 'change-me',
+        secret: jwtAccessSecret(),
+        // Ép cứng thuật toán — không đọc `alg` từ chính token rồi tin theo
+        // (chống token khai `alg: none` / đổi thuật toán). Chuẩn MISA 02 §1.
+        algorithms: [JWT_ALGORITHM],
       })
     } catch {
       throw new UnauthorizedException('Access token không hợp lệ hoặc đã hết hạn')

@@ -2,8 +2,11 @@
 # ── build ──────────────────────────────────────────────
 FROM node:20-alpine AS build
 WORKDIR /app
-COPY package*.json ./
-RUN npm install
+# npm ci + lock file: build tái lập được, chống supply-chain (chuẩn MISA — 02 §5/§6).
+# LƯU Ý: KHÔNG dùng --ignore-scripts ở đây — devDependency `sharp` (script sinh icon PWA)
+# cần postinstall để tải binary nền tảng; bỏ script sẽ làm gãy bước build.
+COPY package.json package-lock.json ./
+RUN npm ci
 COPY . .
 RUN npm run build
 
