@@ -12,7 +12,9 @@
     "migration:revert": "typeorm migration:revert -d dist/database/data-source.js",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:cov": "jest --coverage"
+    "test:cov": "jest --coverage",
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:concurrency": "node test/concurrency/record-view.concurrency.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.658.0",

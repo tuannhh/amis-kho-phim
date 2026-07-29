@@ -1,0 +1,148 @@
+name: CI
+
+# Cổng chặn chất lượng bắt buộc trước khi hợp nhất vào nhánh chính.
+# Chuẩn Backend MISA — 13-devops-lifecycle.md §1: "Không hợp nhất thay đổi vào nhánh chính
+# khi quy trình này thất bại — đây là cổng chặn bắt buộc, không phải bước tham khảo."
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # ── Backend: biên dịch + kiểm thử đơn vị ────────────────────────────────
+  backend:
+    name: Backend — build & unit test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      # npm ci (không npm install): cài đúng phiên bản đã khoá trong lock file.
+      - name: Cài đặt phụ thuộc
+        run: npm ci
+
+      - name: Biên dịch
+        run: npm run build
+
+      - name: Kiểm thử đơn vị
+        run: npm test
+
+  # ── Backend: kiểm thử tích hợp trên MySQL thật ──────────────────────────
+  backend-e2e:
+    name: Backend — integration test (MySQL thật)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: kho_phim
+          MYSQL_USER: khophim
+          MYSQL_PASSWORD: khophim
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Cài đặt phụ thuộc
+        run: npm ci
+
+      - name: Kiểm thử tích hợp
+        # Database e2e riêng biệt, dựng lại sạch mỗi lần chạy (test/global-setup.ts).
+        # MinIO không có trong CI — StorageService bắt lỗi kết nối nên e2e vẫn chạy được;
+        # các bài test ở đây không phụ thuộc vào việc upload file thật.
+        env:
+          E2E_DB_HOST: 127.0.0.1
+          E2E_DB_PORT: '3306'
+          E2E_DB_USER: khophim
+          E2E_DB_PASSWORD: khophim
+          E2E_DB_NAME: kho_phim_e2e
+          E2E_DB_ROOT_USER: root
+          E2E_DB_ROOT_PASSWORD: root
+        run: npm run test:e2e
+
+  # ── Frontend: biên dịch + kiểm thử ──────────────────────────────────────
+  frontend:
+    name: Frontend — build & test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Cài đặt phụ thuộc
+        run: npm ci
+
+      - name: Kiểm thử
+        run: npm test
+
+      # `npm run build` đã bao gồm `vue-tsc -b` nên đồng thời là bước kiểm kiểu.
+      - name: Biên dịch (kèm kiểm kiểu vue-tsc)
+        run: npm run build
+
+  # ── Quét lỗ hổng phụ thuộc ───────────────────────────────────────────────
+  audit:
+    name: Quét lỗ hổng phụ thuộc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # CỔNG CHẶN đặt ở phạm vi PRODUCTION (--omit=dev) — đó mới là thứ thật sự chạy trên
+      # môi trường thật. Lỗ hổng trong devDependency (jest, vite, @nestjs/cli...) không đi
+      # vào image production nên chỉ báo cáo, không chặn build.
+      #
+      # Ngưỡng hiện tại đặt ở 'critical': dự án đang tồn đọng một số CVE mức high trong
+      # nhánh phụ thuộc của NestJS 10 mà bản vá đòi nâng major (xem docs/danh-gia-an-ninh.md
+      # mục 6, rủi ro R-05). Đặt ngưỡng 'high' ngay lúc này sẽ khiến CI đỏ vĩnh viễn và mất
+      # tác dụng cảnh báo. SAU KHI nâng NestJS lên major mới, hạ ngưỡng này xuống 'high'.
+      - name: Backend — chặn nếu có lỗ hổng critical ở dependency production
+        working-directory: backend
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: Frontend — chặn nếu có lỗ hổng critical ở dependency production
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=critical
+
+      # Báo cáo đầy đủ để theo dõi xu hướng, không chặn build.
+      - name: Báo cáo đầy đủ (không chặn)
+        run: |
+          echo "===== Backend (toàn bộ, gồm devDependency) ====="
+          (cd backend && npm audit || true)
+          echo "===== Frontend (toàn bộ, gồm devDependency) ====="
+          (cd frontend && npm audit || true)

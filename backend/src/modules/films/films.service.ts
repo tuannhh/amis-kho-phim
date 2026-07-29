@@ -232,25 +232,49 @@ export class FilmsService {
   /**
    * Ghi nhận 1 lượt xem khi vào trang xem phim. Dedupe: nếu user này đã có bản
    * ghi film_views cho phim này trong 30' gần nhất → bỏ qua (không tăng view_count).
-   * Ngược lại: insert bản ghi mới + tăng `films.view_count` ATOMIC (increment,
-   * không đọc-rồi-ghi, tránh race condition khi nhiều request cùng lúc).
+   *
+   * TOÀN BỘ nằm trong MỘT GIAO DỊCH có KHOÁ DÒNG phim (`pessimistic_write`).
+   *
+   * VÌ SAO PHẢI KHOÁ — race condition CÓ THẬT, đã đo được (GĐ7 bổ sung):
+   * Bản trước đây đọc `film_views` để quyết định có ghi hay không, nhưng câu đọc đó nằm
+   * NGOÀI giao dịch và không khoá gì cả. Khi cùng một người dùng gửi nhiều request song
+   * song, tất cả đều vượt qua bước kiểm trùng trước khi bất kỳ request nào kịp ghi bản ghi
+   * đầu tiên → cùng một lượt xem bị tính nhiều lần. Đo thực tế bằng
+   * `test/concurrency/record-view.concurrency.mjs`: 1 người dùng mới gửi 20 request song
+   * song làm `view_count` tăng **4** thay vì **1**. Test tuần tự KHÔNG BAO GIỜ lộ ra lỗi này.
+   * Đây đúng mẫu lỗi mô tả ở chuẩn Backend MISA `05-database-rules.md` §3, và cách sửa
+   * dưới đây là cách chuẩn đó quy định: đưa câu đọc quyết định vào trong giao dịch + khoá
+   * dòng đang đọc.
+   *
+   * Đánh đổi đã cân nhắc: khoá theo dòng PHIM nên các lượt xem cùng một phim bị tuần tự
+   * hoá. Chấp nhận được vì giao dịch rất ngắn (2 câu đọc + 2 câu ghi) và mỗi người dùng chỉ
+   * ghi 1 lần/30 phút cho mỗi phim. Đúng thứ tự ưu tiên của quy chuẩn: đúng đắn dữ liệu
+   * đứng trước tối ưu hiệu năng.
    */
   async recordView(actor: AuthUser, id: number, sessionHash: string): Promise<{ viewCount: number }> {
-    const film = await this.films.findOne({ where: { id } })
-    if (!film) throw new NotFoundException('Không tìm thấy phim')
-
     const windowStart = new Date(Date.now() - FilmsService.VIEW_DEDUPE_MINUTES * 60 * 1000)
-    const dup = await this.filmViews.findOne({
-      where: { filmId: id, userId: actor.id, viewedAt: MoreThan(windowStart) },
-      order: { viewedAt: 'DESC' },
-    })
-    if (dup) return { viewCount: film.viewCount }
 
-    await this.filmViews.save(
-      this.filmViews.create({ filmId: id, userId: actor.id, sessionHash }),
-    )
-    await this.films.increment({ id }, 'viewCount', 1)
-    return { viewCount: film.viewCount + 1 }
+    return this.films.manager.transaction(async (em) => {
+      // Khoá dòng phim TRƯỚC khi đọc quyết định → request khác cho cùng phim phải chờ
+      // tới khi giao dịch này commit/rollback xong.
+      const film = await em.findOne(Film, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      })
+      if (!film) throw new NotFoundException('Không tìm thấy phim')
+
+      const dup = await em.findOne(FilmView, {
+        where: { filmId: id, userId: actor.id, viewedAt: MoreThan(windowStart) },
+        order: { viewedAt: 'DESC' },
+      })
+      if (dup) return { viewCount: film.viewCount }
+
+      await em.save(em.create(FilmView, { filmId: id, userId: actor.id, sessionHash }))
+      // Vẫn dùng increment (UPDATE ... SET x = x + 1) thay vì đọc-rồi-ghi — giữ nguyên
+      // biện pháp chống mất lượt tăng của ADR-023, khoá dòng là lớp bảo vệ bổ sung.
+      await em.increment(Film, { id }, 'viewCount', 1)
+      return { viewCount: film.viewCount + 1 }
+    })
   }
 
   // ─── GĐ3: Storage (MinIO) ──────────────────────────────────────────────

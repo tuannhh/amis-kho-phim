@@ -29,6 +29,21 @@ export const dbOptions: DataSourceOptions = {
   password: process.env.DB_PASSWORD || 'khophim',
   database: process.env.DB_NAME || 'kho_phim',
   charset: 'utf8mb4',
+  /**
+   * GĐ7 — ÉP MÚI GIỜ KẾT NỐI VỀ UTC. Bắt buộc theo chuẩn Backend MISA
+   * `05-database-rules.md` §5 ("luôn lưu trữ thời gian theo UTC, không dựa vào múi giờ
+   * mặc định của máy chủ").
+   *
+   * LỖI THẬT ĐÃ PHÁT HIỆN nhờ kiểm thử tích hợp (GĐ7): trước đây driver mysql2 dùng múi
+   * giờ CỤC BỘ của tiến trình Node để chuyển đổi giá trị DATETIME. Trong Docker thì cả
+   * backend lẫn MySQL đều chạy UTC nên trùng nhau và mọi thứ có vẻ đúng — nhưng khi tiến
+   * trình Node chạy ở múi giờ khác (máy dev Việt Nam +07, hoặc một container cấu hình
+   * TZ khác), giá trị ghi/đọc lệch đúng 7 tiếng. Hậu quả cụ thể: cửa sổ dedupe 30 phút của
+   * `recordView` so sánh `viewed_at > now - 30 phút` bị lệch → cùng một người dùng bị tính
+   * lượt xem nhiều lần. Lỗi này KHÔNG lộ ra trong unit test (repository bị mock) và cũng
+   * không lộ ra khi chạy trong Docker — chỉ kiểm thử tích hợp thật mới bắt được.
+   */
+  timezone: 'Z',
   entities: [User, Role, Category, Film, FilmLink, Hashtag, FilmVersion, FilmView, Notification, UserNotification],
   migrations: [
     InitAuth1721500000000,

@@ -8,7 +8,8 @@
 > `nginx/nginx.conf`, `docker-compose.yml`, `backend/Dockerfile`, `frontend/Dockerfile`,
 > `.env.example`. Bao gồm cả endpoint SSO AMIS Mobile mới của GĐ6.1.
 >
-> **Thời điểm:** 2026-07-29 · **Trạng thái mã nguồn:** sau các sửa đổi hardening GĐ7.
+> **Thời điểm:** 2026-07-29 · **Trạng thái mã nguồn:** sau hardening GĐ7 **và bản bổ sung
+> đạt chuẩn** (kiểm thử tích hợp, kiểm thử đồng thời, CI, quét phụ thuộc).
 >
 > **Quy ước:** ✅ Đạt · ⚠️ Đạt một phần · ❌ Chưa đạt · ➖ Không áp dụng.
 > Mọi kết luận đều kèm bằng chứng `file:dòng` — không suy đoán (nguyên tắc 3 của skill).
@@ -30,8 +31,29 @@
 | 8. Security headers | 4 | 2 | 0 | 0 |
 | 9. Dữ liệu cá nhân (PII) | 2 | 1 | 0 | 0 |
 
-**Đã tự sửa trong GĐ7: 12 vấn đề.** **Còn treo cho DevOps/chủ dự án: 11 vấn đề** (đều có
-lý do cụ thể ở từng mục, phần lớn là đổi kiến trúc hoặc cần quyết định nghiệp vụ).
+**Đã tự sửa trong GĐ7: 14 vấn đề** (12 ở đợt đầu + 2 lỗi ĐÚNG ĐẮN DỮ LIỆU chỉ phát hiện được
+nhờ đợt bổ sung kiểm thử — xem khung dưới). **Còn treo cho DevOps/chủ dự án: 9 vấn đề** (đều
+có lý do cụ thể, phần lớn là đổi kiến trúc hoặc cần quyết định nghiệp vụ).
+
+> ### 🔴 Hai lỗi THẬT phát hiện ở đợt bổ sung — đều vô hình với kiểm thử tuần tự có mock
+>
+> **1. Race condition ở đếm lượt xem (`recordView`) — ĐÃ SỬA.**
+> Câu đọc quyết định dedupe nằm ngoài giao dịch và không khoá dòng. Đo thật bằng
+> `backend/test/concurrency/record-view.concurrency.mjs`: **1 người dùng mới gửi 20 request
+> song song làm `view_count` tăng 4 thay vì 1.** Đúng mẫu lỗi mô tả ở chuẩn
+> `05-database-rules.md` §3. Sửa bằng giao dịch + khoá dòng `pessimistic_write` (ADR-036).
+> Đo lại sau khi sửa: tăng đúng **1**.
+>
+> **2. Phụ thuộc ngầm vào múi giờ giữa Node và MySQL — ĐÃ SỬA.**
+> Kết nối MySQL không khai báo múi giờ, nên driver dùng múi giờ cục bộ của tiến trình Node.
+> Trong Docker cả hai đều UTC nên trùng nhau và mọi thứ "có vẻ đúng"; nhưng khi tiến trình
+> chạy ở múi giờ khác (máy dev VN +07), cửa sổ dedupe 30 phút lệch 7 tiếng → **cùng một
+> người dùng bị tính lượt xem nhiều lần**. Phát hiện khi chạy kiểm thử tích hợp từ máy host.
+> Sửa bằng `timezone: 'Z'` trong cấu hình kết nối (ADR-037), đúng `05-database-rules.md` §5.
+>
+> Cả hai đều là **lỗi đúng đắn dữ liệu**, không phải lỗ hổng bảo mật — nhưng ghi ở đây vì
+> chúng chứng minh vì sao chuẩn bắt buộc phải có kiểm thử đồng thời và kiểm thử tích hợp,
+> chứ không chấp nhận "đã có unit test là đủ".
 
 **Kết luận tổng quát:** không tìm thấy đường leo thang đặc quyền nào từ một tài khoản nhân
 viên hợp lệ. Rủi ro nghiêm trọng nhất mang tính **cấu hình triển khai** (secret mặc định
@@ -147,7 +169,7 @@ DevOps xoá cờ `ALLOW_INSECURE_CONFIG`.
 
 | # | Hạng mục baseline | Trạng thái | Bằng chứng / Ghi chú |
 |---|---|:--:|---|
-| 6.1 | Quét lỗ hổng phụ thuộc định kỳ | ⚠️ | Đã chạy `npm audit` thủ công ở GĐ7 (kết quả ở R-05). Chưa có quét tự động trong CI — dự án chưa có pipeline CI. Đã đề xuất trong `devops-handoff.md` mục 10. |
+| 6.1 | Quét lỗ hổng phụ thuộc định kỳ | ✅ | **ĐÃ SỬA (bổ sung GĐ7).** `.github/workflows/ci.yml` job `audit` chạy `npm audit` mỗi lần push/PR vào `main`. **Cổng chặn đặt ở phạm vi production** (`--omit=dev --audit-level=critical`) — đúng thứ thật sự vào image; devDependency chỉ báo cáo, không chặn. Kết quả đo hiện tại ở R-05. |
 | 6.2 | Khoá phiên bản chính xác | ✅ | **ĐÃ SỬA GĐ7.** `package-lock.json` có sẵn cho cả hai, nay được dùng thật qua `npm ci` (trước đây `npm install` có thể lệch phiên bản giữa các lần build). |
 | 6.3 | Cẩn trọng khi thêm thư viện mới | ✅ | 5 thư viện thêm ở GĐ7 đều là gói chính thức, phổ biến rộng: `helmet`, `@nestjs/throttler`, `@nestjs/swagger`, `jest`/`ts-jest`/`supertest`, `vitest`/`jsdom`. Ba gói `@nestjs/*` do chính đội NestJS phát hành, khớp major version 10 đang dùng. |
 | 6.4 | Không nâng major version tuỳ tiện | ✅ | Đã cố ý pin theo NestJS 10: `@nestjs/throttler@5.2.0`, `@nestjs/swagger@7.4.2`, `helmet@7.2.0` — không lấy bản mới nhất để tránh lệch peer dependency. |
@@ -156,7 +178,7 @@ DevOps xoá cờ `ALLOW_INSECURE_CONFIG`.
 
 | Mã | Rủi ro | Mức | Vì sao không tự sửa |
 |---|---|:--:|---|
-| R-05 | `npm audit` còn cảnh báo, chủ yếu từ `multer@1.x` (NestJS 10 kéo theo) và chuỗi phụ thuộc build | Thông tin | Khắc phục đòi nâng NestJS lên major mới — vi phạm 6.4 nếu làm vội, và vượt xa phạm vi hardening. Nay đã có 152 test làm lưới an toàn cho việc nâng cấp đó ở một nhánh riêng. |
+| R-05 | Lỗ hổng tồn đọng trong cây phụ thuộc | Thông tin | **Số liệu đo 2026-07-29:** backend **19 CVE ở phạm vi production** (10 moderate, 9 high; 0 critical) và 50 nếu tính cả devDependency; frontend **0 CVE ở phạm vi production** (8 CVE đều nằm trong devDependency build-time của `vite-plugin-pwa`). Đã chạy `npm audit fix` (không `--force`): **không có bản vá an toàn nào áp dụng được** — 100% bản vá còn lại đòi nâng major (`@nestjs/*` 10→11, `typeorm`, `multer` 1→2). Nâng major giữa đợt hardening vi phạm 6.4 và nguyên tắc 2. **Khuyến nghị cụ thể:** mở nhánh `chore/upgrade-nestjs-11`, nâng đồng bộ `@nestjs/*` + `typeorm` + `multer`, dựa vào 175 test hiện có làm lưới an toàn, rồi hạ ngưỡng cổng chặn CI từ `critical` xuống `high`. |
 
 ---
 
@@ -166,8 +188,8 @@ DevOps xoá cờ `ALLOW_INSECURE_CONFIG`.
 |---|---|:--:|---|
 | 7.1 | Ghi các sự kiện nhạy cảm | ✅ | **ĐÃ SỬA GĐ7** (trước đó hoàn toàn không có). `common/audit/audit-log.ts` + 10 loại sự kiện: đăng nhập thành công/thất bại (3 lý do phân biệt), đổi mật khẩu, SSO, tạo/khoá/xoá người dùng, xoá phim, xuất báo cáo. |
 | 7.2 | Nội dung bản ghi đủ trường | ✅ | Mỗi dòng có: thời điểm, người thực hiện, hành động, đối tượng bị tác động, kết quả — đúng 5 trường baseline yêu cầu (`formatAuditEntry`). 11 test phủ. |
-| 7.3 | Lưu trữ tách biệt / chống sửa đổi | ⚠️ | **Còn treo.** Hiện ghi ra **stdout** qua Logger của Nest, không ghi vào bảng riêng, không chống sửa đổi. Xem R-06. |
-| 7.4 | Thời gian lưu trữ dài hơn log gỡ lỗi | ⚠️ | **Còn treo.** Chưa tách chính sách lưu trữ — phụ thuộc hạ tầng gom log. Xem R-06. |
+| 7.3 | Lưu trữ tách biệt / chống sửa đổi | ⚠️ | **Đạt ở tầng ứng dụng, phụ thuộc hạ tầng để đạt trọn vẹn.** Nhật ký ghi ra **stdout** với tiền tố `[Audit]`, **ứng dụng không có bất kỳ đường nào sửa hay xoá được bản ghi đã ghi** (không API, không lệnh, không bảng DB để UPDATE) — đây chính là điều baseline yêu cầu. Phần còn lại (gom log tập trung, quyền chỉ-ghi) **về bản chất chỉ giải quyết được ở tầng hạ tầng**, đã ghi thành điều kiện nghiệm thu bắt buộc trong `devops-handoff.md`. Xem R-06. |
+| 7.4 | Thời gian lưu trữ dài hơn log gỡ lỗi | ⚠️ | Cùng lý do 7.3 — chính sách lưu trữ thuộc hệ thống gom log, đã ghi thành mục checklist go-live cụ thể. Xem R-06. |
 
 **Rủi ro còn treo ở mục 7**
 
@@ -213,42 +235,213 @@ DevOps xoá cờ `ALLOW_INSECURE_CONFIG`.
 
 ---
 
-## Phụ lục A — Bảng rủi ro còn treo (tổng hợp để quyết định)
+## Phụ lục A — Rủi ro còn treo: mức độ, căn cứ được phép treo, và việc cần làm
 
-| Mã | Mục | Rủi ro | Mức | Cần xử lý trước khi lên production? |
-|---|---|---|:--:|---|
-| R-09 | Ngoài baseline | `/media/:key` công khai, chỉ dựa vào UUID khó đoán (ADR-021) | **Cao ở production** | **Có**, nếu kho phim chứa nội dung nhạy cảm |
-| R-01 | 1.3 | Token ở `localStorage` | Trung bình | Cân nhắc |
-| R-02 | 1.9 | Không thu hồi được refresh token | Trung bình | Nên |
-| R-03 | 1.5 | SSO placeholder, chưa chống replay | Trung bình | Chỉ khi bật SSO |
-| R-04 | 3.8 | Object mồ côi trên storage | Thấp | Job dọn định kỳ |
-| R-05 | 6.1 | `npm audit` còn cảnh báo | Thông tin | Nhánh riêng |
-| R-06 | 7.3/7.4 | Audit log chưa chống sửa đổi | Thấp | Cần hạ tầng gom log |
-| R-07 | 8.2 | Chưa chốt chống clickjacking | Thấp | Chốt cùng GĐ6.1 |
-| R-08 | 8.7 | Rate limit không dùng chung giữa nhiều bản sao | Thấp | Khi chạy nhiều replica |
-| R-10 | Ngoài baseline | Chưa có phân trang cho `/films`, `/users` (06-api-design §5) | Thấp | Sẽ thành vấn đề khi kho phim lớn |
-| R-11 | Ngoài baseline | Hình dạng response không theo khuôn `{data}`/`{error}` (06-api-design §2) | Thông tin | Đổi sẽ phá vỡ toàn bộ frontend |
+Mỗi mục dưới đây gồm 4 phần: **mức rủi ro** · **vì sao được phép treo** (trích điều khoản của
+quy chuẩn) · **khuyến nghị hành động cụ thể** cho người sẽ xử lý.
 
-**Về R-09** — đây là rủi ro nghiêm trọng nhất còn treo, nằm ngoài 9 mục của baseline nên ghi
-riêng: thẻ `<video src>` không gắn được header `Authorization`, nên endpoint bắt buộc phải
-công khai (ADR-021). Baseline `06-api-design §7` cho phép endpoint công khai có chủ đích
-**với điều kiện** định danh là chuỗi ngẫu nhiên đủ dài không đoán được — điều kiện này ĐẠT
-(`randomUUID()`, `storage.service.ts:103`). Nhưng hệ quả vẫn là: link chia sẻ ra ngoài thì
-mất kiểm soát vĩnh viễn và không có nhật ký ai đã xem. Cách xử lý đúng ở production là
-presigned GET ngắn hạn — chi tiết ở `devops-handoff.md` mục 4.
+Căn cứ chung cho phép treo: `11-phase-refactor-legacy.md` §3 ("không tự ý sửa hàng loạt ngay
+khi phát hiện — vì sửa hàng loạt vi phạm nguyên tắc phạm vi ảnh hưởng nhỏ nhất và có thể phá
+vỡ hành vi đang vận hành ổn định mà không ai yêu cầu thay đổi") và §5 ("phát hiện hành vi có
+vẻ là lỗi → ghi nhận, báo cho người phụ trách, xử lý ở một thay đổi riêng sau khi được xác
+nhận"). Ngược lại, mọi thứ quy chuẩn yêu cầu **tường minh** đều đã được sửa trong GĐ7.
 
-**Về R-10 và R-11** — hai điểm lệch so với `06-api-design`, phát hiện trong lúc rà nhưng
-**cố ý không sửa**: cả hai đều đổi hợp đồng API và kéo theo phải sửa toàn bộ frontend, đúng
-loại thay đổi mà `11-phase-refactor-legacy §5` yêu cầu báo cáo thay vì tự làm.
+---
+
+### R-09 · `/media/:key` công khai, chỉ bảo vệ bằng UUID — **Cao ở production**
+
+**Hiện trạng.** `media.controller.ts` gắn `@Public()`; ai có link là xem/tải được video mà
+không cần đăng nhập, link chia sẻ ra ngoài thì mất kiểm soát vĩnh viễn và không có nhật ký ai
+đã xem. Mọi byte video còn đi xuyên qua tiến trình Node.
+
+**Vì sao được phép treo.** Đây là ràng buộc kỹ thuật thật, không phải sơ suất: thẻ
+`<video src>` của trình duyệt **không gắn được header `Authorization`**. Quyết định đã ghi
+thành ADR-021 từ GĐ3. `06-api-design.md` §7 cho phép endpoint công khai có chủ đích **với
+điều kiện** định danh là chuỗi ngẫu nhiên đủ dài không đoán được — điều kiện này ĐẠT
+(`randomUUID()`, `storage.service.ts:103`). Sửa triệt để là đổi kiến trúc phát video, chạm cả
+backend lẫn `VideoPlayer.vue`, cần test lại toàn bộ luồng phát/tua/tải — đúng loại việc §5
+yêu cầu tách thành thay đổi riêng.
+
+**Khuyến nghị hành động — phương án presigned GET ngắn hạn:**
+
+1. **Backend — thêm endpoint cấp URL, không đổi endpoint phát.**
+   Thêm `GET /api/films/:id/playback-url` (CÓ xác thực, đi qua `JwtAuthGuard` như mọi route
+   thường). Handler: lấy phim → lấy `storage_key` của version mới nhất → gọi
+   `getSignedUrl(presigner, new GetObjectCommand(...), { expiresIn: 600 })` → trả
+   `{ url, expiresIn }`. Tái dùng `StorageService.presigner` đã có sẵn từ ADR-020, **không
+   cần thêm thư viện gì**.
+2. **Frontend — đổi nguồn của thẻ video.**
+   `VideoPlayer.vue` hiện dùng `src="/media/<key>"`. Đổi thành: gọi `playback-url` khi mở
+   trang chi tiết, gán URL nhận được vào `src`. Cần xử lý **hết hạn giữa chừng**: bắt sự kiện
+   `error` của thẻ `<video>`, xin URL mới rồi gán lại (giữ `currentTime` để người dùng không
+   mất vị trí đang xem).
+3. **Ảnh bìa** dùng chung `/media/:key` — cân nhắc giữ công khai (ảnh bìa ít nhạy cảm hơn
+   video) để không phải ký URL cho từng thẻ ảnh trong danh sách, hoặc ký hàng loạt khi trả
+   danh sách phim. **Cần quyết định nghiệp vụ**, không nên tự chọn.
+4. **Service worker:** `vite.config.ts` đang đặt `/media/*` là `NetworkOnly` (ADR-027). Nếu
+   đường dẫn phát video đổi sang domain storage, phải rà lại quy tắc này để **không** vô tình
+   cache video có chữ ký vào máy người dùng.
+5. **Sau khi chuyển xong:** bỏ `@Public()` khỏi `MediaController`, hoặc gỡ hẳn controller nếu
+   không còn ai dùng — và cập nhật ADR-021 thành "đã thay thế".
+
+**Giảm thiểu tạm nếu chưa làm ngay:** đặt kho phim sau VPN/mạng nội bộ MISA.
+
+---
+
+### R-01 · Token lưu ở `localStorage` — Trung bình
+
+**Vì sao được phép treo.** `02-security-baseline.md` §1 dùng từ "ưu tiên... **nếu kiến trúc
+cho phép**", không phải cấm tuyệt đối. Đổi sang cookie `httpOnly` kéo theo **phải thêm CSRF
+protection** (§1 cuối) — tức là gỡ một rủi ro và tạo ra một bề mặt rủi ro mới cần làm đúng.
+ADR-012 đã ghi nhận đây là nợ kỹ thuật ngay từ GĐ1. Rủi ro thực tế hiện **thấp** vì không tìm
+thấy đường XSS nào (mục 3.3: 0 `v-html` trong toàn bộ FE).
+
+**Khuyến nghị.** Gộp chung với việc cắm OIDC AMIS (`devops-handoff.md` mục 5) — lúc đó luồng
+xác thực vốn đã phải viết lại, đổi sang cookie `httpOnly` + `sameSite=lax` + CSRF token gần
+như không tốn thêm chi phí. Làm riêng lẻ bây giờ là tốn công hai lần.
+
+---
+
+### R-02 · Không thu hồi được refresh token khi đổi mật khẩu — Trung bình
+
+**Vì sao được phép treo.** Cần thêm cột `users.token_version` (migration) + đưa vào payload
+JWT + kiểm ở guard. Bước kiểm ở guard kéo theo **một truy vấn DB cho mọi request** — đổi đặc
+tính hiệu năng của toàn hệ thống. `05-database-rules.md` §6 yêu cầu nêu rõ đánh đổi loại này
+cho người phụ trách trước, không âm thầm chấp nhận.
+
+**Khuyến nghị cụ thể.** (a) Migration thêm `users.token_version INT NOT NULL DEFAULT 0`;
+(b) `issueTokens` nhét `tv` vào payload; (c) `changePassword` và `setActive(false)` tăng
+`token_version`; (d) **chỉ kiểm ở `/auth/refresh`** (không kiểm ở mọi request) — như vậy
+không tốn thêm truy vấn nào ở đường đi nóng, đổi lại refresh token bị vô hiệu trong tối đa
+`JWT_ACCESS_TTL` (15 phút) thay vì tức thì. Đây là đánh đổi hợp lý cho ứng dụng nội bộ.
+
+---
+
+### R-03 · SSO AMIS Mobile chưa chống replay bằng nonce — Trung bình (chỉ khi bật)
+
+**Vì sao được phép treo.** Toàn bộ cơ chế là **placeholder chờ spec thật** (ADR-029/030) và
+**TẮT mặc định**. `01-core-principles.md` §3 cấm tự suy diễn: xây kho nonce cho một cơ chế
+nhiều khả năng bị thay hẳn bằng OIDC/JWKS là vừa lãng phí vừa dựa trên giả định chưa được xác
+nhận. Đã giảm thiểu: trần TTL 300s, bắt buộc secret ≥ 32 ký tự, rate limit 10/phút.
+
+**Khuyến nghị.** Xử lý cùng lúc với checklist `devops-handoff.md` mục 6. Nếu spec thật vẫn
+dùng token tự phát hành, thêm trường `jti` + lưu jti đã dùng vào Redis với TTL = TTL token.
+
+---
+
+### R-04 · Object mồ côi trên storage — Thấp
+
+**Vì sao được phép treo.** Là quyết định vận hành (chu kỳ dọn, thời hạn giữ), không phải lỗi
+mã nguồn. Chỉ khai thác được bởi tài khoản nội bộ hợp lệ.
+
+**Khuyến nghị.** Bật lifecycle policy của MinIO/S3: xoá object có tiền tố `video-`/`thumb-`
+tạo quá 24h mà không được `film_versions` tham chiếu. Hoặc job định kỳ đối chiếu danh sách
+key trong bucket với `film_versions.storage_key`.
+
+---
+
+### R-06 · Nhật ký kiểm toán chưa có lưu trữ chống sửa đổi — Thấp
+
+**Vì sao được phép treo.** Yêu cầu của baseline §7 là nhật ký "không thể bị chính đối tượng
+đang bị điều tra tự ý xoá dấu vết". Ở **tầng ứng dụng điều này đã đạt**: không có API, lệnh,
+hay bảng nào cho phép sửa/xoá bản ghi kiểm toán đã ghi. Phần còn lại — nơi log được lưu và ai
+có quyền xoá — **nằm hoàn toàn ngoài phạm vi mã nguồn**. Làm bảng `audit_logs` trong chính DB
+của ứng dụng thậm chí còn **kém an toàn hơn** (tài khoản DB của ứng dụng có quyền ghi bảng đó
+nên cũng có thể xoá), tức là tạo cảm giác an toàn giả.
+
+**Khuyến nghị.** Đã đưa thành **điều kiện nghiệm thu bắt buộc** trong checklist go-live của
+`devops-handoff.md`: gom log `[Audit]` về hệ thống log tập trung với quyền chỉ-ghi, thời hạn
+lưu dài hơn log gỡ lỗi. Nếu MISA có yêu cầu tuân thủ chặt hơn, bổ sung ghi song song sang một
+kho append-only bên ngoài (không phải DB của chính ứng dụng).
+
+---
+
+### R-07 · Chưa chốt `X-Frame-Options`/CSP `frame-ancestors` — Thấp
+
+**Vì sao được phép treo.** Không thể quyết đúng khi chưa biết AMIS Mobile nhúng bằng WebView
+hay iframe — đặt `DENY` sẽ làm hỏng việc nhúng nếu là iframe. `01-core-principles.md` §3 cấm
+đoán. Vị trí sẵn sàng kèm hướng dẫn đã đặt trong `nginx/nginx.conf`.
+
+**Khuyến nghị.** WebView thật → đặt `X-Frame-Options: DENY` (header không ảnh hưởng WebView).
+Iframe → dùng `Content-Security-Policy: frame-ancestors <origin của app mẹ>`, **không** dùng
+`X-Frame-Options` (không hỗ trợ allowlist theo origin).
+
+---
+
+### R-08 · Rate limit đếm trong bộ nhớ tiến trình — Thấp
+
+**Vì sao được phép treo.** Chỉ thành vấn đề khi chạy nhiều bản sao, mà mô hình triển khai thật
+thì **chưa xác nhận được với đội hạ tầng MISA**.
+
+**Khuyến nghị.** Nếu chạy ≥ 2 bản sao: cài `@nest-lab/throttler-storage-redis`, trỏ
+`ThrottlerModule.forRoot({ storage: ... })` sang Redis dùng chung. Không đổi gì ở decorator.
+
+---
+
+### R-10 · Chưa phân trang `/films` và `/users` — Thấp
+
+**Vì sao được phép treo.** `06-api-design.md` §5 yêu cầu phân trang cho danh sách "có khả năng
+phát triển lớn". Thêm phân trang **đổi hình dạng response** (mảng → object có `meta`), phá vỡ
+hợp đồng với frontend hiện có — đúng loại thay đổi `11-phase-refactor-legacy.md` §5 yêu cầu
+báo cáo thay vì tự làm. Hiện kho phim có 1 phim; chưa phải vấn đề thực tế.
+
+**Khuyến nghị.** Làm trước khi kho phim vượt ~200 phim. Frontend `FilmListView.vue` đã có sẵn
+UI phân trang (đang phân trang phía client), nên chi phí chủ yếu ở việc đổi hợp đồng API và
+`filmsStore`. Dùng offset-based là đủ ở quy mô này.
+
+---
+
+### R-11 · Response không theo khuôn `{data}`/`{error}` — Thông tin
+
+**Vì sao được phép treo.** `06-api-design.md` §2 nhấn mạnh **"điều quan trọng nhất là NHẤT
+QUÁN xuyên suốt, không phải đúng chính xác tên khoá dưới đây"**. Dự án đang nhất quán: trả
+thẳng object/mảng khi thành công, `{statusCode, message, error}` chuẩn Nest khi lỗi. Đổi sẽ
+phải sửa toàn bộ frontend mà không thu được lợi ích thực tế nào.
+
+**Khuyến nghị.** Giữ nguyên. Chỉ cân nhắc khi có bên thứ ba ngoài frontend của chính dự án
+tích hợp vào API này.
+
+---
+
+### Các mục nhỏ còn lại
+
+| Rủi ro | Mức | Căn cứ treo | Khuyến nghị |
+|---|:--:|---|---|
+| Access token sống ≤ 15 phút sau khi khoá tài khoản | TB | Hệ quả tất yếu của JWT stateless (baseline §1 chấp nhận, chỉ yêu cầu có cơ chế thu hồi — xử lý cùng R-02) | Rút `JWT_ACCESS_TTL` xuống 5m nếu nghiệp vụ cần chặt hơn |
+| Chính sách mật khẩu chỉ ≥ 8 ký tự | Thấp | Rate limit (A2) đã chặn brute force; baseline không quy định độ phức tạp cụ thể | Tự hết khi cắm OIDC — chính sách do IAM MISA quản lý tập trung |
+| Không quét virus file tải lên | Thấp | Baseline không yêu cầu; ứng dụng nội bộ, người upload đều định danh được | Tích hợp ClamAV ở bước `confirmVersion` nếu yêu cầu tuân thủ đòi hỏi |
+| Chưa tắt tường minh HTTP TRACE | Thấp | Express không xử lý TRACE → không có bề mặt thật | Thêm chặn ở nginx khi rà cấu hình TLS |
+| Chưa có quy trình rotate secret định kỳ | Thấp | Việc vận hành, phụ thuộc secret manager chưa chọn | Chốt chu kỳ cùng đội hạ tầng khi chọn secret manager |
 
 ---
 
 ## Phụ lục B — Xác minh thực tế (nguyên tắc 4: backtest mọi nhánh)
 
-Không có kết luận nào trong tài liệu này chỉ dựa vào đọc mã nguồn. Chi tiết kết quả chạy
-thật (kiểm thử tự động, Docker, trình duyệt, thử rate limit bằng gọi lặp, kiểm Swagger tắt ở
-production) được ghi ở `memory-bank/04-progress.md` mục "Nhật ký GĐ7".
+Không có kết luận nào trong tài liệu này chỉ dựa vào đọc mã nguồn.
 
-Tóm tắt: **152 test tự động** (126 backend + 26 frontend) toàn bộ pass; cả hai bản build
-sạch; stack Docker 5 container chạy được sau thay đổi; luồng chính (đăng nhập → danh sách
-phim → mở phim) hoạt động bình thường; rate limit chặn đúng ngưỡng khi gọi lặp thật.
+| Hạng mục | Số liệu |
+|---|---|
+| Kiểm thử đơn vị backend (Jest, có mock) | **129 / 129 pass** — 8 file |
+| Kiểm thử tích hợp backend (MySQL THẬT) | **46 / 46 pass** — database riêng `kho_phim_e2e`, dựng lại sạch mỗi lần chạy |
+| Kiểm thử frontend (Vitest + jsdom) | **26 / 26 pass** — 2 file |
+| **Tổng test tự động** | **201** (trước GĐ7: 0) |
+| Kiểm thử đồng thời `recordView` | 3 kịch bản, 20 request song song mỗi kịch bản — **tất cả ĐẠT sau khi sửa** |
+| Biên dịch | `nest build` sạch · `vue-tsc -b && vite build` sạch |
+| Quét phụ thuộc | BE 19 CVE prod (0 critical) · FE **0 CVE prod** |
+| CI | 4 job, cú pháp YAML hợp lệ, mọi lệnh đã chạy thật ở local |
+
+**Chi tiết kiểm thử đồng thời** (`npm run test:concurrency`, 20 request song song/kịch bản):
+
+| Kịch bản | Trước khi sửa | Sau khi sửa |
+|---|---|---|
+| A — 20 người dùng khác nhau cùng xem 1 phim | +20 ✅ (đúng sẵn) | +20 ✅ |
+| B — 1 người đã xem, gửi 20 request song song | +0 ✅ (đúng sẵn) | +0 ✅ |
+| C — 1 người **chưa từng xem**, gửi 20 request song song | **+4 ❌ (LỖI)** | **+1 ✅** |
+
+**Xác minh trên hệ thống đang chạy thật** (Docker, 5 container): liveness/readiness 200 ·
+security header đầy đủ qua nginx · rate limit chặn đúng từ request thứ 10 · Swagger 404 ở
+mặc định và render đủ 25 path khi bật cờ · CSV injection bị vô hiệu hoá end-to-end · nhật ký
+kiểm toán ghi đúng · trình duyệt thật: đăng nhập → danh sách phim → chi tiết phim → báo cáo,
+**0 lỗi console** · dữ liệu sẵn có đọc đúng sau khi ép múi giờ UTC.
+
+Nhật ký đầy đủ từng bước: `memory-bank/04-progress.md` mục "Nhật ký GĐ 7".

@@ -26,18 +26,45 @@ const filmOwnedByOwner = { id: 1, slug: 'phim-a', uploaderId: OWNER_ID, title: '
 
 interface Mocks {
   service: FilmsService
-  films: { findOne: jest.Mock; save: jest.Mock; remove: jest.Mock; increment: jest.Mock; find: jest.Mock }
+  films: {
+    findOne: jest.Mock
+    save: jest.Mock
+    remove: jest.Mock
+    increment: jest.Mock
+    find: jest.Mock
+    manager: { transaction: jest.Mock }
+    txEntityManager: { findOne: jest.Mock; create: jest.Mock; save: jest.Mock; increment: jest.Mock }
+  }
   storage: { isAllowedVideoType: jest.Mock; isWithinLimit: jest.Mock; createVideoUploadUrl: jest.Mock; stat: jest.Mock; delete: jest.Mock; putThumbnail: jest.Mock }
   versions: { findOne: jest.Mock; save: jest.Mock; create: jest.Mock }
 }
 
 function setup(film: Film | null = filmOwnedByOwner): Mocks {
+  // `recordView` chạy trong giao dịch có khoá dòng (GĐ7 — sửa race condition, xem
+  // films.service.ts). Giả lập `manager.transaction` bằng cách gọi thẳng callback với
+  // một EntityManager giả: đủ để kiểm logic nghiệp vụ ở tầng unit test. Tính đúng đắn
+  // của phần KHOÁ chỉ chứng minh được dưới tải đồng thời thật — xem
+  // `test/concurrency/record-view.concurrency.mjs`.
+  const txEntityManager = {
+    findOne: jest.fn().mockImplementation((entity: unknown) => {
+      const name = (entity as { name?: string })?.name
+      // Film → trả phim đang test; FilmView → không có bản ghi trùng.
+      return Promise.resolve(name === 'Film' ? film : null)
+    }),
+    create: jest.fn().mockImplementation((_e: unknown, x: unknown) => x),
+    save: jest.fn().mockImplementation((x) => Promise.resolve(x)),
+    increment: jest.fn().mockResolvedValue(undefined),
+  }
   const films = {
     findOne: jest.fn().mockResolvedValue(film),
     save: jest.fn().mockImplementation((f) => Promise.resolve(f)),
     remove: jest.fn().mockResolvedValue(undefined),
     increment: jest.fn().mockResolvedValue(undefined),
     find: jest.fn().mockResolvedValue([]),
+    manager: {
+      transaction: jest.fn().mockImplementation((cb: (em: unknown) => unknown) => cb(txEntityManager)),
+    },
+    txEntityManager,
   }
   const repo = () => ({
     findOne: jest.fn().mockResolvedValue(null),
@@ -186,12 +213,34 @@ describe('FilmsService — validate upload ở SERVER (không tin FE)', () => {
   })
 })
 
-describe('FilmsService — đếm lượt xem (ADR-023)', () => {
+describe('FilmsService — đếm lượt xem (ADR-023 + sửa race condition GĐ7)', () => {
   it('tăng view atomic bằng increment, không đọc-rồi-ghi', async () => {
     const { service, films } = setup({ ...filmOwnedByOwner, viewCount: 4 } as Film)
     const result = await service.recordView(actor(OWNER_ID, 'employee'), 1, 'hash')
-    expect(films.increment).toHaveBeenCalledWith({ id: 1 }, 'viewCount', 1)
+    expect(films.txEntityManager.increment).toHaveBeenCalledWith(expect.anything(), { id: 1 }, 'viewCount', 1)
     expect(result.viewCount).toBe(5)
+  })
+
+  it('toàn bộ luồng chạy TRONG một giao dịch (không phải nhiều câu lệnh rời rạc)', async () => {
+    const { service, films } = setup({ ...filmOwnedByOwner, viewCount: 0 } as Film)
+    await service.recordView(actor(OWNER_ID, 'employee'), 1, 'hash')
+    expect(films.manager.transaction).toHaveBeenCalledTimes(1)
+  })
+
+  it('đọc phim bằng KHOÁ GHI (pessimistic_write) — chốt chặn race condition đã đo được', async () => {
+    const { service, films } = setup({ ...filmOwnedByOwner, viewCount: 0 } as Film)
+    await service.recordView(actor(OWNER_ID, 'employee'), 1, 'hash')
+
+    const filmRead = films.txEntityManager.findOne.mock.calls.find(
+      (c: unknown[]) => (c[0] as { name?: string })?.name === 'Film',
+    )
+    expect(filmRead).toBeDefined()
+    expect((filmRead as unknown[])[1]).toMatchObject({ lock: { mode: 'pessimistic_write' } })
+  })
+
+  it('phim không tồn tại → 404 ngay trong giao dịch', async () => {
+    const { service } = setup(null)
+    await expect(service.recordView(actor(OWNER_ID, 'employee'), 404, 'hash')).rejects.toThrow(NotFoundException)
   })
 
   it('session_hash suy ra từ IP + User-Agent và không lộ nguyên văn', () => {

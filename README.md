@@ -44,9 +44,10 @@ API tương tác: `/api/docs` (Swagger) — bật ở dev, TẮT mặc định �
 | 6.1 | Scaffold nhúng AMIS Mobile | ⏸️ Placeholder — chờ spec bridge từ đội AMIS Mobile |
 | 7 | Hardening & Handoff | ✅ |
 
-**GĐ 7** áp dụng skill `misa-backend-standard`: sửa 12 vấn đề bảo mật/vận hành, ghi nhận 11
-rủi ro còn treo kèm lý do, bổ sung 152 test tự động (trước đó dự án không có test nào), và
-viết trọn bộ tài liệu bàn giao ở `docs/`.
+**GĐ 7** áp dụng skill `misa-backend-standard`: sửa 14 vấn đề bảo mật/vận hành/đúng đắn dữ
+liệu, ghi nhận 9 rủi ro còn treo kèm căn cứ và khuyến nghị hành động, bổ sung **201 test tự
+động** (trước đó dự án không có test nào) gồm cả kiểm thử tích hợp trên DB thật và kiểm thử
+đồng thời, dựng CI, và viết trọn bộ tài liệu bàn giao ở `docs/`.
 
 **Việc treo duy nhất:** hoàn thiện GĐ 6.1 khi đội AMIS Mobile cung cấp spec bridge chính thức
 — checklist ở `docs/devops-handoff.md` mục 6.
@@ -59,6 +60,9 @@ docker compose up -d --build
 → http://localhost:8180 · đăng nhập `superadmin@misa.com.vn` / `Admin@12345` (đổi ngay ở prod).
 
 ```bash
-cd backend  && npm test   # 126 test
-cd frontend && npm test   # 26 test
+cd backend  && npm test              # 129 test đơn vị
+cd backend  && npm run test:e2e      # 46 test tích hợp (cần MySQL chạy)
+cd frontend && npm test              # 26 test
+cd backend  && npm run test:concurrency   # test đồng thời (cần cả stack chạy)
 ```
+CI tự động: `.github/workflows/ci.yml` (build + test + quét lỗ hổng phụ thuộc).

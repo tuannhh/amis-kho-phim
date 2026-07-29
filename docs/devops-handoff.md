@@ -333,21 +333,75 @@ Chi tiết đầy đủ kèm bằng chứng file:dòng ở `docs/danh-gia-an-nin
       backend từ chối khởi động vì cấu hình sai)
 - [ ] Orchestrator trỏ liveness vào `/api/health` và readiness vào `/api/health/ready`
       (không dùng chung một endpoint cho cả hai)
-- [ ] Log có tiền tố `[Audit]` được gom về nơi lưu trữ chống sửa đổi, giữ lâu hơn log
-      gỡ lỗi thông thường (R-06)
+- [ ] **ĐIỀU KIỆN NGHIỆM THU nhật ký kiểm toán (R-06)** — cả 3 mục, không bỏ mục nào:
+      (a) log có tiền tố `[Audit]` được gom về hệ thống log tập trung;
+      (b) kho log đó cấu hình quyền **chỉ-ghi** — tài khoản vận hành ứng dụng và quản trị viên
+          trong app KHÔNG xoá/sửa được bản ghi đã ghi (đây là yêu cầu cốt lõi của baseline §7:
+          nhật ký phải không bị chính đối tượng đang bị điều tra xoá dấu vết);
+      (c) thời hạn lưu **dài hơn** log gỡ lỗi thông thường, theo chính sách tuân thủ của MISA.
+      Nếu thiếu (b), nhật ký kiểm toán chỉ có giá trị vận hành, KHÔNG có giá trị điều tra —
+      phải nói rõ điều đó với chủ dự án thay vì coi như đã đạt.
 - [ ] Nếu chạy nhiều bản sao: đã chuyển rate limit sang store Redis dùng chung (R-08)
 
 ---
 
-## 10. Chạy kiểm thử tự động
+## 10. Kiểm thử tự động & CI
 
-Nên đưa vào pipeline CI, chạy trước mỗi lần triển khai:
+### Đã có sẵn CI — `.github/workflows/ci.yml`
+
+Chạy trên mỗi push/PR vào `main` (và chạy tay qua `workflow_dispatch`). **4 job:**
+
+| Job | Nội dung |
+|---|---|
+| `backend` | `npm ci` → `npm run build` → `npm test` (129 unit test) |
+| `backend-e2e` | Dựng service MySQL 8.0 → `npm run test:e2e` (46 test tích hợp trên DB thật) |
+| `frontend` | `npm ci` → `npm test` (26 test) → `npm run build` (kèm kiểm kiểu `vue-tsc`) |
+| `audit` | Quét lỗ hổng phụ thuộc |
+
+> **Cổng chặn bắt buộc** theo chuẩn Backend MISA `13-devops-lifecycle.md` §1: **không hợp
+> nhất vào `main` khi CI đỏ.** Cần bật branch protection cho nhánh `main` trên GitHub
+> (Settings → Branches → Require status checks to pass) — đây là **việc DevOps phải làm**,
+> file workflow tự nó không ép được.
+
+**Về ngưỡng của job `audit` — đọc kỹ trước khi đổi:** cổng chặn đặt ở
+`npm audit --omit=dev --audit-level=critical`, tức chỉ chặn khi có lỗ hổng **critical** trong
+**dependency production**. Hai lựa chọn này đều có chủ đích:
+- `--omit=dev`: devDependency (jest, vite, `@nestjs/cli`) **không đi vào image production**
+  vì Dockerfile cài bằng `npm ci --omit=dev`. Chặn theo chúng là báo động giả.
+- `critical` thay vì `high`: hiện còn 9 CVE mức high trong nhánh phụ thuộc của NestJS 10 mà
+  **mọi bản vá đều đòi nâng major** (xem R-05). Đặt ngưỡng `high` ngay bây giờ khiến CI đỏ
+  vĩnh viễn và mất hẳn tác dụng cảnh báo. **Sau khi nâng NestJS lên 11, hạ ngưỡng xuống
+  `high`** — đã ghi thành TODO ngay trong file workflow.
+
+### Chạy tay ở máy local
 
 ```bash
-cd backend  && npm ci && npm run build && npm test    # 109 test
-cd frontend && npm ci && npm run build && npm test    # 26 test
+cd backend  && npm ci && npm run build && npm test      # 129 unit test
+cd frontend && npm ci && npm run build && npm test      # 26 test
+
+# Kiểm thử tích hợp — cần MySQL đang chạy (docker compose up -d mysql).
+# Dùng database RIÊNG `kho_phim_e2e`, KHÔNG chạm vào dữ liệu dev.
+cd backend && npm run test:e2e                          # 46 test
+
+# Kiểm thử đồng thời — cần TOÀN BỘ stack đang chạy (docker compose up -d).
+# Mất ~2,5 phút vì cố ý tôn trọng rate limit đăng nhập thật thay vì nới lỏng nó.
+cd backend && npm run test:concurrency
 ```
 
-Trọng tâm bộ test là **phần rủi ro cao**: guard xác thực, ma trận phân quyền, owner policy,
-luồng SSO, chốt chặn cấu hình, xuất CSV. Cố ý **không** phủ CRUD đơn giản không có logic —
-xem `docs/danh-gia-an-ninh.md` và `memory-bank/04-progress.md` để biết phạm vi đã và chưa phủ.
+**Kiểm thử đồng thời không nằm trong CI** — nó cần cả stack (nginx + backend + MySQL) chạy
+thật và mất vài phút. Chạy tay trước mỗi lần phát hành, hoặc khi sửa bất cứ thứ gì chạm vào
+`recordView`. Chính script này đã phát hiện ra một race condition thật ở GĐ7.
+
+Trọng tâm bộ test là **phần rủi ro cao**: guard xác thực, ma trận phân quyền, quyền sở hữu
+(IDOR), luồng SSO, chốt chặn cấu hình, xuất CSV, đếm lượt xem dưới tải đồng thời. Cố ý
+**không** phủ CRUD đơn giản không có logic — xem `docs/danh-gia-an-ninh.md`.
+
+### Chưa có (cần DevOps bổ sung)
+
+- **CD (triển khai tự động)** — chưa có, vì chưa biết nền tảng đích (mục 2).
+  `13-devops-lifecycle.md` §1 khuyến nghị bán tự động: tự động chuẩn bị, cần một bước xác
+  nhận thủ công trước khi đưa lên môi trường quan trọng nhất.
+- **Kiểm thử component UI** — chưa có. UI được kiểm thủ công có chủ đích trên trình duyệt
+  thật qua từng Review Gate, đúng `07-testing-strategy.md` §6 (xác minh thủ công là hợp lệ
+  khi tự động hoá khó, miễn là nói rõ giới hạn).
+- **Kiểm thử trên thiết bị di động thật** (iOS Safari / Android Chrome) — tồn đọng từ GĐ6.

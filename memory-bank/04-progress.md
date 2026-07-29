@@ -13,7 +13,71 @@
 - **GĐ 7 áp dụng skill `misa-backend-standard`** (Quy chuẩn Backend MISA, tại
   `~/.claude/skills/misa-backend-standard`) làm khung chuẩn cho phần đánh giá an ninh,
   chiến lược kiểm thử và refactor. Phiên sau nếu sửa backend PHẢI dùng lại skill này.
+- **Đã có đợt BỔ SUNG đưa GĐ7 về đúng chuẩn** (kiểm thử tích hợp 46 test trên DB thật, kiểm
+  thử đồng thời, CI GitHub Actions, quét phụ thuộc) — đợt này phát hiện và sửa **2 lỗi đúng
+  đắn dữ liệu thật** mà unit test không thể thấy: race condition ở `recordView` (ADR-036) và
+  phụ thuộc ngầm vào múi giờ Node↔MySQL (ADR-037). **Tổng 201 test tự động.**
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
+
+## Nhật ký GĐ 7 — BỔ SUNG "đạt chuẩn misa-backend-standard" — 2026-07-29 — ✅ XONG
+
+> Người dùng đọc báo cáo GĐ7 đợt đầu và yêu cầu: các thiếu sót đã tự nêu phải được xử lý cho
+> ĐẠT chuẩn, không dừng ở mức ghi nhận. Đợt này phân loại lại toàn bộ thiếu sót thành
+> **nhóm A (lệch chuẩn — phải sửa)** và **nhóm B (đúng chuẩn khi để treo, có trích dẫn điều
+> khoản cho phép)**, rồi làm hết nhóm A.
+
+### Nhóm A — đã sửa
+1. **Kiểm thử đồng thời cho `recordView`** (nguyên tắc 4 + `07-testing-strategy` §1 yêu cầu
+   tường minh). Viết `backend/test/concurrency/record-view.concurrency.mjs`, 3 kịch bản × 20
+   request song song. **→ PHÁT HIỆN RACE CONDITION THẬT**: 1 người dùng mới gửi 20 request
+   song song làm `view_count` tăng **4 thay vì 1** (check-then-act: nhiều request cùng vượt
+   qua bước kiểm trùng trước khi ai kịp ghi). Sửa bằng giao dịch + khoá dòng
+   `pessimistic_write` (ADR-036) đúng cách `05-database-rules` §3 quy định. Đo lại: **+1 ✅**.
+   Script cố ý **tôn trọng rate limit thật** (giãn nhịp đăng nhập) thay vì nới lỏng ngưỡng cho
+   test chạy nhanh — nới ngưỡng vì test bất tiện là đánh đổi bảo mật lấy tiện lợi.
+2. **Kiểm thử tích hợp trên DB thật** (`07-testing-strategy` §1). Thêm `test/jest-e2e.json`,
+   `test/env-e2e.ts`, `test/global-setup.ts`, `test/app.e2e-spec.ts` — **46 test** chạy trên
+   MySQL thật, route thật, guard thật, database riêng `kho_phim_e2e` dựng lại sạch mỗi lần
+   (ADR-039). Phủ theo rủi ro: xác thực, SSO, RBAC, quyền sở hữu/IDOR, validate đầu vào, đếm
+   lượt xem, CSV, endpoint công khai, và **rate limit với guard thật**.
+   **→ PHÁT HIỆN LỖI THẬT THỨ HAI**: kết nối MySQL không khai báo múi giờ nên dùng múi giờ
+   cục bộ của tiến trình Node; trong Docker cả hai đều UTC nên trùng, nhưng chạy từ máy dev
+   VN (+07) thì cửa sổ dedupe lệch 7 tiếng → tính trùng lượt xem. Sửa bằng `timezone: 'Z'`
+   (ADR-037), đúng `05-database-rules` §5.
+3. **CI** (`13-devops-lifecycle` §1 — "cổng chặn bắt buộc, không phải bước tham khảo").
+   `.github/workflows/ci.yml`, 4 job: backend build+unit, backend e2e (kèm service MySQL 8.0),
+   frontend build+test, audit. Cổng chặn audit đặt ở phạm vi production, ngưỡng critical, có
+   giải thích và TODO hạ xuống `high` sau khi nâng NestJS 11 (ADR-038).
+4. **`npm audit` chạy thật** (`02-security-baseline` §6). Kết quả: BE **19 CVE phạm vi
+   production** (10 moderate, 9 high, **0 critical**), 50 nếu tính cả devDependency; FE **0
+   CVE phạm vi production** (8 CVE đều là devDependency build-time của `vite-plugin-pwa`).
+   Đã chạy `npm audit fix` (KHÔNG `--force`): **không có bản vá an toàn nào áp dụng được** —
+   100% còn lại đòi nâng major. Không nâng major giữa đợt hardening (vi phạm §6.4 + nguyên
+   tắc 2); đã ghi khuyến nghị nhánh riêng `chore/upgrade-nestjs-11`.
+
+### Nhóm B — giữ treo, có căn cứ (chi tiết + khuyến nghị hành động ở `docs/danh-gia-an-ninh.md` Phụ lục A)
+- **Audit log chống sửa đổi (R-06)**: baseline §7 yêu cầu nhật ký không bị chính đối tượng bị
+  điều tra xoá. **Ở tầng ứng dụng đã đạt** (không có API/lệnh/bảng nào sửa-xoá được bản ghi đã
+  ghi). Phần còn lại thuộc hạ tầng gom log — làm bảng `audit_logs` trong chính DB của app còn
+  **kém an toàn hơn** vì tài khoản app có quyền ghi bảng đó nên cũng xoá được. Đã chuyển thành
+  **điều kiện nghiệm thu 3 mục** trong checklist go-live thay vì để lửng lơ.
+- **Test component UI**: `07-testing-strategy` §6 cho phép xác minh thủ công có chủ đích khi
+  tự động hoá khó, miễn nói rõ giới hạn — đã nói rõ.
+- **9 rủi ro kiến trúc còn lại** (R-01..R-11): `11-phase-refactor-legacy` §3/§5 quy định phải
+  BÁO CÁO thay vì tự sửa hàng loạt. Mỗi rủi ro nay có thêm **khuyến nghị hành động cụ thể**
+  (R-09 có hẳn phương án presigned GET 5 bước kèm ảnh hưởng tới FE).
+
+### Verify đợt bổ sung
+- `npm run build` BE sạch · `npm test` **129/129** · `npm run test:e2e` **46/46** ·
+  FE `npm test` **26/26** + build sạch → **tổng 201 test tự động**.
+- `npm run test:concurrency` **3/3 kịch bản ĐẠT** sau khi sửa (trước: 1 kịch bản LỖI).
+- CI: YAML parse hợp lệ (4 job), `npm ci --dry-run` OK cả BE/FE, lệnh audit gate exit 0,
+  đã mô phỏng job e2e bằng đúng biến `E2E_*` mà CI truyền → 46/46 pass. **KHÔNG push** nên
+  chưa trigger CI thật trên GitHub.
+- Docker rebuild + browser test lại: danh sách phim, dữ liệu cũ đọc đúng sau khi ép UTC,
+  readiness `database: ok`, **0 lỗi console**.
+
+---
 
 ## Nhật ký GĐ 7 (Hardening & Handoff) — 2026-07-29 — ✅ XONG
 - **Chuẩn áp dụng**: skill `misa-backend-standard`. Đánh giá an ninh bám đúng khung 9 mục

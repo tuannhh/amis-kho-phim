@@ -31,9 +31,16 @@
   **`docs/danh-gia-an-ninh.md`**. Nghiêm trọng nhất là **R-09**: `/media/:key` công khai chỉ
   dựa vào UUID khó đoán — nên đổi sang presigned GET ngắn hạn trước khi mở cho toàn công ty
   nếu kho phim có nội dung nhạy cảm.
-- **Test: từ 0 lên 152** (126 BE với Jest + 26 FE với Vitest). Trước GĐ7 dự án **không có
-  test nào**. Ưu tiên phủ phần rủi ro cao (guard, RBAC, owner policy/IDOR, auth, SSO, chốt
-  chặn cấu hình, CSV), cố ý không phủ CRUD đơn giản.
+- **Test: từ 0 lên 201** — 129 unit BE (Jest) + **46 tích hợp trên MySQL THẬT** + 26 FE
+  (Vitest), cộng script kiểm thử đồng thời riêng. Trước GĐ7 dự án **không có test nào**.
+- **Đợt bổ sung đã phát hiện và sửa 2 LỖI THẬT** mà unit test có mock không thể thấy:
+  (1) race condition ở `recordView` — 1 người dùng gửi 20 request song song bị tính 4 lượt
+  thay vì 1, sửa bằng giao dịch + khoá dòng (ADR-036); (2) kết nối MySQL không khai báo múi
+  giờ nên cửa sổ dedupe lệch 7 tiếng khi Node chạy khác múi giờ với DB, sửa bằng
+  `timezone: 'Z'` (ADR-037). Đây là minh chứng vì sao chuẩn bắt buộc kiểm thử đồng thời và
+  kiểm thử tích hợp.
+- **Đã có CI** `.github/workflows/ci.yml` (4 job). ⚠️ **Branch protection phải bật thủ công
+  trên GitHub** mới thành cổng chặn thật — workflow không tự ép được.
 - **Tài liệu mới**: `docs/danh-gia-an-ninh.md`, `docs/api-overview.md`,
   `docs/quy-trinh-noi-bo.md`, `docs/devops-handoff.md`, Swagger `/api/docs` (tắt ở production),
   và `memory-bank/11-coding-rules.md` (quy tắc riêng dự án, theo mandate của skill).
@@ -50,17 +57,22 @@
 Danh sách đầy đủ các bẫy loại này: **`memory-bank/11-coding-rules.md`** — đọc file đó trước
 khi sửa code, sẽ tiết kiệm rất nhiều thời gian.
 
-### Giới hạn đã biết của GĐ 7 (nói rõ, không giấu)
-- **Chưa có integration test chạy DB thật** và **chưa có load/concurrency test**. Bộ test hiện
-  tại toàn bộ là unit test có mock. Luồng đếm lượt xem (`recordView`) tuy đã dùng `increment()`
-  atomic nhưng **chưa được kiểm dưới tải đồng thời thật** như `07-testing-strategy §1` yêu cầu.
-- **Chưa có test component UI** (chưa cài `@vue/test-utils`) — UI vẫn dựa vào kiểm thủ công
-  trên trình duyệt qua từng Review Gate.
-- **Chưa kiểm trên thiết bị di động thật** (iOS Safari / Android Chrome) — tồn đọng từ GĐ 6.
-- **Chưa có CI**, nên `npm audit` và bộ test chưa chạy tự động (đã đề xuất ở
-  `docs/devops-handoff.md` mục 10).
-- **`npm audit` còn cảnh báo** chủ yếu từ `multer@1.x` mà NestJS 10 kéo theo — khắc phục cần
-  nâng NestJS lên major mới, phải làm ở nhánh riêng (rủi ro R-05).
+### Giới hạn còn lại sau đợt bổ sung (nói rõ, không giấu)
+- **Chưa có test component UI** (chưa cài `@vue/test-utils`). ĐÚNG CHUẨN khi để vậy —
+  `07-testing-strategy §6` cho phép xác minh thủ công có chủ đích khi tự động hoá khó, miễn
+  nói rõ giới hạn. UI được kiểm trên trình duyệt thật qua từng Review Gate.
+- **Chưa kiểm trên thiết bị di động thật** (iOS Safari / Android Chrome) — tồn đọng từ GĐ 6,
+  môi trường phiên làm việc chỉ có trình duyệt desktop.
+- **CI chưa chạy thật trên GitHub** vì chưa push (người dùng chưa đồng ý push). Đã verify cú
+  pháp YAML + chạy thật mọi lệnh trong workflow ở local, gồm mô phỏng job e2e bằng đúng biến
+  môi trường CI truyền.
+- **Chưa có CD** — chưa biết nền tảng đích, cần xác nhận với đội hạ tầng MISA.
+- **19 CVE phạm vi production ở backend** (0 critical), mọi bản vá đòi nâng major NestJS
+  10→11. FE thì **0 CVE phạm vi production**. Khuyến nghị: nhánh riêng
+  `chore/upgrade-nestjs-11`, dựa vào 201 test làm lưới an toàn (rủi ro R-05).
+- **9 rủi ro kiến trúc còn treo** — đều có căn cứ trích dẫn quy chuẩn cho phép treo VÀ khuyến
+  nghị hành động cụ thể, xem `docs/danh-gia-an-ninh.md` Phụ lục A. Đáng chú ý nhất R-09
+  (`/media/:key` công khai) đã có sẵn phương án presigned GET 5 bước.
 
 ### Các giai đoạn trước (tóm tắt — chi tiết ở `04-progress.md`)
 - **GĐ 6.1**: scaffold nhúng AMIS Mobile (WebView+bridge), **TẮT mặc định**, chờ spec thật.

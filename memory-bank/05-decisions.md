@@ -2,6 +2,59 @@
 
 > Ghi lại quyết định kiến trúc quan trọng + lý do. Thêm mục mới ở trên cùng.
 
+## ADR-039 — Kiểm thử tích hợp dùng database RIÊNG, chạy dưới tài khoản ứng dụng (không root) [GĐ7 bổ sung]
+- **Quyết định:** e2e chạy trên database `kho_phim_e2e` tách hẳn khỏi `kho_phim` của dev,
+  `test/global-setup.ts` DROP + CREATE lại sạch mỗi lần chạy. Việc tạo database dùng tài
+  khoản quản trị (root), nhưng **bản thân bộ test kết nối bằng tài khoản ứng dụng
+  (`khophim`)** sau khi được GRANT quyền trên đúng database đó. Có chốt an toàn: nếu
+  `E2E_DB_NAME` trỏ vào `kho_phim` thì throw ngay, không chạy.
+- **Lý do:** `07-testing-strategy.md` §4 bắt buộc dữ liệu kiểm thử tách biệt hoàn toàn và
+  dựng lại từ đầu mỗi lần. Chạy test dưới tài khoản ứng dụng (thay vì root cho tiện) để e2e
+  phản ánh **đúng quyền hạn thật lúc vận hành** — nếu chạy bằng root, một lỗi kiểu "app thiếu
+  quyền trên bảng X" sẽ không bao giờ lộ ra ở CI mà chỉ nổ ở production. Việc DROP database
+  an toàn vì đây là DB riêng cho test, và chốt an toàn chặn nhầm lẫn.
+
+## ADR-038 — CI GitHub Actions; cổng chặn audit đặt ở phạm vi production, ngưỡng critical [GĐ7 bổ sung]
+- **Quyết định:** `.github/workflows/ci.yml` với 4 job (backend unit, backend e2e kèm service
+  MySQL, frontend, audit). Job `audit` **chặn** khi `npm audit --omit=dev --audit-level=critical`
+  thất bại; phần còn lại (gồm devDependency) chỉ in báo cáo, không chặn.
+- **Lý do:** `13-devops-lifecycle.md` §1 quy định CI là **cổng chặn bắt buộc**, không phải
+  bước tham khảo. Hai lựa chọn phạm vi đều có chủ đích: (1) `--omit=dev` vì devDependency
+  không đi vào image production (Dockerfile cài `npm ci --omit=dev`) — chặn theo chúng là báo
+  động giả làm người ta quen với CI đỏ; (2) ngưỡng `critical` thay vì `high` vì hiện còn 9 CVE
+  mức high trong nhánh phụ thuộc NestJS 10 mà **mọi bản vá đều đòi nâng major** — đặt `high`
+  ngay bây giờ khiến CI đỏ vĩnh viễn và mất hẳn tác dụng cảnh báo. Đã ghi TODO hạ ngưỡng
+  xuống `high` sau khi nâng NestJS 11, ngay trong file workflow. **Lưu ý:** branch protection
+  (bắt buộc CI xanh mới merge được) phải bật thủ công trên GitHub, workflow không tự ép được.
+
+## ADR-037 — Ép múi giờ kết nối MySQL về UTC (`timezone: 'Z'`) [GĐ7 bổ sung]
+- **Quyết định:** thêm `timezone: 'Z'` vào `dbOptions` (`db-options.ts`).
+- **Lý do — LỖI THẬT phát hiện nhờ kiểm thử tích hợp:** trước đây driver mysql2 dùng múi giờ
+  **cục bộ của tiến trình Node** để chuyển đổi giá trị DATETIME. Trong Docker cả backend lẫn
+  MySQL đều chạy UTC nên trùng nhau và mọi thứ *có vẻ* đúng — nhưng khi tiến trình Node chạy ở
+  múi giờ khác (máy dev VN +07), giá trị ghi/đọc lệch đúng 7 tiếng, làm **cửa sổ dedupe 30
+  phút của `recordView` sai hoàn toàn** → cùng một người dùng bị tính lượt xem nhiều lần.
+  Đúng cảnh báo ở `05-database-rules.md` §5 ("luôn lưu trữ theo UTC, không dựa vào múi giờ mặc
+  định của máy chủ"). Unit test không bắt được (repository bị mock) và chạy trong Docker cũng
+  không bắt được — chỉ kiểm thử tích hợp từ máy host mới lộ ra. Đã verify dữ liệu sẵn có đọc
+  ra vẫn đúng sau khi đổi (giá trị trong DB vốn đã là UTC vì container chạy UTC).
+
+## ADR-036 — `recordView` chạy trong giao dịch có khoá dòng phim [GĐ7 bổ sung]
+- **Quyết định:** toàn bộ `FilmsService.recordView` bọc trong `manager.transaction`, đọc phim
+  bằng `lock: { mode: 'pessimistic_write' }` TRƯỚC khi kiểm trùng, rồi mới insert `film_views`
+  + `increment` view_count. Vẫn giữ `increment()` (không đọc-rồi-ghi) như ADR-023.
+- **Lý do — RACE CONDITION THẬT, đã đo được:** bản cũ đọc `film_views` để quyết định có ghi
+  hay không, nhưng câu đọc đó nằm NGOÀI giao dịch và không khoá gì. Khi cùng một người dùng
+  gửi nhiều request song song, tất cả đều vượt qua bước kiểm trùng trước khi bất kỳ request
+  nào kịp ghi bản ghi đầu tiên. Đo bằng `test/concurrency/record-view.concurrency.mjs`:
+  **1 người dùng mới gửi 20 request song song làm `view_count` tăng 4 thay vì 1**; sau khi sửa
+  tăng đúng 1. Đúng mẫu lỗi và đúng cách sửa quy định ở `05-database-rules.md` §3 ("câu đọc
+  quyết định phải nằm trong cùng giao dịch và phải khoá dòng đang đọc").
+- **Đánh đổi đã cân nhắc:** khoá theo dòng PHIM nên các lượt xem cùng một phim bị tuần tự hoá.
+  Chấp nhận được vì giao dịch rất ngắn và mỗi người chỉ ghi 1 lần/30 phút cho mỗi phim — đúng
+  thứ tự ưu tiên của quy chuẩn (đúng đắn dữ liệu trước, hiệu năng sau). Đo thực tế: 20 request
+  song song từ 20 người dùng khác nhau vẫn cho kết quả đúng +20, không thấy chậm bất thường.
+
 ## ADR-035 — Nhật ký kiểm toán ghi ra stdout dạng hàm module, không phải bảng DB/service DI [GĐ7]
 - **Quyết định:** `common/audit/audit-log.ts` export hàm `auditLog(event)` + `formatAuditEntry()`,
   ghi qua `Logger` của Nest ra stdout với tiền tố `[Audit]`. Ghi 10 loại sự kiện nhạy cảm theo

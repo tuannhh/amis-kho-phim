@@ -79,9 +79,31 @@ Ghi ở đây để người sau không "sửa" nhầm:
 - **Stack dev chạy `NODE_ENV=production`** — do Dockerfile pin sẵn. Vì vậy cổng chặn cấu hình
   là `ALLOW_INSECURE_CONFIG`, không phải `NODE_ENV` (ADR-032). Đừng "dọn dẹp" chỗ này.
 
+## 5b. Bẫy đồng thời & múi giờ (bài học GĐ7 — tốn công mới tìm ra)
+
+- **Bất kỳ luồng nào "đọc để quyết định rồi mới ghi" đều phải nằm trong giao dịch có khoá
+  dòng.** Đã dính đúng lỗi này ở `recordView`: kiểm trùng nằm ngoài giao dịch nên 20 request
+  song song của cùng một người dùng đều vượt qua bước kiểm → tính 4 lượt thay vì 1. Sửa bằng
+  `manager.transaction` + `lock: { mode: 'pessimistic_write' }` (ADR-036). **Nếu thêm luồng
+  tương tự (vd đăng ký suất giới hạn, gán tài nguyên duy nhất) → áp dụng đúng khuôn này.**
+- **Test tuần tự KHÔNG BAO GIỜ lộ ra lỗi loại trên.** Bắt buộc chạy
+  `npm run test:concurrency` khi sửa bất cứ thứ gì chạm `recordView`.
+- **Kết nối MySQL đã ép `timezone: 'Z'`** (`db-options.ts`) — ĐỪNG XOÁ. Không có nó, driver
+  dùng múi giờ cục bộ của tiến trình Node; chạy trong Docker (UTC) thì trùng nên không thấy
+  gì, nhưng chạy từ máy dev VN (+07) thì mọi so sánh thời gian lệch 7 tiếng. Đây là lý do
+  cửa sổ dedupe 30 phút từng sai hoàn toàn khi chạy e2e từ host.
+- **Khi test đụng rate limit, ĐỪNG nới ngưỡng cho dễ test** — giãn nhịp gọi thay vì hạ hàng
+  rào bảo mật. Xem cách làm ở `test/concurrency/record-view.concurrency.mjs`.
+
 ## 6. Kiểm thử
 
 - **Chạy `npm test` ở CẢ backend lẫn frontend trước khi báo xong**, không chỉ phần vừa sửa.
+- **Bốn lệnh test, đừng quên hai lệnh sau:**
+  `cd backend && npm test` (129 unit) · `cd backend && npm run test:e2e` (46 tích hợp, cần
+  `docker compose up -d mysql`) · `cd frontend && npm test` (26) ·
+  `cd backend && npm run test:concurrency` (cần TOÀN BỘ stack chạy, mất ~2,5 phút).
+- **e2e dùng database RIÊNG `kho_phim_e2e`**, tự DROP+CREATE mỗi lần chạy. Có chốt an toàn
+  chặn nếu ai đó trỏ nhầm vào `kho_phim` của dev.
 - **Ưu tiên theo rủi ro, không chạy đua tỷ lệ bao phủ**: guard, phân quyền, auth, SSO, chốt
   chặn cấu hình, xuất CSV. Cố ý không test cơ học CRUD không có logic.
 - **Không mock kiểu che lỗi**: nếu một test cần mock quá nhiều mới chạy được, xem lại thiết kế
