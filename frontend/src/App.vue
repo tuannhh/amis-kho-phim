@@ -183,9 +183,9 @@ function offlineRetry() {
         Kho phim đã sẵn sàng dùng ngoại tuyến cho những phần đã xem qua.
       </MGlobalInline>
 
-      <!-- Kho phim chưa có Tính năng mới/AVA/AMIS Chat/Trợ giúp/Thiết lập — ẩn hẳn theo đúng
-           quy chuẩn header-bar.md ("được phép ẩn mục không thuộc scope app") thay vì để icon
-           hiện ra nhưng bấm không có hành vi gì. Bật lại (bỏ show-*="false") khi có tính năng thật. -->
+      <!-- Cụm tiện ích Tính năng mới/AVA/AMIS Chat/Trợ giúp/Thiết lập hiện đủ theo đúng thứ tự
+           chuẩn header-bar.md dù Kho phim chưa có tính năng thật đứng sau — bấm tạm thời chưa
+           có hành động (chờ tính năng tương ứng, xem TODO ở các @-handler tương lai). -->
       <MHeaderBar
         variant="brand"
         app-name="AMIS Kho phim"
@@ -194,12 +194,6 @@ function offlineRetry() {
         :user="currentUser"
         :notification-count="notifications.unreadCount"
         :compact="isCompact"
-        :show-whats-new="false"
-        :show-assistant="false"
-        :show-chat="false"
-        :show-help="false"
-        :show-more="false"
-        :show-settings="false"
         @search="onHeaderSearch"
         @logo-click="goHome"
         @user-click="toggleUserMenu"
