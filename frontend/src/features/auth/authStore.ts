@@ -2,13 +2,24 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { isEmbedded, getBridgeToken } from '@/lib/amisBridge'
 
-export type UserRole = 'super_admin' | 'admin' | 'employee'
+/**
+ * RBAC 4 CẤP CÓ SCOPE PHÒNG BAN (ADR-040) — khớp `RoleCode` của backend
+ * (`backend/src/modules/users/entities/role.entity.ts`). Vai trò `admin` cũ đã bị loại bỏ.
+ *
+ *   viewer       Cấp 1 — chỉ xem
+ *   employee     Cấp 2 — tạo phim + sửa/xoá phim của chính mình
+ *   dept_manager Cấp 3 — thêm: sửa/xoá phim của Cấp 2 cùng phòng ban
+ *   super_admin  Cấp 4 — mọi phim + toàn bộ quyền quản trị hệ thống
+ */
+export type UserRole = 'viewer' | 'employee' | 'dept_manager' | 'super_admin'
 
 export interface AuthUser {
   id: number
   email: string
   fullName: string
   roleCode: UserRole
+  /** Phòng ban (null = chưa gán). Chỉ dùng để ẩn/hiện nút; quyền thật do backend kiểm. */
+  departmentId: number | null
   createdBy: number | null
   isActive: boolean
   mustChangePassword: boolean

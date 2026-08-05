@@ -5,6 +5,34 @@
 
 ## Tóm tắt nhanh (đọc 30 giây là hiểu hết)
 
+### ⭐ VIỆC MỚI NHẤT: RBAC 4 CẤP CÓ SCOPE PHÒNG BAN — ✅ XONG (2026-08-05, Opus 5)
+Việc **phát sinh ngoài roadmap**, đã thay thế **HOÀN TOÀN** 3 vai trò cũ
+`super_admin`/`admin`/`employee`. **Đọc ADR-040 → ADR-044 trước khi sửa bất cứ thứ gì liên quan
+phân quyền.**
+
+| Cấp | RoleCode | Nhãn | Quyền |
+|---|---|---|---|
+| 1 | `viewer` | Người xem | CHỈ xem |
+| 2 | `employee` | Nhân viên văn phòng | + tạo phim, sửa/xoá phim **của mình** |
+| 3 | `dept_manager` | Trưởng phòng | + sửa/xoá phim của **Cấp 2 CÙNG phòng ban** |
+| 4 | `super_admin` | Quản trị cao nhất | + mọi phòng ban + toàn bộ quyền quản trị |
+
+- **Vai trò `admin` KHÔNG CÒN TỒN TẠI.** Dữ liệu cũ migrate `admin` → **Cấp 4** (ADR-041 —
+  vì hành vi thật của `admin` cũ là sửa được MỌI phim toàn công ty, khớp Cấp 4 chứ không phải Cấp 3).
+  ⚠️ Đây là thay đổi quyền thật, đã báo cho người dùng xác nhận.
+- **Lỗ hổng đã bịt:** trước đây `POST /films` và 3 route storage **không có `@Roles` nào** → mọi tài
+  khoản đã đăng nhập đều tạo được phim. Nay 7 route ghi của `/films` đều gắn `@Roles(...FILM_WRITE_ROLES)`.
+- **Nguồn sự thật vai trò:** BE `modules/users/entities/role.entity.ts` · FE
+  `features/auth/permissions.ts`. **Sửa quy tắc phải sửa CẢ HAI** (FE là bản sao để ẩn/hiện nút).
+- **`departmentId` KHÔNG nằm trong JWT** — đọc lại DB mỗi lần kiểm quyền (ADR-043), để Trưởng phòng
+  bị chuyển phòng ban mất quyền NGAY, không phải chờ token 15 phút hết hạn.
+- Màn mới: **"Quản lý phòng ban"** (`/admin/departments`, chỉ Cấp 4). Endpoint mới:
+  `/api/departments` (CRUD) + `PATCH /api/users/:id` (đổi vai trò/phòng ban).
+- **Test: 299** (174 unit BE + 82 tích hợp BE trên MySQL thật + 43 FE), tất cả pass.
+- Tài khoản demo trên DB dev (mật khẩu `Test@2026x`): `xem@` Cấp 1 · `nv1@`/`nv2@` Cấp 2 (Phòng
+  Truyền thông) · `tp1@` Cấp 3 (Phòng Truyền thông) · `tp2@` Cấp 3 (Phòng Kinh doanh). Chi tiết đầy
+  đủ ở `04-progress.md` mục "Nhật ký RBAC 4 cấp".
+
 ### ⭐ DỰ ÁN ĐÃ HOÀN THÀNH TOÀN BỘ ROADMAP CHÍNH (GĐ 0 → GĐ 7)
 - **GĐ 7 — Hardening & Handoff ĐÃ XONG (2026-07-29, Opus 5)** — đây là giai đoạn CUỐI của
   `03-roadmap.md`. Không còn giai đoạn nào phía sau.
@@ -53,6 +81,10 @@
 2. **Sửa `nginx/nginx.conf` phải `docker compose restart nginx`** — file mount read-only,
    `up -d --build` không nạp lại config.
 3. **Chuông thông báo luôn rỗng là CHỦ ĐÍCH** (tắt từ 2026-07-22 để tránh spam), không phải bug.
+4. **`films.department_id` là SNAPSHOT lúc tạo phim, KHÔNG join động qua uploader** (ADR-042) — sửa
+   phòng ban của người dùng KHÔNG làm đổi phòng ban của phim họ đã tạo. Đây là chủ đích.
+   Phim tạo TRƯỚC khi có phòng ban có `department_id = NULL` → Cấp 3 không quản được, phải gán lại
+   tường minh. Và **`null` không được coi là "trùng null"** khi so phòng ban.
 
 Danh sách đầy đủ các bẫy loại này: **`memory-bank/11-coding-rules.md`** — đọc file đó trước
 khi sửa code, sẽ tiết kiệm rất nhiều thời gian.
@@ -147,8 +179,11 @@ docker compose down               # tắt khi không dùng (volume vẫn giữ)
   (`film-view.entity.ts`); FilmsController thêm upload-url/thumbnail/versions + **[GĐ4]** `:id/view`;
   FilmsService.toPublic lấy version mới nhất → storage/thumbnail; `recordView`/`sessionHashOf` (GĐ4)
 - Backend `modules/categories/` — cây cha-con (ADR-016 bảng riêng, không JSON column)
-- Migrations: InitAuth → InitCatalog → AddFilmVersions → **AddFilmViews** (đăng ký tường minh
-  trong `db-options.ts`)
+- Migrations: InitAuth → InitCatalog → AddFilmVersions → AddFilmViews → AddNotifications →
+  **AddDepartmentsAndRbac4Levels** (đăng ký tường minh trong `db-options.ts`)
+- Backend `modules/departments/` — **[RBAC4]** danh mục phòng ban (chỉ Cấp 4), chặn xoá khi còn tham chiếu
+- Frontend `features/departments/` — **[RBAC4]** `DepartmentAdminView.vue` + `departmentsApi.ts`
+- Frontend `features/auth/permissions.ts` — **[RBAC4]** nguồn sự thật vai trò/quyền phía FE
 
 ## Quyết định đã chốt (xem đầy đủ ở 05-decisions.md)
 - ORM: **TypeORM**. Nginx dùng từ GĐ 0. Tailwind **v4**. Theme MDS blue mặc định.

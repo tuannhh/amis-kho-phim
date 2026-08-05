@@ -2,6 +2,102 @@
 
 > Ghi lại quyết định kiến trúc quan trọng + lý do. Thêm mục mới ở trên cùng.
 
+## ADR-044 — Chuyên mục & báo cáo & quản trị người dùng thu về CHỈ Cấp 4 (hệ quả của việc bỏ `admin`) [RBAC4]
+- **Quyết định:** `@Roles('super_admin')` cho `/users`, `/reports`, `/departments` và các route GHI của
+  `/categories` (trước đây là `@Roles('super_admin','admin')`). Cấp 3 (`dept_manager`) **KHÔNG** có
+  quyền quản trị tài khoản, chuyên mục hay báo cáo.
+- **Lý do:** vai trò `admin` cũ đã bị loại bỏ và migrate sang Cấp 4 (ADR-041), nên quyền của nó đi
+  theo Cấp 4. Đặc tả Cấp 3 chỉ mở rộng phạm vi sửa/xoá **PHIM** cùng phòng ban, không nhắc quyền
+  quản trị nào — mở thêm cho Cấp 3 sẽ là tự suy diễn. Riêng chuyên mục còn có căn cứ độc lập:
+  `02-security-baseline.md` §2 yêu cầu danh mục dùng chung toàn hệ thống giới hạn quyền ghi ở cấp cao
+  nhất. Báo cáo là xuất dữ liệu hàng loạt có PII (§9) nên giữ mức hạn chế nhất.
+- **Điểm cần xác nhận lại với người dùng:** nếu nghiệp vụ thật muốn Trưởng phòng xem được báo cáo
+  **của phòng mình**, đó là yêu cầu mới (cần thêm bộ lọc theo `department_id` ở ReportsService) —
+  cố ý KHÔNG làm trước khi có yêu cầu rõ ràng.
+
+## ADR-043 — `departmentId` KHÔNG đưa vào JWT; đọc lại DB mỗi lần kiểm quyền [RBAC4]
+- **Quyết định:** JWT payload giữ nguyên `{sub, email, role, type}`. Phòng ban của actor và vai trò
+  của người tạo phim đều đọc từ bảng `users` qua `UsersService.getDepartmentId` /
+  `getRoleAndDepartment` ngay tại thời điểm kiểm quyền (`FilmsService.assertCanManage`).
+- **Lý do:** access token sống 15 phút. Nếu nhét phòng ban vào token, sau khi Cấp 4 chuyển một
+  Trưởng phòng sang phòng khác thì **token cũ vẫn cho họ quản lý phim của phòng cũ tới khi token hết
+  hạn** — đúng loại lỗ hổng "token cũ mang quyền cũ". Với dữ liệu quyết định phạm vi phân quyền,
+  đọc DB là đánh đổi đúng theo nguyên tắc 1 (bảo mật > hiệu năng).
+- **Chi phí đã cân nhắc:** thêm 1–2 câu SELECT theo khoá chính cho mỗi thao tác GHI phim (không ảnh
+  hưởng đường đọc `GET /films`, vốn là đường nóng). Chấp nhận được.
+- **Đã kiểm chứng bằng test thật:** có 1 ca e2e chuyển phòng ban của Trưởng phòng rồi dùng LẠI access
+  token cũ → phải nhận 403 ngay.
+
+## ADR-042 — Phạm vi 2 cột `department_id` / người tạo: snapshot ở `films`, truy vết ở `categories`, KHÔNG thêm vào bảng con [RBAC4]
+- **Quyết định (theo yêu cầu tường minh "mỗi bản ghi dữ liệu chính phải biết thuộc phòng ban nào và
+  ai tạo"), phạm vi áp dụng:**
+  - `films`: giữ nguyên `uploader_id` (người tạo, không đổi tên) + **thêm `department_id` dạng
+    SNAPSHOT** phòng ban của người tạo tại thời điểm tạo phim.
+  - `categories`: thêm **cả** `created_by` và `department_id`, thuần TRUY VẾT.
+  - `users`: thêm `department_id` (nullable).
+  - `film_links`, `film_versions`, `hashtags`, `film_views`, `notifications`, `user_notifications`:
+    **KHÔNG thêm**.
+- **Lý do snapshot (không join động qua uploader):** (1) uploader có thể đổi phòng ban sau này, phim
+  phải giữ đúng ngữ cảnh phòng ban **lúc được tạo**; (2) scope quyền Cấp 3 lọc trực tiếp trên cột này
+  nên không cần join bảng `users` (có index `IDX_films_department`).
+- **Lý do KHÔNG thêm vào bảng con:** chúng là bản ghi con luôn suy ra được phòng ban/người tạo qua
+  `film_id`. Thêm cột trùng lặp chỉ tạo thêm đường để dữ liệu lệch nhau (denormalize không đổi lại
+  được lợi ích gì, vì không có truy vấn nào cần lọc chúng theo phòng ban).
+- **Lý do `categories` KHÔNG dùng để scope quyền:** chuyên mục là danh mục **dùng chung toàn công ty**,
+  không phải nội dung sở hữu cá nhân/phòng ban. Quyền ghi giữ ở Cấp 4 (ADR-044). Hai cột mới chỉ
+  phục vụ truy vết/kiểm toán đúng như yêu cầu, không thay đổi hành vi phân quyền.
+- **GIỚI HẠN ĐÃ BIẾT của backfill:** migration backfill `films.department_id` từ phòng ban của uploader,
+  nhưng khi chạy lần đầu trên DB hiện có thì `users.department_id` vừa được thêm nên **toàn bộ đang
+  NULL** → mọi phim cũ có `department_id = NULL`, tức là **Cấp 3 KHÔNG quản lý được phim tạo trước khi
+  phòng ban được gán**. Đây là hành vi an toàn (mặc định từ chối, không mặc định cho phép); muốn Cấp 3
+  quản phim cũ thì Cấp 4 phải gán lại tường minh. Kèm theo: `null` KHÔNG được coi là "trùng null" khi
+  so sánh phòng ban — nếu không, mọi Trưởng phòng chưa gán phòng ban sẽ quản được toàn bộ phim cũ.
+
+## ADR-041 — Mapping dữ liệu vai trò CŨ → MỚI: `admin` cũ → Cấp 4 (KHÔNG phải Cấp 3) [RBAC4]
+- **Quyết định:**
+  - `employee` cũ → **Cấp 2 `employee`** (hành vi giống hệt, không đổi).
+  - `super_admin` cũ → **Cấp 4 `super_admin`** (hành vi giống hệt).
+  - `admin` cũ → **Cấp 4 `super_admin`**; dòng `admin` bị xoá khỏi danh mục `roles`.
+  - **KHÔNG tài khoản nào tự động lên Cấp 1 hoặc Cấp 3** — hai cấp này hoàn toàn mới, Cấp 4 phải tự
+    gán lại qua màn Quản trị người dùng (vì vậy mới bổ sung `PATCH /users/:id`).
+- **Lý do mapping `admin` → Cấp 4:** hành vi THẬT của `admin` cũ là sửa/xoá được **MỌI phim toàn công
+  ty** (`films.service.ts` bản cũ: `if (roleCode === 'super_admin' || roleCode === 'admin') return`)
+  cộng quyền tạo tài khoản nhân viên. Cấp 3 chỉ sửa được phim **cùng phòng ban**, nên hạ `admin` xuống
+  Cấp 3 là **thu hồi quyền âm thầm**. Cấp 4 là mức khớp hành vi cũ nhất.
+- **⚠️ ĐÂY LÀ THAY ĐỔI QUYỀN THẬT trên tài khoản đang tồn tại** — đã nêu rõ trong báo cáo bàn giao để
+  người dùng tự xác nhận lại. Trên DB dev hiện tại KHÔNG có tài khoản `admin` nào (chỉ 1 seed
+  `super_admin`), nên thực tế không tài khoản nào bị ảnh hưởng; nhưng logic migration vẫn phải đúng
+  cho mọi môi trường khác.
+- **`down()` không đối xứng (nêu rõ, không giả vờ):** không thể phục hồi tài khoản nào TỪNG là `admin`
+  vì thông tin đó đã bị ghi đè ở `up()`. `down()` chỉ trả lại danh mục `roles` cũ và hạ
+  `viewer`/`dept_manager` về `employee` để không có tài khoản mang vai trò không tồn tại.
+
+## ADR-040 — RBAC 4 CẤP CÓ SCOPE PHÒNG BAN, thay thế hoàn toàn `super_admin`/`admin`/`employee` [RBAC4]
+- **Quyết định — tên `RoleCode` cuối cùng:**
+  | Cấp | RoleCode | Nhãn | Quyền |
+  |---|---|---|---|
+  | 1 | `viewer` | Người xem | CHỈ xem. Không tạo/sửa/xoá phim |
+  | 2 | `employee` | Nhân viên văn phòng | Cấp 1 + tạo phim + sửa/xoá phim **của chính mình** |
+  | 3 | `dept_manager` | Trưởng phòng | Cấp 2 + sửa/xoá phim của **mọi Cấp 2 CÙNG phòng ban** |
+  | 4 | `super_admin` | Quản trị cao nhất | Cấp 3 + mọi phòng ban + toàn bộ quyền quản trị hệ thống |
+- **Lý do chọn tên:** tái dùng đúng `employee`/`super_admin` cho Cấp 2/Cấp 4 vì ngữ nghĩa đã khớp sẵn
+  hành vi cũ → giảm xáo trộn và giảm số chỗ phải sửa. `viewer`/`dept_manager` là tên tự mô tả, nói rõ
+  scope. Vai trò `admin` bị **loại bỏ hoàn toàn** thay vì đổi nghĩa — giữ lại tên `admin` với ngữ
+  nghĩa mới là cách chắc chắn nhất để người đọc code sau này hiểu sai.
+- **Nguồn sự thật DUY NHẤT:** `backend/src/modules/users/entities/role.entity.ts` (`RoleCode`,
+  `ROLE_LEVEL`, `ROLE_NAME`, `ALL_ROLE_CODES`, `FILM_WRITE_ROLES`, `isAtLeastLevel`). Seed
+  (`seed.service.ts`) đọc từ đây, không khai lại danh sách vai trò. Phía FE có bản sao gọn ở
+  `frontend/src/features/auth/permissions.ts` (chỉ để ẩn/hiện nút).
+- **LỖ HỔNG THẬT ĐÃ BỊT:** trước đợt này **KHÔNG có `@Roles` nào** trên `POST /films`,
+  `POST /films/:id/upload-url`, `POST /films/:id/thumbnail`, `POST /films/:id/versions` → **mọi tài
+  khoản đã đăng nhập đều tạo được phim**, kể cả vai trò thấp nhất. Nay 7 route GHI của `/films`
+  (thêm cả `PATCH`/`DELETE` để phòng thủ nhiều lớp) đều gắn `@Roles(...FILM_WRITE_ROLES)`, Cấp 1 bị
+  chặn NGAY Ở GUARD. `assertCanManage` là lớp thứ hai, không phải chốt duy nhất.
+- **Quyết định về Cấp 3, cố ý KHÔNG mở rộng:** Cấp 3 chỉ quản phim do **Cấp 2** tạo (kiểm cả
+  `uploader.roleCode === 'employee'`), KHÔNG tự động cho quản phim của Cấp 3 khác hay Cấp 4 cùng
+  phòng. Bám đúng câu chữ đặc tả: "được quyền... chỉnh sửa của tất cả mọi người được phân quyền cấp
+  2". Cấp 3 vẫn quản được phim của chính mình (kế thừa quyền Cấp 2).
+
 ## ADR-039 — Kiểm thử tích hợp dùng database RIÊNG, chạy dưới tài khoản ứng dụng (không root) [GĐ7 bổ sung]
 - **Quyết định:** e2e chạy trên database `kho_phim_e2e` tách hẳn khỏi `kho_phim` của dev,
   `test/global-setup.ts` DROP + CREATE lại sạch mỗi lần chạy. Việc tạo database dùng tài

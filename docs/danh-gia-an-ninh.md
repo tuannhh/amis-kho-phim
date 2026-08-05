@@ -11,6 +11,11 @@
 > **Thời điểm:** 2026-07-29 · **Trạng thái mã nguồn:** sau hardening GĐ7 **và bản bổ sung
 > đạt chuẩn** (kiểm thử tích hợp, kiểm thử đồng thời, CI, quét phụ thuộc).
 >
+> **🔄 CẬP NHẬT 2026-08-05 — RBAC 4 CẤP CÓ SCOPE PHÒNG BAN.** Mục **2. Phân quyền** đã được rà soát
+> lại sau khi thay thế hoàn toàn 3 vai trò cũ bằng 4 cấp có scope phòng ban (ADR-040 → 044). Đợt này
+> **bịt một lỗ hổng phân quyền THẬT** mà bản đánh giá 2026-07-29 chưa phát hiện — xem mục 2.9 mới bổ
+> sung. Các mục 1, 3–9 không bị ảnh hưởng và giữ nguyên kết luận cũ.
+>
 > **Quy ước:** ✅ Đạt · ⚠️ Đạt một phần · ❌ Chưa đạt · ➖ Không áp dụng.
 > Mọi kết luận đều kèm bằng chứng `file:dòng` — không suy đoán (nguyên tắc 3 của skill).
 > Số dòng theo mã nguồn tại thời điểm lập tài liệu.
@@ -22,7 +27,7 @@
 | Mục baseline | Đạt | Đạt một phần | Chưa đạt | Không áp dụng |
 |---|:--:|:--:|:--:|:--:|
 | 1. Xác thực | 6 | 2 | 1 | 3 |
-| 2. Phân quyền | 6 | 0 | 0 | 1 |
+| 2. Phân quyền | 9 | 0 | 0 | 1 | ← rà soát lại 2026-08-05 (RBAC 4 cấp)
 | 3. Chống injection | 6 | 1 | 0 | 1 |
 | 4. Quản lý secrets | 4 | 1 | 0 | 0 |
 | 5. Cấu hình sai an toàn | 6 | 1 | 0 | 0 |
@@ -95,15 +100,21 @@ DevOps xoá cờ `ALLOW_INSECURE_CONFIG`.
 | # | Hạng mục baseline | Trạng thái | Bằng chứng / Ghi chú |
 |---|---|:--:|---|
 | 2.1 | Kiểm quyền ở server, không tin client | ✅ | Guard toàn cục `JwtAuthGuard` + `RolesGuard` (`app.module.ts:45-47`). FE chỉ ẩn/hiện nút cho UX. |
-| 2.2 | Mô hình phân quyền tương xứng nghiệp vụ | ✅ | RBAC 3 vai trò + owner policy — đúng mức, không phức tạp hoá bằng ABAC. |
-| 2.3 | Cách ly dữ liệu theo đơn vị | ➖ | Kho phim dùng chung toàn công ty, không có nhiều tổ chức độc lập. Riêng thông báo có lọc theo người dùng (2.5). |
-| 2.4 | Không tin trường có ý nghĩa phân quyền do client gửi | ✅ | `uploaderId` lấy từ token (`films.service.ts:154` — `uploaderId: actor.id`), không nhận từ body. `createdBy` tương tự (`users.service.ts:121`). `storage_key` sinh 100% ở server (`storage.service.ts:103`). |
-| 2.5 | **IDOR — kiểm quyền sở hữu, không chỉ đăng nhập** | ✅ | `FilmsService.assertCanManage` (`films.service.ts:177-181`) so `film.uploaderId === actor.id`, gọi ở `update`/`remove`/`findManageableFilm` (dùng chung cho cả 3 endpoint storage). Thông báo lọc theo `actor.id` (`notifications.controller.ts:13,18,23,29`). Đã phủ 9 test IDOR. |
-| 2.6 | Endpoint danh mục dùng chung giới hạn cấp cao | ✅ | `/categories` ghi chỉ `super_admin`/`admin` (`categories.controller.ts:17,23,29`); `/users` và `/reports` gắn `@Roles` ở cấp controller. |
-| 2.7 | **Mass assignment** | ✅ | `ValidationPipe({ whitelist: true })` (`main.ts:45`) loại bỏ mọi field lạ. `CreateUserDto` chặn `roleCode: 'super_admin'` bằng `@IsIn(['admin','employee'])` (`create-user.dto.ts:14`); quyền tạo còn được kiểm lại ở service qua `creatableRoles` (`users.service.ts:104`). |
-| 2.8 | Ma trận quản lý người dùng | ✅ | `UsersService.assertCanManage` (`users.service.ts:81-98`): không tự khoá mình, super_admin không đụng super_admin khác, admin chỉ quản lý employee. Phủ 9 test. |
+| 2.2 | Mô hình phân quyền tương xứng nghiệp vụ | ✅ | **[Cập nhật 2026-08-05]** RBAC **4 cấp** + owner policy + **scope theo phòng ban** cho Cấp 3 (`role.entity.ts`, ADR-040). Vẫn là RBAC thuần (không ABAC): scope chỉ dựa trên 1 thuộc tính `department_id` đã lưu sẵn, không phải chính sách động — đúng mức baseline §2 khuyến nghị. |
+| 2.3 | Cách ly dữ liệu theo đơn vị | ➖ | Kho phim **XEM** dùng chung toàn công ty (chủ đích nghiệp vụ: mọi nhân viên xem được mọi phim), không có nhiều tổ chức độc lập. Phòng ban chỉ giới hạn quyền **GHI** của Cấp 3, không giới hạn quyền đọc. Riêng thông báo có lọc theo người dùng (2.5). |
+| 2.4 | Không tin trường có ý nghĩa phân quyền do client gửi | ✅ | `uploaderId` lấy từ token (`films.service.ts` — `uploaderId: actor.id`), không nhận từ body. **[Mới]** `films.department_id` snapshot từ DB của người tạo qua `UsersService.getDepartmentId`, **KHÔNG** nhận từ DTO — đã có e2e gửi kèm `departmentId` của phòng khác và xác nhận bị bỏ qua. `users.departmentId` được validate tồn tại thật trước khi lưu (`users.service.ts` `resolveDepartmentId`). `createdBy` tương tự. `storage_key` sinh 100% ở server. |
+| 2.5 | **IDOR — kiểm quyền sở hữu, không chỉ đăng nhập** | ✅ | **[Viết lại 2026-08-05]** `FilmsService.assertCanManage` nay có 4 nhánh: Cấp 1 luôn từ chối · Cấp 2 so `film.uploaderId === actor.id` · Cấp 3 so `film.departmentId === actor.departmentId` **VÀ** `uploader.roleCode === 'employee'` · Cấp 4 cho qua. Gọi ở `update`/`remove`/`findManageableFilm` (dùng chung cho cả 3 endpoint storage). **Dữ liệu quyết định đọc từ DB, không từ JWT** (ADR-043). Thông báo lọc theo `actor.id`. Đã phủ **17 ca unit + 17 ca e2e** cho scope phòng ban. |
+| 2.6 | Endpoint danh mục dùng chung giới hạn cấp cao | ✅ | **[Siết thêm 2026-08-05]** `/categories` ghi chỉ **`super_admin`** (`categories.controller.ts`, trước là `super_admin`+`admin`); `/users`, `/reports`, **`/departments`** (mới) gắn `@Roles('super_admin')` ở cấp controller. Danh mục phòng ban quyết định ranh giới phân quyền của Cấp 3 nên khoá cả quyền ĐỌC ở Cấp 4 (quyền tối thiểu). |
+| 2.7 | **Mass assignment** | ✅ | `ValidationPipe({ whitelist: true })` (`main.ts`) loại bỏ mọi field lạ. **[Cập nhật]** `CreateUserDto`/`UpdateUserDto` chặn `roleCode: 'super_admin'` bằng `@IsIn(ASSIGNABLE_ROLE_CODES)` (`create-user.dto.ts`) — cũng chặn luôn giá trị `'admin'` cũ; quyền gán còn được kiểm lại ở service qua `creatableRoles`. E2E xác nhận cả `roleCode:'super_admin'` và `roleCode:'admin'` đều → 400. |
+| 2.8 | Ma trận quản lý người dùng | ✅ | **[Cập nhật 2026-08-05]** `UsersService.assertCanManage`: không tự tác động chính mình, **chỉ Cấp 4** quản lý người dùng, không đụng Cấp 4 khác. Cấp 3 KHÔNG có quyền quản trị tài khoản (khác `admin` cũ — ADR-044). Endpoint mới `PATCH /users/:id` (đổi vai trò/phòng ban) dùng lại đúng `assertCanManage` + `creatableRoles`, ghi `auditLog('user.update')` kèm giá trị trước/sau. Phủ 20 test. |
+| 2.9 | **Route ghi phải có `@Roles`, không dựa mỗi kiểm tra phía sau** | ✅ | **HẠNG MỤC MỚI — bịt lỗ hổng THẬT (2026-08-05).** Bản đánh giá 2026-07-29 **đã bỏ sót**: `POST /films`, `POST /films/:id/upload-url`, `POST /films/:id/thumbnail`, `POST /films/:id/versions` **không gắn `@Roles` nào**, nên **mọi tài khoản đã đăng nhập đều tạo được phim** — kể cả vai trò thấp nhất. Nguyên nhân bỏ sót: rà soát cũ chỉ kiểm "endpoint có kiểm quyền sở hữu chưa" (2.5) mà không kiểm "vai trò nào được phép GỌI endpoint này". Nay cả **7 route ghi** của `/films` (thêm cả `PATCH`/`DELETE` cho phòng thủ nhiều lớp) đều gắn `@Roles(...FILM_WRITE_ROLES)`; Cấp 1 bị chặn ngay ở guard, `assertCanManage` là lớp thứ hai. Verify: 8 ca e2e + probe API thật bằng token Cấp 1 → 403 trên cả 7 route. |
 
-**Không có rủi ro treo ở mục 2.** Đây là phần vững nhất của hệ thống.
+**Không có rủi ro treo ở mục 2.**
+
+**Bài học rút ra cho các đợt rà soát sau:** kiểm IDOR (2.5) và kiểm `@Roles` (2.9) là **hai câu hỏi
+khác nhau** — một endpoint có thể kiểm quyền sở hữu rất chặt nhưng vẫn thiếu chốt "ai được phép gọi",
+và ngược lại. Rà soát phải liệt kê **toàn bộ route ghi** rồi đối chiếu từng route với ma trận phân
+quyền, thay vì chỉ đi theo các hàm kiểm quyền đã có.
 
 ---
 
@@ -228,8 +239,8 @@ DevOps xoá cờ `ALLOW_INSECURE_CONFIG`.
 
 | # | Hạng mục baseline | Trạng thái | Bằng chứng / Ghi chú |
 |---|---|:--:|---|
-| 9.1 | Chỉ vai trò cần thiết mới xem đầy đủ | ✅ | Danh sách người dùng (email + họ tên) giới hạn `@Roles('super_admin','admin')` (`users.controller.ts:23`). |
-| 9.2 | Endpoint xuất hàng loạt giới hạn chặt hơn xem lẻ | ✅ | `/reports/films` chỉ admin+ (`reports.controller.ts:9`); và **ĐÃ SỬA GĐ7**: riêng nhánh `format=csv` được ghi nhật ký kiểm toán kèm số dòng đã xuất. |
+| 9.1 | Chỉ vai trò cần thiết mới xem đầy đủ | ✅ | **[Siết thêm 2026-08-05]** Danh sách người dùng (email + họ tên + phòng ban) giới hạn `@Roles('super_admin')` — chỉ Cấp 4 (`users.controller.ts`; trước là `super_admin`+`admin`). |
+| 9.2 | Endpoint xuất hàng loạt giới hạn chặt hơn xem lẻ | ✅ | **[Siết thêm 2026-08-05]** `/reports/films` chỉ **Cấp 4** (`reports.controller.ts`); và **ĐÃ SỬA GĐ7**: riêng nhánh `format=csv` được ghi nhật ký kiểm toán kèm số dòng đã xuất. |
 | 9.3 | Không trả nguyên object gốc chứa thừa dữ liệu | ✅ | `UsersService.toPublic` (`users.service.ts:44-55`) và `FilmsService.toPublic` lọc trường tường minh; `password_hash` khai báo `select: false` ở entity. Có test khẳng định `PublicUser` không chứa `passwordHash`. |
 | 9.4 | Cân nhắc PII trong log | ⚠️ | Nhật ký kiểm toán cố ý ghi `actorId` (số) thay vì email, và che tự động trường nhạy cảm. Nhưng chưa rà toàn bộ log gỡ lỗi có sẵn từ các giai đoạn trước — rủi ro thấp vì các log đó chủ yếu là thông báo khởi động. |
 

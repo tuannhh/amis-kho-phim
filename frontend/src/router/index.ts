@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore, type UserRole } from '@/features/auth/authStore'
+import { ADMIN_ROLES, FILM_WRITE_ROLES } from '@/features/auth/permissions'
 
 /**
  * Router AMIS Kho phim.
@@ -40,7 +41,8 @@ const router = createRouter({
       path: '/upload',
       name: 'upload',
       component: () => import('@/features/upload/FilmUploadView.vue'),
-      meta: { title: 'Thêm phim' },
+      // Cấp 1 (viewer) không được vào màn tạo/sửa phim — backend cũng chặn ở @Roles.
+      meta: { title: 'Thêm phim', roles: FILM_WRITE_ROLES },
     },
     {
       path: '/categories',
@@ -49,16 +51,22 @@ const router = createRouter({
       meta: { title: 'Chuyên mục' },
     },
     {
+      path: '/admin/departments',
+      name: 'admin-departments',
+      component: () => import('@/features/departments/DepartmentAdminView.vue'),
+      meta: { title: 'Quản lý phòng ban', roles: ADMIN_ROLES },
+    },
+    {
       path: '/admin/users',
       name: 'admin-users',
       component: () => import('@/features/admin/UserAdminView.vue'),
-      meta: { title: 'Quản trị người dùng', roles: ['super_admin', 'admin'] as UserRole[] },
+      meta: { title: 'Quản trị người dùng', roles: ADMIN_ROLES },
     },
     {
       path: '/admin/reports',
       name: 'admin-reports',
       component: () => import('@/features/reports/ReportsView.vue'),
-      meta: { title: 'Báo cáo quản trị', roles: ['super_admin', 'admin'] as UserRole[] },
+      meta: { title: 'Báo cáo quản trị', roles: ADMIN_ROLES },
     },
   ],
 })

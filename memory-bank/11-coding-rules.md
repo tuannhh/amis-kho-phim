@@ -49,6 +49,35 @@
 - **Đếm/cộng dồn phải atomic**: dùng `increment()` (sinh ra `SET x = x + 1`), không đọc-rồi-ghi.
   Xem ADR-023 (đếm lượt xem).
 
+## 3b. Phân quyền — RBAC 4 cấp có scope phòng ban (từ 2026-08-05, ADR-040 → 044)
+
+- **Có HAI nguồn sự thật vai trò và phải sửa CẢ HAI:** backend
+  `modules/users/entities/role.entity.ts` (`RoleCode`, `ROLE_LEVEL`, `ROLE_NAME`,
+  `FILM_WRITE_ROLES`) và frontend `features/auth/permissions.ts`. FE là **bản sao có chủ đích**
+  để ẩn/hiện nút — lệch nhau sẽ làm người dùng thấy nút rồi bấm vào nhận 403, hoặc mất nút dù
+  có quyền. Có test ở cả hai phía phủ đủ 4 cấp; sửa quy tắc phải sửa cả hai bộ test.
+- **Thêm route GHI mới ⇒ PHẢI gắn `@Roles`.** Kiểm quyền sở hữu ở service (`assertCanManage`)
+  **không thay thế** được `@Roles`. Đây đúng là lỗ hổng thật đã xảy ra: `POST /films` +
+  3 route storage từng không có `@Roles` nào nên **mọi tài khoản đã đăng nhập đều tạo được
+  phim**. Dùng `@Roles(...FILM_WRITE_ROLES)` cho route ghi phim, `@Roles('super_admin')` cho
+  route quản trị — đừng khai lại danh sách vai trò tại chỗ.
+- **KHÔNG nhét `departmentId` (hay bất cứ thứ gì quyết định phạm vi quyền) vào JWT** — đọc lại
+  DB mỗi lần kiểm quyền (ADR-043). Token sống 15 phút, nếu mang theo phòng ban thì người vừa
+  bị chuyển phòng vẫn giữ quyền cũ tới khi token hết hạn.
+- **`films.department_id` là SNAPSHOT lúc tạo, không join động qua uploader** (ADR-042). Đừng
+  "sửa" thành join cho "đồng bộ hơn" — đổi phòng ban của người dùng KHÔNG được làm đổi ngữ
+  cảnh phòng ban của phim họ đã tạo.
+- **`null` KHÔNG trùng `null` khi so phòng ban.** Phải kiểm tường minh `actorDept != null`
+  trước khi so sánh; nếu không, mọi Trưởng phòng chưa gán phòng ban sẽ quản được toàn bộ phim
+  cũ có `department_id = NULL`.
+- **Trạng thái "chưa gán phòng ban" trong MSelect dùng value `0`, không dùng `undefined`** —
+  `undefined` đã là "chưa chọn gì" theo quy ước dự án (§2), dùng lẫn sẽ không phân biệt được
+  với "chọn có chủ đích là không thuộc phòng ban nào".
+- **Bỏ vai trò/thêm vai trò ⇒ grep toàn repo** (`RoleCode`, tên vai trò dạng chuỗi) kể cả
+  `seed.service.ts`, test, script `test/concurrency/*.mjs`, docs và Swagger example. Vai trò
+  `admin` cũ đã bị loại bỏ hoàn toàn — nếu thấy chuỗi `'admin'` ở đâu trong code vai trò thì
+  đó là sót, không phải hợp lệ.
+
 ## 4. Bảo mật (bổ sung cho baseline chung)
 
 - **Không bao giờ nhận `storage_key`/`thumbnail_key` từ client** — server tự sinh bằng
@@ -93,14 +122,17 @@ Ghi ở đây để người sau không "sửa" nhầm:
   gì, nhưng chạy từ máy dev VN (+07) thì mọi so sánh thời gian lệch 7 tiếng. Đây là lý do
   cửa sổ dedupe 30 phút từng sai hoàn toàn khi chạy e2e từ host.
 - **Khi test đụng rate limit, ĐỪNG nới ngưỡng cho dễ test** — giãn nhịp gọi thay vì hạ hàng
-  rào bảo mật. Xem cách làm ở `test/concurrency/record-view.concurrency.mjs`.
+  rào bảo mật. Xem cách làm ở `test/concurrency/record-view.concurrency.mjs`. Điều này áp cả
+  khi **kiểm thủ công bằng curl**: `/auth/login` giới hạn 10 lần/phút/IP, đăng nhập nhiều tài
+  khoản liên tiếp sẽ nhận `429` và trả về token RỖNG → mọi request sau đó ra `401` trông như
+  lỗi phân quyền. Đã mất công một lần vì chuyện này — hãy giãn ~7s giữa các lần đăng nhập.
 
 ## 6. Kiểm thử
 
 - **Chạy `npm test` ở CẢ backend lẫn frontend trước khi báo xong**, không chỉ phần vừa sửa.
 - **Bốn lệnh test, đừng quên hai lệnh sau:**
-  `cd backend && npm test` (129 unit) · `cd backend && npm run test:e2e` (46 tích hợp, cần
-  `docker compose up -d mysql`) · `cd frontend && npm test` (26) ·
+  `cd backend && npm test` (174 unit) · `cd backend && npm run test:e2e` (82 tích hợp, cần
+  `docker compose up -d mysql`) · `cd frontend && npm test` (43) ·
   `cd backend && npm run test:concurrency` (cần TOÀN BỘ stack chạy, mất ~2,5 phút).
 - **e2e dùng database RIÊNG `kho_phim_e2e`**, tự DROP+CREATE mỗi lần chạy. Có chốt an toàn
   chặn nếu ai đó trỏ nhầm vào `kho_phim` của dev.

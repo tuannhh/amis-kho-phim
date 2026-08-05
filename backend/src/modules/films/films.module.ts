@@ -9,12 +9,18 @@ import { FilmsService } from './films.service'
 import { FilmsController } from './films.controller'
 import { StorageModule } from '../storage/storage.module'
 import { NotificationsModule } from '../notifications/notifications.module'
+import { UsersModule } from '../users/users.module'
 
+/**
+ * UsersModule được import để `FilmsService.assertCanManage` đọc được vai trò/phòng ban THẬT
+ * từ DB (scope quyền Cấp 3) thay vì tin JWT — xem ADR-043.
+ */
 @Module({
   imports: [
     TypeOrmModule.forFeature([Film, FilmLink, Hashtag, FilmVersion, FilmView]),
     StorageModule,
     NotificationsModule,
+    UsersModule,
   ],
   providers: [FilmsService],
   controllers: [FilmsController],

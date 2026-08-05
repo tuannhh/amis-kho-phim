@@ -10,30 +10,42 @@ import MDialog from '@/components/mds/MDialog.vue'
 import MSpinner from '@/components/mds/MSpinner.vue'
 import { useToast } from '@/components/mds/toast.js'
 import { useFormValidation, rules } from '@/components/mds/useFormValidation.js'
-import { useAuthStore, type UserRole } from '@/features/auth/authStore'
+import { useAuthStore } from '@/features/auth/authStore'
+import { ROLE_HINT } from '@/features/auth/permissions'
+import { departmentsApi, type ApiDepartment } from '@/features/departments/departmentsApi'
 import {
   usersApi,
   ROLE_LABEL,
   ROLE_COLOR,
   creatableRoles,
   type ApiUser,
+  type AssignableRole,
 } from './usersApi'
 
 /**
- * Quản trị người dùng — GĐ1 (API thật). Super Admin tạo Admin+Nhân viên;
- * Admin chỉ tạo Nhân viên. Quyền THỰC do backend kiểm (service layer);
- * FE chỉ ẩn/hiện nút cho UX.
+ * Quản trị người dùng — RBAC 4 CẤP CÓ SCOPE PHÒNG BAN (ADR-040).
+ *
+ * CHỈ Cấp 4 (`super_admin`) vào được màn này; gán được Cấp 1/2/3 và phòng ban, KHÔNG gán được
+ * Cấp 4 khác. Phòng ban là bắt buộc về mặt NGHIỆP VỤ với Cấp 2/Cấp 3 (không có phòng ban thì
+ * Trưởng phòng không quản được ai) nên form cảnh báo rõ khi để trống — nhưng vẫn cho lưu, vì
+ * backend cho phép null và có thể gán sau.
+ *
+ * Quyền THỰC do backend kiểm (RolesGuard + service); FE chỉ ẩn/hiện nút cho UX.
  */
 const toast = useToast()
 const auth = useAuthStore()
 
 const users = ref<ApiUser[]>([])
+const departments = ref<ApiDepartment[]>([])
 const loading = ref(false)
 
 async function loadUsers() {
   loading.value = true
   try {
-    users.value = await usersApi.list()
+    // Tải song song — 2 request độc lập, không cần chờ tuần tự.
+    const [u, d] = await Promise.all([usersApi.list(), departmentsApi.list()])
+    users.value = u
+    departments.value = d
   } catch (e: unknown) {
     toast.error(e instanceof Error ? e.message : 'Không tải được danh sách người dùng')
   } finally {
@@ -41,6 +53,22 @@ async function loadUsers() {
   }
 }
 onMounted(loadUsers)
+
+/** Tên phòng ban theo id — dùng cho cột bảng. */
+const departmentName = (id: number | null) =>
+  id == null ? '—' : (departments.value.find((d) => d.id === id)?.name ?? `#${id}`)
+
+/**
+ * Tuỳ chọn phòng ban cho MSelect. Giá trị 0 = "Chưa gán" — CỐ Ý không dùng `undefined`/`null`
+ * làm value của option: `undefined` là trạng thái "chưa chọn gì" của MSelect (quy ước dự án,
+ * `11-coding-rules.md` §2), nếu dùng luôn cho option "Chưa gán" thì không phân biệt được
+ * "chưa chọn" với "chọn có chủ đích là không thuộc phòng ban nào".
+ */
+const NO_DEPARTMENT = 0
+const departmentOptions = computed(() => [
+  { label: 'Chưa gán phòng ban', value: NO_DEPARTMENT },
+  ...departments.value.map((d) => ({ label: d.name, value: d.id })),
+])
 
 const search = ref('')
 const filtered = computed(() => {
@@ -52,10 +80,11 @@ const filtered = computed(() => {
 })
 
 const columns = [
-  { key: 'fullName', label: 'Họ tên', width: 200 },
-  { key: 'email', label: 'Email', width: 220 },
-  { key: 'roleCode', label: 'Vai trò', width: 130 },
-  { key: 'createdBy', label: 'Người tạo', width: 180 },
+  { key: 'fullName', label: 'Họ tên', width: 180 },
+  { key: 'email', label: 'Email', width: 200 },
+  { key: 'roleCode', label: 'Vai trò', width: 150 },
+  { key: 'departmentId', label: 'Phòng ban', width: 160 },
+  { key: 'createdBy', label: 'Người tạo', width: 150 },
   { key: 'createdAt', label: 'Ngày tạo', width: 110 },
   { key: 'isActive', label: 'Trạng thái', width: 120 },
 ]
@@ -79,17 +108,35 @@ function formatDate(iso: string): string {
   return isNaN(d.getTime()) ? '' : d.toLocaleDateString('vi-VN')
 }
 
-/** Ai được khoá/xoá ai — khớp backend; chỉ để ẩn/hiện nút (backend vẫn chặn thật). */
+/**
+ * Ai được sửa/khoá/xoá ai — khớp `UsersService.assertCanManage`: chỉ Cấp 4, không tự tác động
+ * chính mình, không đụng Cấp 4 khác. Chỉ để ẩn/hiện nút (backend vẫn chặn thật).
+ */
 function canManage(row: ApiUser) {
   if (row.id === auth.user?.id) return false
-  if (auth.role === 'super_admin') return row.roleCode !== 'super_admin'
-  if (auth.role === 'admin') return row.roleCode === 'employee'
-  return false
+  if (auth.role !== 'super_admin') return false
+  return row.roleCode !== 'super_admin'
 }
 
 const dialogOpen = ref(false)
 const submitting = ref(false)
-const form = reactive({ fullName: '', email: '', role: undefined as UserRole | undefined, tempPassword: '' })
+const form = reactive({
+  fullName: '',
+  email: '',
+  role: undefined as AssignableRole | undefined,
+  departmentId: NO_DEPARTMENT as number,
+  tempPassword: '',
+})
+
+/** Cảnh báo mềm: Cấp 2/Cấp 3 không có phòng ban thì scope quyền không có ý nghĩa thực tế. */
+const departmentWarning = computed(() =>
+  form.departmentId === NO_DEPARTMENT && (form.role === 'employee' || form.role === 'dept_manager')
+    ? 'Cấp này nên thuộc một phòng ban: Trưởng phòng không có phòng ban sẽ không quản lý được phim của ai.'
+    : '',
+)
+
+/** Gợi ý quyền của vai trò đang chọn — hiện ngay dưới dropdown để chọn đúng cấp. */
+const roleHint = computed(() => (form.role ? ROLE_HINT[form.role] : ''))
 
 const { errors, validate, clearErrors } = useFormValidation({
   fullName: [rules.required('Họ tên không được để trống')],
@@ -105,9 +152,46 @@ function openCreate() {
   form.fullName = ''
   form.email = ''
   form.role = roleOptions.value[0]?.value ?? undefined
+  form.departmentId = NO_DEPARTMENT
   form.tempPassword = ''
   clearErrors()
   dialogOpen.value = true
+}
+
+// ── Sửa tài khoản: đổi vai trò + phòng ban ─────────────────────────────────
+// Cần thiết vì Cấp 1 và Cấp 3 là hai cấp MỚI — không tài khoản nào tự động chuyển sang khi
+// migrate RBAC, Cấp 4 phải tự gán lại ở đây (ADR-041).
+const editOpen = ref(false)
+const editing = ref<ApiUser | null>(null)
+const editForm = reactive({ role: undefined as AssignableRole | undefined, departmentId: NO_DEPARTMENT as number })
+
+function openEdit(row: ApiUser) {
+  editing.value = row
+  // Tài khoản đang là Cấp 4 không sửa được (canManage đã chặn), nên role luôn nằm trong danh
+  // sách gán được.
+  editForm.role = row.roleCode === 'super_admin' ? undefined : (row.roleCode as AssignableRole)
+  editForm.departmentId = row.departmentId ?? NO_DEPARTMENT
+  editOpen.value = true
+}
+
+const editRoleHint = computed(() => (editForm.role ? ROLE_HINT[editForm.role] : ''))
+
+async function saveEdit() {
+  if (!editing.value || !editForm.role) return
+  submitting.value = true
+  try {
+    const updated = await usersApi.update(editing.value.id, {
+      roleCode: editForm.role,
+      departmentId: editForm.departmentId === NO_DEPARTMENT ? null : editForm.departmentId,
+    })
+    editOpen.value = false
+    await loadUsers()
+    toast.success(`Đã cập nhật "${updated.fullName}" thành ${ROLE_LABEL[updated.roleCode]}`)
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : 'Cập nhật tài khoản không thành công')
+  } finally {
+    submitting.value = false
+  }
 }
 
 // Dialog hiện mật khẩu tạm hệ thống sinh (để bàn giao cho người dùng mới).
@@ -121,7 +205,8 @@ async function createUser() {
     const res = await usersApi.create({
       email: form.email.trim(),
       fullName: form.fullName.trim(),
-      roleCode: form.role as Exclude<UserRole, 'super_admin'>,
+      roleCode: form.role as AssignableRole,
+      departmentId: form.departmentId === NO_DEPARTMENT ? undefined : form.departmentId,
       password: form.tempPassword.trim() || undefined,
     })
     dialogOpen.value = false
@@ -203,6 +288,12 @@ async function copyPassword() {
           <MTag :color="ROLE_COLOR[asUser(row).roleCode]" size="sm">{{ ROLE_LABEL[asUser(row).roleCode] }}</MTag>
         </template>
 
+        <template #cell-departmentId="{ row }">
+          <span :style="asUser(row).departmentId == null ? 'color: var(--mds-text-secondary)' : ''">
+            {{ departmentName(asUser(row).departmentId) }}
+          </span>
+        </template>
+
         <template #cell-createdBy="{ row }">{{ createdByName(asUser(row)) }}</template>
         <template #cell-createdAt="{ row }">{{ formatDate(asUser(row).createdAt) }}</template>
 
@@ -214,6 +305,15 @@ async function copyPassword() {
 
         <template #row-actions="{ row }">
           <template v-if="canManage(asUser(row))">
+            <button
+              type="button"
+              title="Sửa vai trò / phòng ban"
+              class="flex h-7 w-7 items-center justify-center rounded-md"
+              style="border: 1px solid var(--mds-border, #ced1d6); color: var(--mds-icon-neutral)"
+              @click="openEdit(asUser(row))"
+            >
+              <MIcon name="pencil" :size="12" />
+            </button>
             <button
               type="button"
               :title="asUser(row).isActive ? 'Khoá tài khoản' : 'Mở khoá'"
@@ -262,6 +362,22 @@ async function copyPassword() {
             Vai trò <span style="color: var(--mds-danger)">*</span>
           </label>
           <MSelect v-model="form.role" :options="roleOptions" placeholder="Chọn vai trò" :error="errors.role" />
+          <p v-if="roleHint" class="mt-1 text-[12px]" style="color: var(--mds-text-secondary)">
+            {{ roleHint }}
+          </p>
+        </div>
+        <div>
+          <label class="mb-1 block text-[13px] font-medium" style="color: var(--mds-text-primary)">
+            Phòng ban
+          </label>
+          <MSelect
+            v-model="form.departmentId"
+            :options="departmentOptions"
+            placeholder="Chọn phòng ban"
+          />
+          <p v-if="departmentWarning" class="mt-1 text-[12px]" style="color: var(--mds-warning, #dc6803)">
+            {{ departmentWarning }}
+          </p>
         </div>
         <div>
           <label class="mb-1 block text-[13px] font-medium" style="color: var(--mds-text-primary)">
@@ -276,6 +392,45 @@ async function copyPassword() {
       <template #footer>
         <MButton variant="secondary" :disabled="submitting" @click="dialogOpen = false">Hủy</MButton>
         <MButton variant="primary" :loading="submitting" @click="createUser">Tạo tài khoản</MButton>
+      </template>
+    </MDialog>
+
+    <!-- Dialog sửa vai trò / phòng ban -->
+    <MDialog v-model="editOpen" title="Sửa vai trò và phòng ban" :width="480">
+      <div class="flex flex-col gap-4">
+        <p class="text-[13px]" style="color: var(--mds-text-secondary)">
+          Tài khoản: <strong style="color: var(--mds-text-primary)">{{ editing?.fullName }}</strong>
+          ({{ editing?.email }})
+        </p>
+        <div>
+          <label class="mb-1 block text-[13px] font-medium" style="color: var(--mds-text-primary)">
+            Vai trò <span style="color: var(--mds-danger)">*</span>
+          </label>
+          <MSelect v-model="editForm.role" :options="roleOptions" placeholder="Chọn vai trò" />
+          <p v-if="editRoleHint" class="mt-1 text-[12px]" style="color: var(--mds-text-secondary)">
+            {{ editRoleHint }}
+          </p>
+        </div>
+        <div>
+          <label class="mb-1 block text-[13px] font-medium" style="color: var(--mds-text-primary)">
+            Phòng ban
+          </label>
+          <MSelect
+            v-model="editForm.departmentId"
+            :options="departmentOptions"
+            placeholder="Chọn phòng ban"
+          />
+          <p class="mt-1 text-[12px]" style="color: var(--mds-text-secondary)">
+            Đổi phòng ban có hiệu lực NGAY với quyền của Trưởng phòng — phim đã tạo vẫn giữ phòng
+            ban lúc tạo.
+          </p>
+        </div>
+      </div>
+      <template #footer>
+        <MButton variant="secondary" :disabled="submitting" @click="editOpen = false">Hủy</MButton>
+        <MButton variant="primary" :loading="submitting" :disabled="!editForm.role" @click="saveEdit">
+          Lưu
+        </MButton>
       </template>
     </MDialog>
 

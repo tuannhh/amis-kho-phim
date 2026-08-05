@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import * as bcrypt from 'bcryptjs'
 import { UsersService, creatableRoles } from './users.service'
 import type { AuthUser } from '../../common/auth/auth-user'
@@ -6,16 +6,20 @@ import type { RoleCode } from './entities/role.entity'
 import type { User } from './entities/user.entity'
 
 /**
- * GĐ7 — ma trận quản trị người dùng (01-architecture.md §5). Sai ở đây nghĩa là
- * admin tự nâng quyền hoặc khoá được cả super_admin.
+ * Ma trận quản trị người dùng — RBAC 4 CẤP (ADR-040). Sai ở đây nghĩa là một cấp thấp tự nâng
+ * quyền, hoặc gán được phòng ban không tồn tại (làm lệch scope quyền của Cấp 3).
+ *
+ * Cập nhật từ bộ test GĐ7: vai trò `admin` cũ KHÔNG CÒN TỒN TẠI (đã migrate sang Cấp 4), nên
+ * các ca "admin quản lý được employee" được thay bằng "chỉ Cấp 4 quản lý được người dùng" —
+ * đây là hành vi MỚI đã xác nhận theo đặc tả, không phải nới assertion cho test chạy qua.
  */
 
 const actor = (id: number, roleCode: RoleCode): AuthUser => ({ id, email: `u${id}@misa.com.vn`, roleCode })
 
-const target = (id: number, roleCode: RoleCode): User =>
-  ({ id, email: `t${id}@misa.com.vn`, fullName: 'T', roleCode, isActive: true } as User)
+const target = (id: number, roleCode: RoleCode, departmentId: number | null = null): User =>
+  ({ id, email: `t${id}@misa.com.vn`, fullName: 'T', roleCode, departmentId, isActive: true } as User)
 
-function setup(found: User | null) {
+function setup(found: User | null, departmentExists = true) {
   const repo = {
     findOne: jest.fn().mockResolvedValue(found),
     save: jest.fn().mockImplementation((u) => Promise.resolve(u)),
@@ -24,33 +28,59 @@ function setup(found: User | null) {
     find: jest.fn().mockResolvedValue([]),
     createQueryBuilder: jest.fn(),
   }
-  return { service: new UsersService(repo as never), repo }
+  const departments = { exists: jest.fn().mockResolvedValue(departmentExists) }
+  return { service: new UsersService(repo as never, departments as never), repo, departments }
 }
 
-describe('creatableRoles — ai tạo được vai trò nào', () => {
-  it('super_admin tạo được admin và nhân viên, KHÔNG tạo được super_admin khác', () => {
-    expect(creatableRoles('super_admin')).toEqual(['admin', 'employee'])
+describe('creatableRoles — ai gán được vai trò nào (RBAC 4 cấp)', () => {
+  it('Cấp 4 gán được Cấp 1/2/3, KHÔNG gán được Cấp 4 khác', () => {
+    expect(creatableRoles('super_admin')).toEqual(['viewer', 'employee', 'dept_manager'])
   })
-  it('admin CHỈ tạo được nhân viên', () => {
-    expect(creatableRoles('admin')).toEqual(['employee'])
+  it('Cấp 3 (Trưởng phòng) KHÔNG quản lý người dùng', () => {
+    expect(creatableRoles('dept_manager')).toEqual([])
   })
-  it('nhân viên không tạo được ai', () => {
+  it('Cấp 2 (Nhân viên) không tạo được ai', () => {
     expect(creatableRoles('employee')).toEqual([])
+  })
+  it('Cấp 1 (Người xem) không tạo được ai', () => {
+    expect(creatableRoles('viewer')).toEqual([])
   })
 })
 
 describe('UsersService.create', () => {
-  it('admin cố tạo tài khoản admin khác → 403 (dù FE có gửi payload gì)', async () => {
+  it('Cấp 3 cố tạo tài khoản → 403 (dù FE gửi payload gì)', async () => {
     const { service } = setup(null)
     await expect(
-      service.create(actor(2, 'admin'), { email: 'x@misa.com.vn', fullName: 'X', roleCode: 'admin' } as never),
+      service.create(actor(2, 'dept_manager'), {
+        email: 'x@misa.com.vn',
+        fullName: 'X',
+        roleCode: 'employee',
+      } as never),
     ).rejects.toThrow(ForbiddenException)
   })
 
-  it('nhân viên cố tạo tài khoản → 403', async () => {
+  it('Cấp 2 cố tạo tài khoản → 403', async () => {
     const { service } = setup(null)
     await expect(
       service.create(actor(3, 'employee'), { email: 'x@misa.com.vn', fullName: 'X', roleCode: 'employee' } as never),
+    ).rejects.toThrow(ForbiddenException)
+  })
+
+  it('Cấp 1 cố tạo tài khoản → 403', async () => {
+    const { service } = setup(null)
+    await expect(
+      service.create(actor(4, 'viewer'), { email: 'x@misa.com.vn', fullName: 'X', roleCode: 'viewer' } as never),
+    ).rejects.toThrow(ForbiddenException)
+  })
+
+  it('KHÔNG ai gán được vai trò Cấp 4 (kể cả chính Cấp 4)', async () => {
+    const { service } = setup(null)
+    await expect(
+      service.create(actor(1, 'super_admin'), {
+        email: 'x@misa.com.vn',
+        fullName: 'X',
+        roleCode: 'super_admin',
+      } as never),
     ).rejects.toThrow(ForbiddenException)
   })
 
@@ -59,6 +89,41 @@ describe('UsersService.create', () => {
     await expect(
       service.create(actor(1, 'super_admin'), { email: 't9@misa.com.vn', fullName: 'X', roleCode: 'employee' } as never),
     ).rejects.toThrow(ConflictException)
+  })
+
+  it('phòng ban không tồn tại → 400 (không tin id client gửi lên)', async () => {
+    const { service } = setup(null, false)
+    await expect(
+      service.create(actor(1, 'super_admin'), {
+        email: 'x@misa.com.vn',
+        fullName: 'X',
+        roleCode: 'employee',
+        departmentId: 999,
+      } as never),
+    ).rejects.toThrow(BadRequestException)
+  })
+
+  it('gán phòng ban hợp lệ → lưu đúng department_id', async () => {
+    const { service, repo, departments } = setup(null)
+    await service.create(actor(1, 'super_admin'), {
+      email: 'x@misa.com.vn',
+      fullName: 'X',
+      roleCode: 'dept_manager',
+      departmentId: 7,
+    } as never)
+    expect(departments.exists).toHaveBeenCalledWith(7)
+    expect(repo.save.mock.calls[0][0].departmentId).toBe(7)
+  })
+
+  it('không truyền phòng ban → department_id = null (không gọi kiểm tra vô ích)', async () => {
+    const { service, repo, departments } = setup(null)
+    await service.create(actor(1, 'super_admin'), {
+      email: 'x@misa.com.vn',
+      fullName: 'X',
+      roleCode: 'viewer',
+    } as never)
+    expect(departments.exists).not.toHaveBeenCalled()
+    expect(repo.save.mock.calls[0][0].departmentId).toBeNull()
   })
 
   it('tạo thành công: mật khẩu được HASH (không lưu thô) và buộc đổi lần đầu', async () => {
@@ -102,42 +167,109 @@ describe('UsersService.create', () => {
   })
 })
 
-describe('UsersService.setActive / remove — ai quản lý được ai', () => {
+describe('UsersService.update — gán lại vai trò / phòng ban (chỉ Cấp 4)', () => {
+  it('Cấp 3 cố đổi vai trò người khác → 403', async () => {
+    const { service } = setup(target(5, 'employee'))
+    await expect(
+      service.update(actor(2, 'dept_manager'), 5, { roleCode: 'dept_manager' }),
+    ).rejects.toThrow(ForbiddenException)
+  })
+
+  it('Cấp 4 nâng Cấp 2 lên Cấp 3 và gán phòng ban', async () => {
+    const { service, repo } = setup(target(5, 'employee'))
+    const result = await service.update(actor(1, 'super_admin'), 5, { roleCode: 'dept_manager', departmentId: 3 })
+    expect(result.roleCode).toBe('dept_manager')
+    expect(result.departmentId).toBe(3)
+    expect(repo.save).toHaveBeenCalled()
+  })
+
+  it('Cấp 4 hạ tài khoản xuống Cấp 1', async () => {
+    const { service } = setup(target(5, 'employee', 3))
+    const result = await service.update(actor(1, 'super_admin'), 5, { roleCode: 'viewer' })
+    expect(result.roleCode).toBe('viewer')
+  })
+
+  it('departmentId = null → BỎ gán phòng ban', async () => {
+    const { service } = setup(target(5, 'dept_manager', 3))
+    const result = await service.update(actor(1, 'super_admin'), 5, { departmentId: null })
+    expect(result.departmentId).toBeNull()
+  })
+
+  it('thiếu trường departmentId → KHÔNG đổi phòng ban đang có', async () => {
+    const { service } = setup(target(5, 'employee', 9))
+    const result = await service.update(actor(1, 'super_admin'), 5, { roleCode: 'dept_manager' })
+    expect(result.departmentId).toBe(9)
+  })
+
+  it('KHÔNG nâng được ai lên Cấp 4 qua API', async () => {
+    const { service } = setup(target(5, 'employee'))
+    await expect(
+      service.update(actor(1, 'super_admin'), 5, { roleCode: 'super_admin' as never }),
+    ).rejects.toThrow(ForbiddenException)
+  })
+
+  it('Cấp 4 KHÔNG sửa được Cấp 4 khác', async () => {
+    const { service } = setup(target(2, 'super_admin'))
+    await expect(service.update(actor(1, 'super_admin'), 2, { roleCode: 'viewer' })).rejects.toThrow(
+      ForbiddenException,
+    )
+  })
+
+  it('phòng ban không tồn tại → 400', async () => {
+    const { service } = setup(target(5, 'employee'), false)
+    await expect(service.update(actor(1, 'super_admin'), 5, { departmentId: 999 })).rejects.toThrow(
+      BadRequestException,
+    )
+  })
+
+  it('người dùng không tồn tại → 404', async () => {
+    const { service } = setup(null)
+    await expect(service.update(actor(1, 'super_admin'), 404, { roleCode: 'viewer' })).rejects.toThrow(
+      NotFoundException,
+    )
+  })
+})
+
+describe('UsersService.setActive / remove — ai quản lý được ai (RBAC 4 cấp)', () => {
   it('không ai được tự khoá chính mình', async () => {
     const { service } = setup(target(1, 'super_admin'))
     await expect(service.setActive(actor(1, 'super_admin'), 1, false)).rejects.toThrow(/chính mình/)
   })
 
-  it('super_admin KHÔNG tác động được super_admin khác', async () => {
+  it('Cấp 4 KHÔNG tác động được Cấp 4 khác', async () => {
     const { service } = setup(target(2, 'super_admin'))
     await expect(service.setActive(actor(1, 'super_admin'), 2, false)).rejects.toThrow(ForbiddenException)
   })
 
-  it('super_admin khoá được admin', async () => {
-    const { service, repo } = setup(target(2, 'admin'))
+  it('Cấp 4 khoá được Cấp 3', async () => {
+    const { service, repo } = setup(target(2, 'dept_manager'))
     const result = await service.setActive(actor(1, 'super_admin'), 2, false)
     expect(result.isActive).toBe(false)
     expect(repo.save).toHaveBeenCalled()
   })
 
-  it('admin KHÔNG khoá được admin khác (chỉ quản lý nhân viên)', async () => {
-    const { service } = setup(target(3, 'admin'))
-    await expect(service.setActive(actor(2, 'admin'), 3, false)).rejects.toThrow(/chỉ quản lý được/)
+  it('Cấp 4 khoá được Cấp 2 và Cấp 1', async () => {
+    const { service: s2 } = setup(target(5, 'employee'))
+    await expect(s2.setActive(actor(1, 'super_admin'), 5, false)).resolves.toBeDefined()
+    const { service: s1 } = setup(target(6, 'viewer'))
+    await expect(s1.setActive(actor(1, 'super_admin'), 6, false)).resolves.toBeDefined()
   })
 
-  it('admin KHÔNG khoá được super_admin', async () => {
-    const { service } = setup(target(1, 'super_admin'))
-    await expect(service.setActive(actor(2, 'admin'), 1, false)).rejects.toThrow(ForbiddenException)
+  it('Cấp 3 KHÔNG khoá được ai (kể cả Cấp 2 cùng phòng ban)', async () => {
+    const { service } = setup(target(5, 'employee', 3))
+    await expect(service.setActive(actor(2, 'dept_manager'), 5, false)).rejects.toThrow(
+      /không có quyền quản lý người dùng/,
+    )
   })
 
-  it('admin khoá được nhân viên', async () => {
-    const { service } = setup(target(5, 'employee'))
-    await expect(service.setActive(actor(2, 'admin'), 5, false)).resolves.toBeDefined()
-  })
-
-  it('nhân viên không quản lý được ai', async () => {
+  it('Cấp 2 không quản lý được ai', async () => {
     const { service } = setup(target(6, 'employee'))
     await expect(service.remove(actor(5, 'employee'), 6)).rejects.toThrow(ForbiddenException)
+  })
+
+  it('Cấp 1 không quản lý được ai', async () => {
+    const { service } = setup(target(6, 'employee'))
+    await expect(service.remove(actor(5, 'viewer'), 6)).rejects.toThrow(ForbiddenException)
   })
 
   it('người dùng không tồn tại → 404', async () => {
@@ -145,10 +277,29 @@ describe('UsersService.setActive / remove — ai quản lý được ai', () => 
     await expect(service.remove(actor(1, 'super_admin'), 404)).rejects.toThrow(NotFoundException)
   })
 
-  it('xoá: cùng ma trận quyền như khoá (nhân viên bị admin xoá được)', async () => {
+  it('xoá: cùng ma trận quyền như khoá', async () => {
     const { service, repo } = setup(target(7, 'employee'))
-    await service.remove(actor(2, 'admin'), 7)
+    await service.remove(actor(1, 'super_admin'), 7)
     expect(repo.remove).toHaveBeenCalled()
+  })
+})
+
+describe('UsersService.getDepartmentId / getRoleAndDepartment — nguồn scope quyền', () => {
+  it('đọc phòng ban từ DB, không từ token', async () => {
+    const { service, repo } = setup(target(5, 'dept_manager', 4))
+    await expect(service.getDepartmentId(5)).resolves.toBe(4)
+    expect(repo.findOne).toHaveBeenCalled()
+  })
+
+  it('người dùng không tồn tại → null (mặc định từ chối, không mặc định cho phép)', async () => {
+    const { service } = setup(null)
+    await expect(service.getDepartmentId(404)).resolves.toBeNull()
+    await expect(service.getRoleAndDepartment(404)).resolves.toBeNull()
+  })
+
+  it('trả về đúng cặp vai trò + phòng ban của người tạo phim', async () => {
+    const { service } = setup(target(8, 'employee', 2))
+    await expect(service.getRoleAndDepartment(8)).resolves.toEqual({ roleCode: 'employee', departmentId: 2 })
   })
 })
 
@@ -163,7 +314,8 @@ describe('UsersService.changePassword', () => {
       }),
       save: jest.fn().mockImplementation((u) => Promise.resolve(u)),
     }
-    return { service: new UsersService(repo as never), repo, user }
+    const departments = { exists: jest.fn().mockResolvedValue(true) }
+    return { service: new UsersService(repo as never, departments as never), repo, user }
   }
 
   it('sai mật khẩu hiện tại → từ chối, KHÔNG ghi mật khẩu mới', async () => {

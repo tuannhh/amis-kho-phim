@@ -47,10 +47,13 @@ thẳng repository của module khác. Logic dùng chung nằm ở `common/`.
 | `common` | Guard, interceptor, filter, DTO base, logger, cấu hình |
 
 ## 4. Data model (MySQL, utf8mb4_unicode_ci)
-- **users**(id, email, full_name, password_hash, role_code, created_by, is_active, created_at, updated_at)
-- **roles**(code PK: super_admin|admin|employee, name)  ← seed tĩnh
-- **categories**(id, name, slug, description, parent_id?, created_at)
-- **films**(id, title, slug, description, category_id, uploader_id, view_count, status: draft|published, published_at, is_new, created_at, updated_at)
+- **users**(id, email, full_name, password_hash, role_code, **department_id?**, created_by, is_active, created_at, updated_at)
+- **roles**(code PK: **viewer|employee|dept_manager|super_admin**, name)  ← seed tĩnh, RBAC 4 cấp (ADR-040)
+- **departments**(id, name UNIQUE, created_at) ← **[RBAC4]** danh mục phòng ban, scope quyền Cấp 3
+- **categories**(id, name, slug, description, parent_id?, **created_by?**, **department_id?**, created_at)
+  ← 2 cột mới thuần TRUY VẾT, KHÔNG dùng scope quyền (ADR-042)
+- **films**(id, title, slug, description, category_id, uploader_id, **department_id?**, view_count, status: draft|published, published_at, is_new, created_at, updated_at)
+  ← `department_id` là SNAPSHOT phòng ban của người tạo lúc tạo phim (ADR-042)
 - **film_versions**(id, film_id, version_no, storage_key?, file_size?, duration?, thumbnail_key?, note, created_by, created_at) ← lịch sử cập nhật bản mới
 - **film_links**(id, film_id, platform, url, label)
 - **hashtags**(id, name, slug UNIQUE)
@@ -64,19 +67,32 @@ hoặc job dọn định kỳ. Update bản mới → tạo `film_versions` mớ
 
 **Đếm view:** ghi `film_views` (dedupe theo user_id hoặc session_hash trong cửa sổ 30') rồi tăng `films.view_count`.
 
-## 5. Phân quyền — ma trận (RBAC + owner policy)
-| Hành động | Super Admin | Admin | Nhân viên |
-|---|---|---|---|
-| Xem phim | ✔ | ✔ | ✔ |
-| Upload phim | ✔ | ✔ | ✔ |
-| Sửa/Xoá phim bất kỳ | ✔ | ✔ | ✘ |
-| Sửa/Xoá phim của mình | ✔ | ✔ | ✔ |
-| Quản lý chuyên mục | ✔ | ✔ | ✘ |
-| Tạo Admin | ✔ | ✘ | ✘ |
-| Tạo Nhân viên | ✔ | ✔ | ✘ |
-| Cấu hình hệ thống | ✔ | ✘ | ✘ |
+## 5. Phân quyền — ma trận RBAC 4 CẤP CÓ SCOPE PHÒNG BAN (ADR-040 → 044)
 
-Guard tổ hợp: `RolesGuard` (theo role) + `OwnerGuard` (nhân viên chỉ tác động resource `uploader_id === user.id`).
+> Ma trận 3 vai trò cũ (`super_admin`/`admin`/`employee`) **đã bị thay thế hoàn toàn** từ 2026-08-05.
+> Vai trò `admin` không còn tồn tại — dữ liệu cũ migrate sang Cấp 4 (ADR-041).
+
+| Hành động | Cấp 1 `viewer` | Cấp 2 `employee` | Cấp 3 `dept_manager` | Cấp 4 `super_admin` |
+|---|---|---|---|---|
+| Xem phim / ghi lượt xem | ✔ | ✔ | ✔ | ✔ |
+| Xem cây chuyên mục | ✔ | ✔ | ✔ | ✔ |
+| Tạo phim (upload/link ngoài) | ✘ | ✔ | ✔ | ✔ |
+| Sửa/Xoá phim **của mình** | ✘ | ✔ | ✔ | ✔ |
+| Sửa/Xoá phim của **Cấp 2 cùng phòng ban** | ✘ | ✘ | ✔ | ✔ |
+| Sửa/Xoá phim của Cấp 3 khác / Cấp 4 | ✘ | ✘ | ✘ | ✔ |
+| Sửa/Xoá phim **phòng ban khác** | ✘ | ✘ | ✘ | ✔ |
+| Quản lý chuyên mục (ghi) | ✘ | ✘ | ✘ | ✔ |
+| Quản lý phòng ban | ✘ | ✘ | ✘ | ✔ |
+| Quản trị người dùng (tạo/sửa vai trò+phòng ban/khoá/xoá) | ✘ | ✘ | ✘ | ✔ |
+| Xem/xuất báo cáo | ✘ | ✘ | ✘ | ✔ |
+
+Điểm cần nhớ:
+- **Cấp 3 chỉ quản phim do Cấp 2 tạo** — không tự động quản phim của Cấp 3 khác cùng phòng.
+- **Không ai gán được vai trò Cấp 4 qua API** (chốt chặn giữ từ GĐ1).
+- So sánh phòng ban: **`null` không trùng `null`** (chưa gán phòng ban ⇒ không có scope).
+
+Guard tổ hợp: `RolesGuard` (theo `@Roles`, chặn Cấp 1 khỏi mọi route ghi phim) + kiểm phạm vi ở
+`FilmsService.assertCanManage` (owner + scope phòng ban, đọc vai trò/phòng ban từ DB — ADR-043).
 
 ## 6. Video Player (FE) — chiến lược "catch" đa nguồn
 Component `VideoPlayer` chọn renderer theo nguồn:

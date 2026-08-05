@@ -188,9 +188,14 @@ theo đúng khuôn đó.
    `issueTokens()` y hệt `ssoAmisMobile` đang làm.
 5. **Quyết định nghiệp vụ cần chốt với chủ đầu tư — đừng tự quyết:**
    - Người đăng nhập OIDC thành công nhưng **chưa có trong bảng `users`** thì xử lý thế nào?
-     Tự tạo tài khoản vai trò `employee`, hay từ chối và yêu cầu admin cấp trước?
+     Tự tạo tài khoản vai trò nào, hay từ chối và yêu cầu Quản trị cao nhất cấp trước?
      (Hiện `ssoAmisMobile` **từ chối** — an toàn hơn, nhưng cần xác nhận đúng ý nghiệp vụ.)
+     **Lưu ý sau đợt RBAC 4 cấp (2026-08-05):** nếu chọn tự tạo, mặc định an toàn nhất là
+     **`viewer` (Cấp 1 — chỉ xem)**, KHÔNG phải `employee`, vì Cấp 2 đã có quyền tạo phim.
    - Vai trò lấy từ đâu: vẫn quản lý trong Kho phim, hay đồng bộ từ nhóm/role bên AMIS?
+   - **Phòng ban (`users.department_id`) lấy từ đâu?** Nó quyết định phạm vi quyền của Cấp 3
+     (Trưởng phòng). Nếu AMIS có dữ liệu đơn vị/phòng ban thì nên đồng bộ về thay vì gán tay —
+     cần chốt cách khớp (mã đơn vị AMIS ↔ `departments.name`?).
 6. **Frontend:** thay form đăng nhập bằng nút "Đăng nhập bằng tài khoản MISA".
    Giữ `LoginView` cũ sau một cờ cấu hình để còn đường lui khi OIDC gặp sự cố.
 7. **Sau khi chạy ổn:** vô hiệu hoá đăng nhập bằng mật khẩu nội bộ, nhưng **giữ lại một tài

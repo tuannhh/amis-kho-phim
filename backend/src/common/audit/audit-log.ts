@@ -28,9 +28,15 @@ export type AuditAction =
   | 'sso.success'
   | 'sso.failure'
   | 'user.create'
+  // Đổi vai trò / phòng ban của tài khoản = đổi RANH GIỚI PHÂN QUYỀN → baseline §7 bắt buộc ghi.
+  | 'user.update'
   | 'user.status_change'
   | 'user.delete'
   | 'film.delete'
+  // Danh mục phòng ban quyết định phạm vi quyền của Cấp 3 → mọi thay đổi đều là sự kiện nhạy cảm.
+  | 'department.create'
+  | 'department.update'
+  | 'department.delete'
   | 'report.export'
 
 export interface AuditEvent {

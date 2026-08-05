@@ -9,6 +9,7 @@ import { DatabaseModule } from './database/database.module'
 import { UsersModule } from './modules/users/users.module'
 import { AuthModule } from './modules/auth/auth.module'
 import { CategoriesModule } from './modules/categories/categories.module'
+import { DepartmentsModule } from './modules/departments/departments.module'
 import { FilmsModule } from './modules/films/films.module'
 import { NotificationsModule } from './modules/notifications/notifications.module'
 import { ReportsModule } from './modules/reports/reports.module'
@@ -35,6 +36,7 @@ const dbEnabled = process.env.DB_ENABLED !== 'false'
           // retryAttempts/retryDelay là mở rộng riêng của Nest (chờ MySQL sẵn sàng lúc up).
           TypeOrmModule.forRoot({ ...dbOptions, retryAttempts: 10, retryDelay: 3000 }),
           DatabaseModule,
+          DepartmentsModule,
           UsersModule,
           AuthModule,
           CategoriesModule,

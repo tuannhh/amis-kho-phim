@@ -12,6 +12,7 @@ import { useToast } from '@/components/mds/toast.js'
 import { filmsApi, filmSources, type ApiFilm } from './filmsApi'
 import { isFilmNew, categoryColorFor, formatVNDate } from './filmTypes'
 import { useAuthStore } from '@/features/auth/authStore'
+import { canManageFilm } from '@/features/auth/permissions'
 
 /**
  * Chi tiết/Xem phim — URL riêng /films/:slug. GĐ2: fetch trực tiếp theo slug
@@ -62,13 +63,10 @@ async function recordViewOnce() {
 onMounted(load)
 watch(() => route.params.slug, load)
 
-// Quyền sửa/xoá: super_admin/admin bất kỳ phim; nhân viên chỉ phim của mình (ADR-002).
-// FE chỉ ẩn/hiện; backend (FilmsService.assertCanManage) mới là nguồn kiểm quyền thật.
-const canManage = computed(() => {
-  if (!film.value) return false
-  if (auth.role === 'super_admin' || auth.role === 'admin') return true
-  return film.value.uploaderId === auth.user?.id
-})
+// Quyền sửa/xoá theo RBAC 4 cấp có scope phòng ban (ADR-040) — dùng helper DÙNG CHUNG với
+// FilmListView để hai màn không lệch nhau. FE chỉ ẩn/hiện; backend
+// (FilmsService.assertCanManage) mới là nguồn kiểm quyền thật.
+const canManage = computed(() => canManageFilm(auth.user, film.value))
 
 function formatViews(n: number) {
   return n.toLocaleString('vi-VN')

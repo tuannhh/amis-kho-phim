@@ -1,5 +1,6 @@
 import { apiFetch } from '@/lib/http'
 import type { FilmSource } from './filmTypes'
+import type { UserRole } from '@/features/auth/authStore'
 
 /** Phim trả từ API (khớp PublicFilm của backend). GĐ3: có 'storage' + thumbnailUrl thật (MinIO). */
 export interface ApiFilm {
@@ -11,6 +12,12 @@ export interface ApiFilm {
   categoryName: string | null
   uploaderId: number
   uploaderName: string
+  /**
+   * Snapshot phòng ban lúc tạo phim + vai trò hiện tại của người tạo (ADR-042). FE dùng để ẩn
+   * /hiện nút Sửa/Xoá cho Cấp 3; chốt chặn thật vẫn ở backend `assertCanManage`.
+   */
+  departmentId: number | null
+  uploaderRoleCode: UserRole | null
   viewCount: number
   duration: string
   hashtags: string[]

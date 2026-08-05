@@ -51,6 +51,16 @@ export class Film {
   @JoinColumn({ name: 'uploader_id' })
   uploader?: User
 
+  /**
+   * SNAPSHOT phòng ban của người tạo TẠI THỜI ĐIỂM tạo phim (ADR-042) — KHÔNG join động
+   * qua `uploader.departmentId`. Hai lý do: (1) uploader có thể chuyển phòng ban sau này,
+   * phim vẫn phải giữ đúng ngữ cảnh phòng ban lúc được tạo; (2) scope quyền Cấp 3 lọc
+   * trực tiếp trên cột này, không phải join bảng `users`.
+   * Nullable: phim cũ trước migration, hoặc người tạo chưa được gán phòng ban.
+   */
+  @Column({ name: 'department_id', type: 'int', nullable: true })
+  departmentId!: number | null
+
   @Column({ name: 'view_count', type: 'int', default: 0 })
   viewCount!: number
 

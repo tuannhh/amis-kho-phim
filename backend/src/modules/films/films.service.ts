@@ -12,6 +12,8 @@ import type { AuthUser } from '../../common/auth/auth-user'
 import { slugify } from '../../common/slugify'
 import { StorageService } from '../storage/storage.service'
 import { NotificationsService } from '../notifications/notifications.service'
+import { UsersService } from '../users/users.service'
+import type { RoleCode } from '../users/entities/role.entity'
 import imageSize from 'image-size'
 import { auditLog } from '../../common/audit/audit-log'
 
@@ -27,6 +29,13 @@ export interface PublicFilm {
   categoryName: string | null
   uploaderId: number
   uploaderName: string
+  /**
+   * Hai trường dưới đây phục vụ FE ẩn/hiện nút Sửa/Xoá đúng theo RBAC 4 cấp (Cấp 3 cần biết
+   * phim thuộc phòng ban nào và người tạo có phải Cấp 2 hay không). CHỈ là gợi ý hiển thị —
+   * chốt chặn thật vẫn là `assertCanManage` ở BE.
+   */
+  departmentId: number | null
+  uploaderRoleCode: RoleCode | null
   viewCount: number
   duration: string
   hashtags: string[]
@@ -52,6 +61,7 @@ export class FilmsService {
     @InjectRepository(FilmView) private readonly filmViews: Repository<FilmView>,
     private readonly storage: StorageService,
     private readonly notifications: NotificationsService,
+    private readonly users: UsersService,
   ) {}
 
   /** Bản mới nhất (version_no lớn nhất) — nguồn của storage_key/thumbnail_key/duration. */
@@ -77,6 +87,8 @@ export class FilmsService {
       categoryName: f.category?.name ?? null,
       uploaderId: f.uploaderId,
       uploaderName: f.uploader?.fullName ?? '—',
+      departmentId: f.departmentId,
+      uploaderRoleCode: f.uploader?.roleCode ?? null,
       viewCount: f.viewCount,
       duration: current?.duration || f.duration,
       hashtags: (f.hashtags || []).map((h) => h.name),
@@ -146,6 +158,11 @@ export class FilmsService {
     const slug = await this.uniqueSlug(dto.title)
     const hashtags = await this.findOrCreateHashtags(dto.hashtags || [])
 
+    // SNAPSHOT phòng ban của người tạo, lấy từ DB — KHÔNG nhận từ DTO. Trường này quyết định
+    // phạm vi quyền của Cấp 3 nên tuyệt đối không để client tự khai (`02-security-baseline`
+    // §2: "không tin trường có ý nghĩa phân quyền do client gửi lên").
+    const departmentId = await this.users.getDepartmentId(actor.id)
+
     const film = await this.films.save(
       this.films.create({
         slug,
@@ -153,6 +170,7 @@ export class FilmsService {
         description: dto.description?.trim() || null,
         categoryId: dto.categoryId,
         uploaderId: actor.id,
+        departmentId,
         viewCount: 0,
         duration: '--:--',
         publishedAt: this.today(),
@@ -174,17 +192,54 @@ export class FilmsService {
     return this.getBySlug(slug)
   }
 
-  /** Nhân viên chỉ sửa/xoá phim của mình; super_admin/admin sửa/xoá bất kỳ (ADR-002/014). */
-  private assertCanManage(actor: AuthUser, film: Film) {
-    if (actor.roleCode === 'super_admin' || actor.roleCode === 'admin') return
+  /**
+   * Quyền sửa/xoá phim theo RBAC 4 CẤP CÓ SCOPE PHÒNG BAN (ADR-040) — thay thế hoàn toàn
+   * quy tắc `super_admin`/`admin` sửa mọi phim của ADR-002/014.
+   *
+   *  - Cấp 1 `viewer`       → LUÔN từ chối (đã bị chặn trước ở `@Roles` tại controller; đây là
+   *                           lớp phòng thủ thứ hai, không phải chốt duy nhất).
+   *  - Cấp 2 `employee`     → chỉ phim do CHÍNH MÌNH tạo. Không sửa được phim người khác kể
+   *                           cả cùng phòng ban.
+   *  - Cấp 3 `dept_manager` → phim của chính mình, HOẶC phim thoả cả hai: `department_id` của
+   *                           phim TRÙNG phòng ban hiện tại của actor, VÀ người tạo phim đang
+   *                           là Cấp 2. Cố ý KHÔNG mở rộng sang phim của Cấp 3 khác hay Cấp 4
+   *                           cùng phòng — đặc tả chỉ nói "chỉnh sửa của tất cả mọi người được
+   *                           phân quyền cấp 2".
+   *  - Cấp 4 `super_admin`  → mọi phim, mọi phòng ban.
+   *
+   * MỌI dữ liệu dùng để quyết định đều đọc từ DB: phòng ban của actor và vai trò của người
+   * tạo phim lấy qua `UsersService` (không lấy từ JWT — xem ADR-043), `department_id` của phim
+   * lấy từ bản ghi đã lưu (không nhận từ client). Đúng `02-security-baseline.md` §2.
+   */
+  private async assertCanManage(actor: AuthUser, film: Film): Promise<void> {
+    if (actor.roleCode === 'super_admin') return
+
+    if (actor.roleCode === 'viewer') {
+      throw new ForbiddenException('Bạn chỉ có quyền xem, không được sửa/xoá phim')
+    }
+
     if (film.uploaderId === actor.id) return
+
+    if (actor.roleCode === 'dept_manager') {
+      const actorDepartmentId = await this.users.getDepartmentId(actor.id)
+      // Phòng ban chưa gán (null) KHÔNG được coi là "trùng nhau" — nếu không, mọi Trưởng
+      // phòng chưa gán phòng ban sẽ quản được toàn bộ phim cũ chưa có department_id.
+      if (actorDepartmentId != null && film.departmentId === actorDepartmentId) {
+        const uploader = await this.users.getRoleAndDepartment(film.uploaderId)
+        if (uploader?.roleCode === 'employee') return
+      }
+      throw new ForbiddenException(
+        'Trưởng phòng chỉ sửa/xoá được phim của nhân viên cùng phòng ban',
+      )
+    }
+
     throw new ForbiddenException('Bạn chỉ có thể sửa/xoá phim của chính mình')
   }
 
   async update(actor: AuthUser, id: number, dto: UpsertFilmDto): Promise<PublicFilm> {
     const film = await this.films.findOne({ where: { id } })
     if (!film) throw new NotFoundException('Không tìm thấy phim')
-    this.assertCanManage(actor, film)
+    await this.assertCanManage(actor, film)
 
     film.title = dto.title.trim()
     film.categoryId = dto.categoryId
@@ -210,7 +265,7 @@ export class FilmsService {
   async remove(actor: AuthUser, id: number): Promise<void> {
     const film = await this.films.findOne({ where: { id } })
     if (!film) throw new NotFoundException('Không tìm thấy phim')
-    this.assertCanManage(actor, film)
+    await this.assertCanManage(actor, film)
     await this.films.remove(film)
     auditLog({ action: 'film.delete', actorId: actor.id, targetId: id, outcome: 'success', detail: { slug: film.slug } })
   }
@@ -283,7 +338,7 @@ export class FilmsService {
   private async findManageableFilm(actor: AuthUser, id: number): Promise<Film> {
     const film = await this.films.findOne({ where: { id } })
     if (!film) throw new NotFoundException('Không tìm thấy phim')
-    this.assertCanManage(actor, film)
+    await this.assertCanManage(actor, film)
     return film
   }
 

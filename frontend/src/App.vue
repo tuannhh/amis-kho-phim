@@ -8,7 +8,8 @@ import MToast from '@/components/mds/MToast.vue'
 import MIcon from '@/components/mds/MIcon.vue'
 import MGlobalInline from '@/components/mds/MGlobalInline.vue'
 import { filmSearchQuery } from '@/features/films/searchState'
-import { useAuthStore, type UserRole } from '@/features/auth/authStore'
+import { useAuthStore } from '@/features/auth/authStore'
+import { ADMIN_ROLES, FILM_WRITE_ROLES, ROLE_LABEL } from '@/features/auth/permissions'
 import { useNotificationsStore } from '@/features/notifications/notificationsStore'
 import NotificationsPanel from '@/features/notifications/NotificationsPanel.vue'
 import { useWindowSize } from '@/lib/windowSize'
@@ -62,20 +63,20 @@ onMounted(() => {
   })
 })
 
-const ROLE_LABEL: Record<UserRole, string> = {
-  super_admin: 'Super Admin',
-  admin: 'Admin',
-  employee: 'Nhân viên',
-}
-
-// Điều hướng sidebar ↔ route (key = tên route gốc). Mục Quản trị người dùng
-// chỉ hiện với super_admin/admin (quyền thực vẫn do backend kiểm).
+/**
+ * Điều hướng sidebar ↔ route (key = tên route gốc) — lọc theo RBAC 4 cấp (ADR-040):
+ *  - "Thêm phim" chỉ từ Cấp 2 trở lên (Cấp 1 chỉ xem).
+ *  - "Quản trị người dùng" / "Quản lý phòng ban" / "Báo cáo" chỉ Cấp 4.
+ * Quyền thực vẫn do backend kiểm — đây chỉ là ẩn/hiện cho UX.
+ * Icon lấy từ bộ Tabler đã đăng ký (`iconRegistry.generated.js`), không tự vẽ SVG.
+ */
 const allSidebarItems = [
   { key: 'films', label: 'Kho phim', icon: 'layout-grid' },
-  { key: 'upload', label: 'Thêm phim', icon: 'upload' },
+  { key: 'upload', label: 'Thêm phim', icon: 'upload', roles: FILM_WRITE_ROLES },
   { key: 'categories', label: 'Chuyên mục', icon: 'folder' },
-  { key: 'admin-users', label: 'Quản trị người dùng', icon: 'users', roles: ['super_admin', 'admin'] as UserRole[] },
-  { key: 'admin-reports', label: 'Báo cáo', icon: 'chart-bar', roles: ['super_admin', 'admin'] as UserRole[] },
+  { key: 'admin-departments', label: 'Quản lý phòng ban', icon: 'building', roles: ADMIN_ROLES },
+  { key: 'admin-users', label: 'Quản trị người dùng', icon: 'users', roles: ADMIN_ROLES },
+  { key: 'admin-reports', label: 'Báo cáo', icon: 'chart-bar', roles: ADMIN_ROLES },
 ]
 const sidebarItems = computed(() =>
   allSidebarItems.filter((it) => !it.roles || (auth.role && it.roles.includes(auth.role))),

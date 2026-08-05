@@ -4,7 +4,11 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
-- Giai đoạn hiện tại: **GĐ 7 — Hardening & Handoff ĐÃ XONG (2026-07-29, Opus 5)**.
+- **Việc PHÁT SINH mới nhất (ngoài roadmap): RBAC 4 CẤP CÓ SCOPE PHÒNG BAN — ✅ XONG
+  (2026-08-05, Opus 5).** Thay thế HOÀN TOÀN 3 vai trò cũ `super_admin`/`admin`/`employee`.
+  Xem "Nhật ký RBAC 4 cấp" ngay dưới + ADR-040→044. **Tổng test: 174 unit BE + 82 tích hợp
+  BE trên MySQL thật + 43 FE = 299** (trước đợt này: 129 + 46 + 26 = 201).
+- Giai đoạn hiện tại (roadmap chính): **GĐ 7 — Hardening & Handoff ĐÃ XONG (2026-07-29, Opus 5)**.
   Đây là **giai đoạn CUỐI của roadmap chính** — GĐ 0 → GĐ 7 đã hoàn tất toàn bộ.
   Commit local (chưa push).
 - % hoàn thành tổng thể: **100% lộ trình chính (GĐ 0–7)**. Việc treo duy nhất còn lại
@@ -18,6 +22,97 @@
   đắn dữ liệu thật** mà unit test không thể thấy: race condition ở `recordView` (ADR-036) và
   phụ thuộc ngầm vào múi giờ Node↔MySQL (ADR-037). **Tổng 201 test tự động.**
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
+
+## Nhật ký RBAC 4 CẤP CÓ SCOPE PHÒNG BAN (việc phát sinh, ngoài roadmap) — 2026-08-05 — ✅ XONG
+
+> Yêu cầu gốc: thiết kế lại phân quyền thành **4 cấp**, trong đó Cấp 3 (Trưởng phòng) quản được phim
+> của Cấp 2 **cùng phòng ban**. Quyết định chi tiết + lý do ở **ADR-040 → ADR-044**; file này chỉ ghi
+> đã làm gì và verify ra sao.
+
+### Tên vai trò cuối cùng (ADR-040)
+`viewer` (Cấp 1) · `employee` (Cấp 2) · `dept_manager` (Cấp 3) · `super_admin` (Cấp 4).
+Vai trò **`admin` cũ bị loại bỏ hoàn toàn**, dữ liệu migrate sang Cấp 4 (ADR-041).
+
+### LỖ HỔNG THẬT đã bịt (quan trọng nhất của đợt này)
+Trước đợt này **KHÔNG có `@Roles` nào** trên `POST /films`, `POST /films/:id/upload-url`,
+`POST /films/:id/thumbnail`, `POST /films/:id/versions` → **mọi tài khoản đã đăng nhập đều tạo được
+phim**, kể cả vai trò thấp nhất. Nay cả 7 route GHI của `/films` (gồm cả `PATCH`/`DELETE`) đều gắn
+`@Roles(...FILM_WRITE_ROLES)`; Cấp 1 bị chặn ngay ở guard. Đã verify bằng 8 ca e2e + probe API thật.
+
+### Backend
+- **Migration mới** `1722000000000-AddDepartmentsAndRbac4Levels.ts` (idempotent, `hasColumn`/`hasTable`):
+  tạo bảng `departments`; thêm `users.department_id`, `films.department_id` (+ index
+  `IDX_films_department`), `categories.created_by` + `categories.department_id` — tất cả FK nullable
+  `ON DELETE SET NULL`; migrate vai trò cũ→mới; đồng bộ `roles` về đúng 4 dòng; backfill
+  `films.department_id` từ phòng ban của uploader. Hàm `migrateLegacyRoles()` + `LEGACY_ROLE_MAP` được
+  **export** để test tích hợp gọi lại được trên MySQL thật.
+- **`role.entity.ts` là nguồn sự thật duy nhất**: `RoleCode`, `ROLE_LEVEL`, `ROLE_NAME`,
+  `ALL_ROLE_CODES`, `FILM_WRITE_ROLES`, `isAtLeastLevel`. `seed.service.ts` đọc từ đây (không khai lại).
+- **`FilmsService.assertCanManage` viết lại** thành async 4 nhánh; đọc phòng ban actor + vai trò
+  uploader **từ DB** qua `UsersService` (ADR-043), không tin JWT, không tin `departmentId` từ client.
+  `create()` snapshot `department_id` từ DB của người tạo.
+- **Module `departments` mới** (entity/service/controller, `@Roles('super_admin')` toàn bộ): CRUD tối
+  thiểu, **chặn xoá bằng 409 nếu còn user/phim/chuyên mục tham chiếu** (cố ý không dựa vào
+  `ON DELETE SET NULL` — xoá âm thầm sẽ làm phim mất ngữ cảnh phòng ban và Cấp 3 lặng lẽ mất quyền).
+  Trùng tên chặn bằng unique index ở DB rồi dịch lỗi sang 409 (không đọc-rồi-ghi).
+- **`PATCH /users/:id` MỚI** (`UpdateUserDto`): đổi vai trò + phòng ban. **Bắt buộc phải có** vì Cấp 1
+  và Cấp 3 là hai cấp mới, không tài khoản nào tự động chuyển sang khi migrate. `departmentId: null` =
+  bỏ gán, thiếu trường = không đổi. Ghi `auditLog('user.update')` kèm giá trị trước/sau.
+- **Thu quyền về Cấp 4** cho `/users`, `/reports`, `/departments`, ghi `/categories` (ADR-044).
+- `auditLog` thêm 4 action: `user.update`, `department.create/update/delete`.
+
+### Frontend (theo skill `misa-design-system`, bản `/Users/tuanbui/misa-design-system`)
+- **`features/auth/permissions.ts` MỚI** — nguồn sự thật FE: `ROLE_LABEL`/`ROLE_HINT`/`ROLE_COLOR`,
+  `FILM_WRITE_ROLES`, `ADMIN_ROLES`, `canCreateFilm`, `isSystemAdmin`, `canManageFilm` (bản sao logic
+  `assertCanManage`, CHỈ để ẩn/hiện nút). Gom vào 1 chỗ vì cùng quy tắc dùng ở 5+ màn.
+- **Màn "Quản lý phòng ban" MỚI** (`features/departments/`): clone bố cục danh sách chuẩn MDS — nền
+  xám, bảng trong card trắng `--mds-shadow-card` + radius 8, tiêu đề trái / nút Primary ngoài cùng
+  phải, ô tìm kiếm trái toolbar, action dòng hiện khi hover (đúng 2 icon, dưới hạn 3 của
+  `data-table.md` §4), `MDataTable`/`MDialog`/`MInput`/`MTag` — không HTML thô.
+- `UserAdminView`: thêm cột **Phòng ban**, `MSelect` phòng ban ở form tạo, **dialog "Sửa vai trò và
+  phòng ban"** mới, gợi ý quyền theo vai trò đang chọn, cảnh báo mềm khi Cấp 2/3 chưa có phòng ban.
+  Option "Chưa gán" dùng value `0` (KHÔNG dùng `undefined` — `undefined` là "chưa chọn" theo quy ước
+  dự án, dùng lẫn sẽ không phân biệt được với "chọn có chủ đích là không thuộc phòng ban nào").
+- `App.vue`: thêm mục sidebar **"Quản lý phòng ban"** (icon Tabler `building` đã đăng ký, không tự vẽ
+  SVG) chỉ hiện Cấp 4; "Thêm phim" chỉ từ Cấp 2; nhãn vai trò mới.
+- `router`: route `/admin/departments`; `/upload` giới hạn `FILM_WRITE_ROLES`; các route admin về Cấp 4.
+- `FilmListView` ẩn nút "Thêm phim" với Cấp 1; `FilmDetailView` dùng `canManageFilm` dùng chung.
+- `CategoryView`: ẩn nút ghi với cấp không phải Cấp 4 (trước đây hiện cho mọi vai trò rồi để backend
+  trả 403 — nay ẩn hẳn cho khớp ADR-044).
+- `filmsApi.ApiFilm` thêm `departmentId` + `uploaderRoleCode` (`toPublic` lấy từ relation `uploader`
+  đã load sẵn — không thêm truy vấn nào) để FE quyết định ẩn/hiện nút cho Cấp 3.
+
+### Kiểm thử & verify
+- **BE unit 174/174 pass** (từ 129): viết lại toàn bộ `films.service.spec` cho 4 cấp × tổ hợp phòng
+  ban (gồm ca `null` không trùng `null`, ca Cấp 3 bị chuyển phòng mất quyền ngay), `users.service.spec`
+  cho ma trận mới, `departments.service.spec` MỚI, `roles.guard.spec` cập nhật.
+- **BE tích hợp 82/82 pass trên MySQL thật** (từ 46): thêm nhóm "Migration RBAC 4 cấp" (kiểm bảng
+  `roles` đúng 4 dòng, các cột mới tồn tại & nullable, **chèn tài khoản `admin` cũ rồi chạy
+  `migrateLegacyRoles()` thật → thành `super_admin`, chạy lại lần 2 vẫn đúng**), nhóm "CẤP 1" (8 ca),
+  nhóm "Scope phòng ban" (17 ca), nhóm phòng ban/sửa tài khoản.
+- **FE 43/43 pass** (từ 26) — thêm `permissions.spec.ts` phủ đủ 4 cấp.
+- `backend npm run build` + `frontend npm run build` (`vue-tsc`) sạch.
+- **Migration chạy thật trên DB dev đang có** (`docker compose up -d --build`): `roles` còn đúng 4
+  dòng (`admin` đã biến mất), tài khoản seed `super_admin` giữ nguyên, phim seed giữ nguyên với
+  `department_id = NULL` (đúng giới hạn đã ghi ở ADR-042), bảng `departments` + 4 cột mới tồn tại.
+- **Probe API thật 27 ca bằng curl với 6 tài khoản** — khớp 100% kỳ vọng. Trích các ca cốt lõi trên
+  cùng 1 phim của Cấp 2 phòng Truyền thông: Cấp 1 → 403 · Cấp 2 khác **cùng phòng** → 403 · chính chủ
+  → 200 · Cấp 3 **cùng phòng** → 200 · Cấp 3 **phòng khác** → 403 · Cấp 4 → 200. Cấp 3 sửa phim của
+  Cấp 4 → 403. Cấp 1 gọi upload-url/versions/thumbnail/DELETE → 403 cả 4.
+- **Browser test thật (Docker, localhost:8180) với đủ 4 cấp:** Cấp 1 → sidebar chỉ Kho phim + Chuyên
+  mục, không có nút "Thêm phim", màn chi tiết không có Sửa/Xoá · Cấp 2 → có "Thêm phim", **KHÔNG** có
+  Sửa/Xoá trên phim của đồng nghiệp cùng phòng · Cấp 3 → **CÓ** Sửa/Xoá trên phim của Cấp 2 cùng
+  phòng · Cấp 4 → thấy đủ 3 mục quản trị, màn Quản lý phòng ban render đúng MDS, tạo phòng ban OK
+  (toast + số người dùng thật), **xoá phòng ban đang có 3 người dùng bị chặn 409** với thông điệp
+  backend hiện nguyên văn, dialog "Sửa vai trò và phòng ban" nâng Cấp 1 → Cấp 3 + gán phòng ban lưu
+  thành công. Dropdown vai trò **chỉ có 3 lựa chọn** (không có "Quản trị cao nhất").
+
+### Dữ liệu demo còn lại trên DB dev (để người dùng tự kiểm)
+- 3 phòng ban: Phòng Truyền thông, Phòng Kinh doanh, Phòng Hành chính.
+- 6 tài khoản (mật khẩu 4 tài khoản test: `Test@2026x`): `superadmin@misa.com.vn` (Cấp 4, seed) ·
+  `xem@` (Cấp 1) · `nv1@`, `nv2@` (Cấp 2, phòng Truyền thông) · `tp1@` (Cấp 3, phòng Truyền thông) ·
+  `tp2@` (Cấp 3, phòng Kinh doanh).
+- 3 phim: 1 phim seed cũ + 2 phim demo của Cấp 2 phòng Truyền thông. Phim rác sinh ra lúc probe đã dọn.
 
 ## Nhật ký GĐ 7 — BỔ SUNG "đạt chuẩn misa-backend-standard" — 2026-07-29 — ✅ XONG
 

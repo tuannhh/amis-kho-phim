@@ -2,11 +2,12 @@ import { ExecutionContext, ForbiddenException } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import { RolesGuard } from './roles.guard'
 import type { AuthUser } from './auth-user'
-import type { RoleCode } from '../../modules/users/entities/role.entity'
+import { FILM_WRITE_ROLES, type RoleCode } from '../../modules/users/entities/role.entity'
 
 /**
- * GĐ7 — RolesGuard là chốt phân quyền theo vai trò cho /users và /reports.
- * Nếu guard này sai, nhân viên thường đọc được báo cáo toàn công ty và quản trị tài khoản.
+ * RolesGuard là chốt phân quyền theo vai trò cho /users, /reports, /departments, /categories
+ * và MỌI route ghi của /films (RBAC 4 cấp — ADR-040). Nếu guard này sai, Cấp 1 tạo được phim
+ * và Cấp 2 đọc được báo cáo toàn công ty.
  */
 
 function contextWith(user: AuthUser | undefined): ExecutionContext {
@@ -35,29 +36,39 @@ describe('RolesGuard', () => {
   })
 
   it('đúng vai trò → cho qua', () => {
-    const guard = guardRequiring(['super_admin', 'admin'])
-    expect(guard.canActivate(contextWith(userWith('admin')))).toBe(true)
+    const guard = guardRequiring(['dept_manager', 'super_admin'])
+    expect(guard.canActivate(contextWith(userWith('dept_manager')))).toBe(true)
     expect(guard.canActivate(contextWith(userWith('super_admin')))).toBe(true)
   })
 
-  it('NHÂN VIÊN gọi route chỉ dành cho quản trị → 403 (không phải 200)', () => {
-    const guard = guardRequiring(['super_admin', 'admin'])
+  it('CẤP 2 gọi route chỉ dành cho quản trị → 403 (không phải 200)', () => {
+    const guard = guardRequiring(['super_admin'])
     expect(() => guard.canActivate(contextWith(userWith('employee')))).toThrow(ForbiddenException)
   })
 
-  it('admin KHÔNG vào được route chỉ dành riêng super_admin', () => {
+  it('CẤP 1 bị chặn khỏi mọi route ghi phim (FILM_WRITE_ROLES)', () => {
+    const guard = guardRequiring(FILM_WRITE_ROLES)
+    expect(() => guard.canActivate(contextWith(userWith('viewer')))).toThrow(ForbiddenException)
+    expect(guard.canActivate(contextWith(userWith('employee')))).toBe(true)
+    expect(guard.canActivate(contextWith(userWith('dept_manager')))).toBe(true)
+    expect(guard.canActivate(contextWith(userWith('super_admin')))).toBe(true)
+  })
+
+  it('Cấp 3 KHÔNG vào được route chỉ dành riêng Cấp 4 (/users, /reports, /departments)', () => {
     const guard = guardRequiring(['super_admin'])
-    expect(() => guard.canActivate(contextWith(userWith('admin')))).toThrow(ForbiddenException)
+    expect(() => guard.canActivate(contextWith(userWith('dept_manager')))).toThrow(ForbiddenException)
   })
 
   it('không có req.user (guard xác thực bị bỏ qua) → từ chối, KHÔNG mặc định cho qua', () => {
-    const guard = guardRequiring(['admin'])
+    const guard = guardRequiring(['super_admin'])
     expect(() => guard.canActivate(contextWith(undefined))).toThrow(ForbiddenException)
   })
 
-  it('vai trò lạ/giả mạo trong token → từ chối', () => {
-    const guard = guardRequiring(['admin'])
-    const fake = { id: 1, email: 'x@y.z', roleCode: 'root' as unknown as RoleCode }
-    expect(() => guard.canActivate(contextWith(fake))).toThrow(ForbiddenException)
+  it('vai trò lạ/giả mạo trong token → từ chối (kể cả tên vai trò cũ đã bị loại bỏ)', () => {
+    const guard = guardRequiring(['super_admin'])
+    for (const bad of ['root', 'admin']) {
+      const fake = { id: 1, email: 'x@y.z', roleCode: bad as unknown as RoleCode }
+      expect(() => guard.canActivate(contextWith(fake))).toThrow(ForbiddenException)
+    }
   })
 })

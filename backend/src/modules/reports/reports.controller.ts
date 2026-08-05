@@ -7,9 +7,16 @@ import { CurrentUser } from '../../common/auth/current-user.decorator'
 import { auditLog } from '../../common/audit/audit-log'
 import type { AuthUser } from '../../common/auth/auth-user'
 
-/** Báo cáo Quản trị — chỉ super_admin/admin (03-roadmap.md GĐ5). */
+/**
+ * Báo cáo Quản trị — chỉ Cấp 4 (`super_admin`), RBAC 4 cấp (ADR-040).
+ *
+ * Cố ý KHÔNG mở cho Cấp 3: đặc tả nghiệp vụ chỉ nói Cấp 4 "xem báo cáo toàn công ty", không
+ * nhắc quyền báo cáo của Trưởng phòng. Báo cáo là xuất dữ liệu hàng loạt có PII (họ tên người
+ * upload) nên giữ ở mức hạn chế nhất theo `02-security-baseline.md` §9 — mở rộng cho Cấp 3
+ * (kèm lọc theo phòng ban) là việc cần yêu cầu nghiệp vụ rõ ràng, không tự suy diễn.
+ */
 @Controller('reports')
-@Roles('super_admin', 'admin')
+@Roles('super_admin')
 export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 

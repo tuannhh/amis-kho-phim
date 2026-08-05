@@ -11,14 +11,26 @@
 - Xác thực: header `Authorization: Bearer <accessToken>`. Access token sống 15 phút, refresh
   token 7 ngày (ADR-012). Guard toàn cục `JwtAuthGuard` bảo vệ **mọi** route trừ route gắn
   `@Public`. Frontend (`lib/http.ts`) tự gắn token và tự refresh một lần khi gặp 401.
-- Vai trò: `super_admin` › `admin` › `employee` (cột `users.role_code`).
+- **Vai trò — RBAC 4 CẤP CÓ SCOPE PHÒNG BAN** (cột `users.role_code`, cập nhật 2026-08-05,
+  ADR-040 → 044). Vai trò `admin` cũ **KHÔNG CÒN TỒN TẠI**:
+
+  | Cấp | `role_code` | Nhãn | Quyền |
+  |---|---|---|---|
+  | 1 | `viewer` | Người xem | CHỈ xem phim/chuyên mục, ghi lượt xem |
+  | 2 | `employee` | Nhân viên văn phòng | + tạo phim, sửa/xoá phim **của chính mình** |
+  | 3 | `dept_manager` | Trưởng phòng | + sửa/xoá phim của **mọi Cấp 2 CÙNG phòng ban** |
+  | 4 | `super_admin` | Quản trị cao nhất | + mọi phòng ban + toàn bộ quyền quản trị hệ thống |
+
+  Phòng ban lấy từ `users.department_id`; phim mang **snapshot** `films.department_id` của người tạo
+  tại thời điểm tạo (ADR-042). Cấp 3 chỉ quản phim do **Cấp 2** tạo, không quản phim của Cấp 3 khác.
 - Lỗi trả về theo chuẩn Nest: `{ statusCode, message, error }`; `message` có thể là mảng khi
   DTO validate fail. Toàn bộ thông điệp bằng tiếng Việt.
 - Mã trạng thái hay gặp: `401` chưa/không hợp lệ token · `403` sai vai trò hoặc không phải
   chủ sở hữu · `404` không tồn tại · `409` trùng dữ liệu · `429` vượt giới hạn tần suất.
 
-Ký hiệu cột "Ai gọi được": **Công khai** = không cần đăng nhập · **Đã đăng nhập** = mọi vai
-trò · **Chủ sở hữu** = người upload phim đó, hoặc admin/super_admin.
+Ký hiệu cột "Ai gọi được": **Công khai** = không cần đăng nhập · **Đã đăng nhập** = mọi vai trò (kể
+cả Cấp 1) · **Cấp 2+** = `employee`/`dept_manager`/`super_admin` · **Cấp 4** = chỉ `super_admin` ·
+**Quản lý được phim** = chủ sở hữu, hoặc Trưởng phòng cùng phòng ban (với phim của Cấp 2), hoặc Cấp 4.
 
 ---
 
@@ -37,48 +49,71 @@ Toàn bộ controller có giới hạn tần suất theo IP (GĐ7) — đây là
 Ghi chú: tài khoản do admin tạo có `mustChangePassword = true`; frontend ép người dùng sang
 màn `/change-password` cho tới khi đổi xong (ADR-013).
 
-## `users` — Quản trị người dùng
+## `departments` — Danh mục phòng ban **[MỚI 2026-08-05]**
 
-Cả controller gắn `@Roles('super_admin', 'admin')` — nhân viên gọi bất kỳ route nào cũng `403`.
-Chi tiết "ai quản lý được ai" kiểm thêm ở tầng service:
-
-- Không ai được tự khoá/xoá chính mình.
-- `super_admin` quản lý được `admin` và `employee`, **không** đụng được `super_admin` khác.
-- `admin` chỉ quản lý được `employee`.
-- Tạo tài khoản: `super_admin` tạo được `admin`/`employee`; `admin` chỉ tạo được `employee`.
+Cả controller gắn `@Roles('super_admin')` — **kể cả quyền ĐỌC**. Danh mục này quyết định ranh giới
+phân quyền của Cấp 3 nên áp quyền tối thiểu (`02-security-baseline.md` §2).
 
 | Method | Đường dẫn | Ai gọi được | Mô tả |
 |---|---|---|---|
-| GET | `/api/users` | admin+ | Danh sách người dùng (không bao giờ kèm `password_hash`). |
-| POST | `/api/users` | admin+ | Tạo tài khoản. Bỏ trống `password` → hệ thống sinh mật khẩu tạm 12 ký tự và trả về **một lần duy nhất** trong response. |
-| PATCH | `/api/users/:id/status` | admin+ | Khoá/mở khoá (`{ isActive: boolean }`). |
-| DELETE | `/api/users/:id` | admin+ | Xoá tài khoản. Trả `204`. |
+| GET | `/api/departments` | Cấp 4 | Danh sách phòng ban kèm `userCount` (số người dùng đang thuộc). |
+| POST | `/api/departments` | Cấp 4 | Tạo (`{ name }`). Trùng tên → `409` (unique index ở DB). |
+| PATCH | `/api/departments/:id` | Cấp 4 | Đổi tên. Trùng tên → `409`. |
+| DELETE | `/api/departments/:id` | Cấp 4 | Xoá. **`409` nếu còn user/phim/chuyên mục tham chiếu** — thông điệp nêu rõ số bản ghi từng loại. Trả `204` khi thành công. |
+
+## `users` — Quản trị người dùng
+
+Cả controller gắn `@Roles('super_admin')` — **chỉ Cấp 4**; Cấp 1/2/3 gọi bất kỳ route nào cũng `403`.
+(Trước 2026-08-05 là `super_admin`+`admin`; `admin` đã bị loại bỏ và migrate sang Cấp 4 — ADR-041.)
+Chi tiết "ai quản lý được ai" kiểm thêm ở tầng service:
+
+- Không ai được tự sửa/khoá/xoá chính mình.
+- Cấp 4 quản lý được Cấp 1/2/3, **không** đụng được Cấp 4 khác.
+- Gán vai trò: Cấp 4 gán được `viewer`/`employee`/`dept_manager`. **Không ai gán được
+  `super_admin` qua API** (DTO chặn, trả `400`) — giá trị `admin` cũ cũng bị chặn.
+- Cấp 3 (`dept_manager`) **KHÔNG** có quyền quản trị tài khoản (khác hẳn `admin` cũ).
+
+| Method | Đường dẫn | Ai gọi được | Mô tả |
+|---|---|---|---|
+| GET | `/api/users` | Cấp 4 | Danh sách người dùng, kèm `departmentId` (không bao giờ kèm `password_hash`). |
+| POST | `/api/users` | Cấp 4 | Tạo tài khoản (`{ email, fullName, roleCode, departmentId?, password? }`). `departmentId` được validate tồn tại thật. Bỏ trống `password` → hệ thống sinh mật khẩu tạm 12 ký tự và trả về **một lần duy nhất** trong response. |
+| PATCH | `/api/users/:id` | Cấp 4 | **[MỚI]** Đổi vai trò và/hoặc phòng ban (`{ roleCode?, departmentId? }`). Thiếu trường = không đổi; `departmentId: null` = **bỏ gán** phòng ban. Cần thiết vì Cấp 1/Cấp 3 là hai cấp mới, không tài khoản nào tự động chuyển sang khi migrate. |
+| PATCH | `/api/users/:id/status` | Cấp 4 | Khoá/mở khoá (`{ isActive: boolean }`). |
+| DELETE | `/api/users/:id` | Cấp 4 | Xoá tài khoản. Trả `204`. |
 
 ## `categories` — Chuyên mục (cây cha–con)
+
+Đọc: mọi người đã đăng nhập. **Ghi (tạo/sửa/xoá): chỉ Cấp 4** (`@Roles('super_admin')`, đổi từ
+`super_admin`+`admin` — ADR-044). Chuyên mục là danh mục dùng chung toàn công ty, KHÔNG scope theo
+phòng ban; 2 cột `created_by`/`department_id` mới chỉ để truy vết (ADR-042).
 
 | Method | Đường dẫn | Ai gọi được | Mô tả |
 |---|---|---|---|
 | GET | `/api/categories` | Đã đăng nhập | Cây chuyên mục đầy đủ. |
-| POST | `/api/categories` | admin+ | Tạo chuyên mục (`parentId` tuỳ chọn). Slug do BE tự sinh (ADR-015). |
-| PATCH | `/api/categories/:id` | admin+ | Sửa tên/mô tả. **Không đổi được chuyên mục cha** (tránh tạo vòng lặp). |
-| DELETE | `/api/categories/:id` | admin+ | Xoá. Trả `204`. |
+| POST | `/api/categories` | Cấp 4 | Tạo chuyên mục (`parentId` tuỳ chọn). Slug do BE tự sinh (ADR-015). |
+| PATCH | `/api/categories/:id` | Cấp 4 | Sửa tên/mô tả. **Không đổi được chuyên mục cha** (tránh tạo vòng lặp). |
+| DELETE | `/api/categories/:id` | Cấp 4 | Xoá. Trả `204`. |
 
 ## `films` — Phim (metadata, link ngoài, storage, lượt xem)
 
-Xem: mọi người đã đăng nhập. Tạo: mọi vai trò đều được đăng phim. Sửa/xoá và toàn bộ thao tác
-storage: **chủ sở hữu** (`FilmsService.assertCanManage` — ADR-002/014).
+**Đọc:** mọi người đã đăng nhập (kể cả Cấp 1).
+**Ghi:** ⚠️ **ĐÃ ĐỔI 2026-08-05** — toàn bộ 7 route ghi gắn `@Roles(...FILM_WRITE_ROLES)`, tức **Cấp 2
+trở lên**. Trước đây các route này KHÔNG có `@Roles` nào nên **Cấp thấp nhất cũng tạo được phim** — đó
+là lỗ hổng phân quyền đã được bịt (xem `docs/danh-gia-an-ninh.md` mục 2.9). Phạm vi chi tiết trong nhóm
+được ghi (của mình / cùng phòng ban / mọi phòng ban) kiểm tiếp ở `FilmsService.assertCanManage`
+(ADR-040, thay thế ADR-002/014).
 
 | Method | Đường dẫn | Ai gọi được | Mô tả |
 |---|---|---|---|
-| GET | `/api/films` | Đã đăng nhập | Danh sách phim (kèm chuyên mục, hashtag, link, `thumbnailUrl`). |
+| GET | `/api/films` | Đã đăng nhập | Danh sách phim (kèm chuyên mục, hashtag, link, `thumbnailUrl`, `departmentId`, `uploaderRoleCode`). |
 | GET | `/api/films/:slug` | Đã đăng nhập | Chi tiết theo slug. |
-| POST | `/api/films` | Đã đăng nhập | Tạo phim (metadata + link ngoài). Slug tự sinh. |
-| PATCH | `/api/films/:id` | Chủ sở hữu | Sửa metadata. Lưu ý: thao tác này **đặt lại tag "Phim mới"**. |
-| DELETE | `/api/films/:id` | Chủ sở hữu | Xoá phim. Trả `204`. |
-| POST | `/api/films/:id/view` | Đã đăng nhập | Ghi nhận 1 lượt xem. Dedupe theo `user_id` trong 30 phút; tăng `view_count` atomic (ADR-023). |
-| POST | `/api/films/:id/upload-url` | Chủ sở hữu | Xin presigned PUT URL để upload video thẳng lên MinIO. Server validate MIME + dung lượng và **tự sinh** `storageKey`. |
-| POST | `/api/films/:id/thumbnail` | Chủ sở hữu | Upload ảnh bìa (multipart, ≤ 15MB). Kiểm magic bytes + bắt buộc tỷ lệ 16:9. |
-| POST | `/api/films/:id/versions` | Chủ sở hữu | Xác nhận tạo bản mới sau khi upload xong. Server head-check key trên MinIO, lấy dung lượng thật, **từ chối + xoá file nếu vượt `MAX_UPLOAD_MB`** (GĐ7). |
+| POST | `/api/films` | **Cấp 2+** | Tạo phim (metadata + link ngoài). Slug tự sinh. `department_id` **snapshot từ DB** của người tạo — KHÔNG nhận từ body. |
+| PATCH | `/api/films/:id` | **Cấp 2+** & quản lý được phim | Sửa metadata. Lưu ý: thao tác này **đặt lại tag "Phim mới"**. |
+| DELETE | `/api/films/:id` | **Cấp 2+** & quản lý được phim | Xoá phim. Trả `204`. |
+| POST | `/api/films/:id/view` | Đã đăng nhập | Ghi nhận 1 lượt xem. Dedupe theo `user_id` trong 30 phút; tăng `view_count` atomic (ADR-023). **Cấp 1 vẫn gọi được** (là người xem hợp lệ). |
+| POST | `/api/films/:id/upload-url` | **Cấp 2+** & quản lý được phim | Xin presigned PUT URL để upload video thẳng lên MinIO. Server validate MIME + dung lượng và **tự sinh** `storageKey`. |
+| POST | `/api/films/:id/thumbnail` | **Cấp 2+** & quản lý được phim | Upload ảnh bìa (multipart, ≤ 15MB). Kiểm magic bytes + bắt buộc tỷ lệ 16:9. |
+| POST | `/api/films/:id/versions` | **Cấp 2+** & quản lý được phim | Xác nhận tạo bản mới sau khi upload xong. Server head-check key trên MinIO, lấy dung lượng thật, **từ chối + xoá file nếu vượt `MAX_UPLOAD_MB`** (GĐ7). |
 
 Nguồn phát của một phim (`links`): `storage` (MinIO nội bộ), `youtube`, `vimeo`, `gdrive`,
 `misadrive`. Riêng `storage` trả về đường dẫn dạng `/media/<key>`.
@@ -101,12 +136,14 @@ Mỗi người chỉ đọc được thông báo **của chính mình** (lọc t
 
 ## `reports` — Báo cáo quản trị
 
-Cả controller gắn `@Roles('super_admin', 'admin')`.
+Cả controller gắn `@Roles('super_admin')` — **chỉ Cấp 4**. Cố ý KHÔNG mở cho Cấp 3: báo cáo là xuất dữ
+liệu hàng loạt có PII và đặc tả chỉ nói Cấp 4 xem báo cáo toàn công ty (ADR-044). Nếu cần Trưởng phòng
+xem báo cáo **của phòng mình** thì đó là yêu cầu mới (phải thêm bộ lọc theo `department_id`).
 
 | Method | Đường dẫn | Ai gọi được | Mô tả |
 |---|---|---|---|
-| GET | `/api/reports/films` | admin+ | Ai upload bao nhiêu phim trong kỳ + danh sách phim. Lọc: `uploaderId`, `from`, `to` (`YYYY-MM-DD`). |
-| GET | `/api/reports/films?format=csv` | admin+ | Cùng endpoint, trả file CSV (BOM UTF-8 để Excel hiện tiếng Việt đúng — ADR-026). Ô bắt đầu bằng `= + - @` được vô hiệu hoá chống CSV injection (GĐ7). |
+| GET | `/api/reports/films` | Cấp 4 | Ai upload bao nhiêu phim trong kỳ + danh sách phim. Lọc: `uploaderId`, `from`, `to` (`YYYY-MM-DD`). |
+| GET | `/api/reports/films?format=csv` | Cấp 4 | Cùng endpoint, trả file CSV (BOM UTF-8 để Excel hiện tiếng Việt đúng — ADR-026). Ô bắt đầu bằng `= + - @` được vô hiệu hoá chống CSV injection (GĐ7). |
 
 ## `media` — Phát video/ảnh (NGOÀI prefix `/api`)
 

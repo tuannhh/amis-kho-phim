@@ -13,6 +13,8 @@ import { useFilmsStore } from './filmsStore'
 import { filmSources } from './filmsApi'
 import { SOURCE_LABEL, isFilmNew, publishedTime, categoryColorFor, thumbnailGradient, formatVNDate } from './filmTypes'
 import { filmSearchQuery } from './searchState'
+import { useAuthStore } from '@/features/auth/authStore'
+import { canCreateFilm } from '@/features/auth/permissions'
 
 /**
  * Danh sách phim — GĐ2 (API thật qua filmsStore). Tìm kiếm dùng CHUNG 1 ô duy nhất
@@ -21,6 +23,7 @@ import { filmSearchQuery } from './searchState'
 const router = useRouter()
 const toast = useToast()
 const store = useFilmsStore()
+const auth = useAuthStore()
 
 onMounted(() => store.load())
 
@@ -100,6 +103,9 @@ function openFilm(slug: string) {
   router.push({ name: 'film-detail', params: { slug } })
 }
 
+/** Cấp 2 trở lên mới thấy nút "Thêm phim" (RBAC 4 cấp — ADR-040). */
+const canCreate = computed(() => canCreateFilm(auth.role))
+
 function goUpload() {
   router.push({ name: 'upload' })
 }
@@ -123,7 +129,8 @@ async function copyLink(url: string | undefined, label: string, event: Event) {
       style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
     >
       <h1 class="text-[16px] font-semibold" style="color: var(--mds-text-primary)">Kho phim</h1>
-      <MButton variant="primary" @click="goUpload">
+      <!-- Cấp 1 (viewer) chỉ xem → không thấy nút tạo phim. Backend cũng trả 403 nếu gọi thẳng API. -->
+      <MButton v-if="canCreate" variant="primary" @click="goUpload">
         <template #icon><MIcon name="plus" :size="16" /></template>
         Thêm phim
       </MButton>

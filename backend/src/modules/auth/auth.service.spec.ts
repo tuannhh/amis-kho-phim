@@ -22,6 +22,7 @@ const publicUser: PublicUser = {
   email: 'nhanvien@misa.com.vn',
   fullName: 'Nguyễn Văn A',
   roleCode: 'employee',
+  departmentId: 1,
   createdBy: 1,
   isActive: true,
   mustChangePassword: false,

@@ -7,17 +7,30 @@ export interface ApiUser {
   email: string
   fullName: string
   roleCode: UserRole
+  /** Phòng ban (null = chưa gán) — dùng scope quyền Cấp 3 (ADR-040). */
+  departmentId: number | null
   createdBy: number | null
   isActive: boolean
   mustChangePassword: boolean
   createdAt: string
 }
 
+/** Vai trò API cho phép GÁN — không ai gán được `super_admin` (chốt chặn giữ từ GĐ1). */
+export type AssignableRole = Exclude<UserRole, 'super_admin'>
+
 export interface CreateUserPayload {
   email: string
   fullName: string
-  roleCode: Exclude<UserRole, 'super_admin'>
+  roleCode: AssignableRole
+  /** Bỏ trống = chưa gán phòng ban. */
+  departmentId?: number
   password?: string
+}
+
+/** Sửa tài khoản: thiếu trường = không đổi; `departmentId: null` = bỏ gán phòng ban. */
+export interface UpdateUserPayload {
+  roleCode?: AssignableRole
+  departmentId?: number | null
 }
 
 export interface CreateUserResult {
@@ -25,22 +38,16 @@ export interface CreateUserResult {
   generatedPassword?: string
 }
 
-export const ROLE_LABEL: Record<UserRole, string> = {
-  super_admin: 'Super Admin',
-  admin: 'Admin',
-  employee: 'Nhân viên',
-}
+// Nhãn/màu/mô tả vai trò dùng chung toàn app — nguồn sự thật ở `features/auth/permissions.ts`
+// (re-export ở đây để các màn cũ đang import từ `usersApi` không phải đổi đường dẫn).
+export { ROLE_LABEL, ROLE_COLOR, ROLE_HINT } from '@/features/auth/permissions'
 
-export const ROLE_COLOR: Record<UserRole, 'brand' | 'info' | 'neutral'> = {
-  super_admin: 'brand',
-  admin: 'info',
-  employee: 'neutral',
-}
-
-/** Vai trò mà `byRole` được phép tạo (khớp ma trận backend — chỉ để dựng UI). */
-export function creatableRoles(byRole: UserRole | null): UserRole[] {
-  if (byRole === 'super_admin') return ['admin', 'employee']
-  if (byRole === 'admin') return ['employee']
+/**
+ * Vai trò mà `byRole` được phép gán (khớp `creatableRoles` của backend — chỉ để dựng UI).
+ * RBAC 4 cấp: CHỈ Cấp 4 quản lý người dùng; không ai gán được Cấp 4.
+ */
+export function creatableRoles(byRole: UserRole | null): AssignableRole[] {
+  if (byRole === 'super_admin') return ['viewer', 'employee', 'dept_manager']
   return []
 }
 
@@ -48,6 +55,8 @@ export const usersApi = {
   list: () => apiFetch<ApiUser[]>('/users'),
   create: (payload: CreateUserPayload) =>
     apiFetch<CreateUserResult>('/users', { method: 'POST', body: JSON.stringify(payload) }),
+  update: (id: number, payload: UpdateUserPayload) =>
+    apiFetch<ApiUser>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   setStatus: (id: number, isActive: boolean) =>
     apiFetch<ApiUser>(`/users/${id}/status`, { method: 'PATCH', body: JSON.stringify({ isActive }) }),
   remove: (id: number) => apiFetch<void>(`/users/${id}`, { method: 'DELETE' }),

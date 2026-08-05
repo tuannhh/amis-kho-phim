@@ -7,6 +7,7 @@ import { FilmLink } from '../modules/films/entities/film-link.entity'
 import { Hashtag } from '../modules/films/entities/hashtag.entity'
 import { FilmVersion } from '../modules/films/entities/film-version.entity'
 import { FilmView } from '../modules/films/entities/film-view.entity'
+import { Department } from '../modules/departments/entities/department.entity'
 import { Notification } from '../modules/notifications/entities/notification.entity'
 import { UserNotification } from '../modules/notifications/entities/user-notification.entity'
 import { InitAuth1721500000000 } from './migrations/1721500000000-InitAuth'
@@ -14,6 +15,7 @@ import { InitCatalog1721600000000 } from './migrations/1721600000000-InitCatalog
 import { AddFilmVersions1721700000000 } from './migrations/1721700000000-AddFilmVersions'
 import { AddFilmViews1721800000000 } from './migrations/1721800000000-AddFilmViews'
 import { AddNotifications1721900000000 } from './migrations/1721900000000-AddNotifications'
+import { AddDepartmentsAndRbac4Levels1722000000000 } from './migrations/1722000000000-AddDepartmentsAndRbac4Levels'
 
 /**
  * Cấu hình kết nối MySQL DÙNG CHUNG cho AppModule (runtime) và DataSource CLI (migration).
@@ -44,13 +46,26 @@ export const dbOptions: DataSourceOptions = {
    * không lộ ra khi chạy trong Docker — chỉ kiểm thử tích hợp thật mới bắt được.
    */
   timezone: 'Z',
-  entities: [User, Role, Category, Film, FilmLink, Hashtag, FilmVersion, FilmView, Notification, UserNotification],
+  entities: [
+    User,
+    Role,
+    Department,
+    Category,
+    Film,
+    FilmLink,
+    Hashtag,
+    FilmVersion,
+    FilmView,
+    Notification,
+    UserNotification,
+  ],
   migrations: [
     InitAuth1721500000000,
     InitCatalog1721600000000,
     AddFilmVersions1721700000000,
     AddFilmViews1721800000000,
     AddNotifications1721900000000,
+    AddDepartmentsAndRbac4Levels1722000000000,
   ],
   synchronize: false,
   migrationsRun: true,

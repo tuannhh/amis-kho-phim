@@ -2,12 +2,12 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import * as bcrypt from 'bcryptjs'
-import { Role } from '../modules/users/entities/role.entity'
+import { ALL_ROLE_CODES, ROLE_NAME, Role } from '../modules/users/entities/role.entity'
 import { User } from '../modules/users/entities/user.entity'
 
 /**
  * Seed lúc khởi động (idempotent — chạy nhiều lần không nhân đôi):
- *  1. 3 vai trò tĩnh super_admin/admin/employee.
+ *  1. 4 vai trò tĩnh viewer/employee/dept_manager/super_admin (RBAC 4 cấp, ADR-040).
  *  2. Tài khoản super_admin đầu tiên từ .env (SEED_SUPER_ADMIN_*).
  * Chạy sau khi migration đã tạo bảng (migrationsRun=true khi init DataSource).
  */
@@ -26,14 +26,11 @@ export class SeedService implements OnModuleInit {
   }
 
   private async seedRoles(): Promise<void> {
-    const defaults: Role[] = [
-      { code: 'super_admin', name: 'Super Admin' },
-      { code: 'admin', name: 'Admin' },
-      { code: 'employee', name: 'Nhân viên' },
-    ]
-    for (const r of defaults) {
-      const existed = await this.roles.findOne({ where: { code: r.code } })
-      if (!existed) await this.roles.save(r)
+    // Danh sách vai trò lấy từ NGUỒN SỰ THẬT DUY NHẤT ở `role.entity.ts` — không khai lại
+    // thủ công ở đây để tránh seed lệch với RoleCode/nhãn khi thêm cấp mới sau này.
+    for (const code of ALL_ROLE_CODES) {
+      const existed = await this.roles.findOne({ where: { code } })
+      if (!existed) await this.roles.save({ code, name: ROLE_NAME[code] } as Role)
     }
   }
 
@@ -52,6 +49,7 @@ export class SeedService implements OnModuleInit {
         fullName,
         passwordHash,
         roleCode: 'super_admin',
+        departmentId: null,
         createdBy: null,
         isActive: true,
         mustChangePassword: false,

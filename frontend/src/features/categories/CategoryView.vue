@@ -12,13 +12,23 @@ import MSpinner from '@/components/mds/MSpinner.vue'
 import { useToast } from '@/components/mds/toast.js'
 import { useFormValidation, rules } from '@/components/mds/useFormValidation.js'
 import { categoriesApi, type ApiCategoryNode } from './categoriesApi'
+import { useAuthStore } from '@/features/auth/authStore'
+import { isSystemAdmin } from '@/features/auth/permissions'
 
 /**
  * Quản lý chuyên mục — GĐ2 (API thật). Master-Detail: cây chuyên mục bên trái,
  * form thêm/sửa bên phải. Cha chỉ chọn được lúc tạo (giữ UX GĐ0.5); sửa chỉ
  * đổi tên/mô tả (backend UpdateCategoryDto không nhận parentId).
+ *
+ * RBAC 4 cấp (ADR-040): ai đăng nhập cũng XEM được cây chuyên mục, nhưng quyền GHI chỉ Cấp 4
+ * (`@Roles('super_admin')` ở backend). Trước đây FE hiện nút "Thêm chuyên mục" cho mọi vai trò
+ * rồi để backend trả 403 — nay ẩn hẳn để Cấp 1/2/3 không thấy nút mình không dùng được.
  */
 const toast = useToast()
+const auth = useAuthStore()
+
+/** Chỉ Cấp 4 được tạo/sửa/xoá chuyên mục — khớp `@Roles('super_admin')` ở backend. */
+const canWrite = computed(() => isSystemAdmin(auth.role))
 
 const tree = ref<ApiCategoryNode[]>([])
 const loading = ref(false)
@@ -152,7 +162,7 @@ async function confirmDelete() {
       style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
     >
       <h1 class="text-[16px] font-semibold" style="color: var(--mds-text-primary)">Chuyên mục</h1>
-      <MButton variant="primary" @click="startCreate">
+      <MButton v-if="canWrite" variant="primary" @click="startCreate">
         <template #icon><MIcon name="plus" :size="16" /></template>
         Thêm chuyên mục
       </MButton>
@@ -173,7 +183,8 @@ async function confirmDelete() {
           style="color: var(--mds-text-placeholder)"
         >
           <MIcon name="folder" :size="28" />
-          <span>Chưa có chuyên mục nào.<br />Bấm "Thêm chuyên mục" để tạo mới.</span>
+          <span v-if="canWrite">Chưa có chuyên mục nào.<br />Bấm "Thêm chuyên mục" để tạo mới.</span>
+          <span v-else>Chưa có chuyên mục nào.</span>
         </div>
         <MTree
           v-else
@@ -189,7 +200,7 @@ async function confirmDelete() {
         class="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg bg-white"
         style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
       >
-        <div v-if="isCreating || editingId" class="flex min-h-0 flex-1 flex-col">
+        <div v-if="canWrite && (isCreating || editingId)" class="flex min-h-0 flex-1 flex-col">
           <div class="flex-1 overflow-auto p-5">
             <h3 class="mb-4 text-[16px] font-semibold" style="color: var(--mds-text-primary)">
               {{ isCreating ? 'Thêm chuyên mục' : 'Sửa chuyên mục' }}
@@ -234,7 +245,7 @@ async function confirmDelete() {
           v-else
           type="initial"
           title="Chọn một chuyên mục để xem chi tiết"
-          description="Hoặc bấm 'Thêm chuyên mục' để tạo mới"
+          :description="canWrite ? 'Hoặc bấm \'Thêm chuyên mục\' để tạo mới' : 'Chỉ Quản trị cao nhất được thêm/sửa chuyên mục'"
         />
       </div>
     </div>

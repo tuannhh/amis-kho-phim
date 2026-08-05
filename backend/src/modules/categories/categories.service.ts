@@ -4,6 +4,8 @@ import { Repository } from 'typeorm'
 import { Category } from './entities/category.entity'
 import { CreateCategoryDto, UpdateCategoryDto } from './dto/category.dto'
 import { slugify } from '../../common/slugify'
+import { UsersService } from '../users/users.service'
+import type { AuthUser } from '../../common/auth/auth-user'
 
 export interface CategoryNode {
   id: number
@@ -18,6 +20,7 @@ export interface CategoryNode {
 export class CategoriesService {
   constructor(
     @InjectRepository(Category) private readonly repo: Repository<Category>,
+    private readonly users: UsersService,
   ) {}
 
   private toNode(c: Category): CategoryNode {
@@ -59,7 +62,12 @@ export class CategoriesService {
     }
   }
 
-  async create(dto: CreateCategoryDto): Promise<CategoryNode> {
+  /**
+   * `created_by` + `department_id` là cột TRUY VẾT (ADR-042) — snapshot người tạo và phòng ban
+   * của người đó lúc tạo, lấy từ danh tính đã xác thực + DB, không nhận từ DTO. KHÔNG dùng để
+   * scope quyền: chuyên mục vẫn là danh mục dùng chung, quyền ghi giữ ở Cấp 4.
+   */
+  async create(actor: AuthUser, dto: CreateCategoryDto): Promise<CategoryNode> {
     if (dto.parentId != null) {
       const parent = await this.repo.findOne({ where: { id: dto.parentId } })
       if (!parent) throw new BadRequestException('Chuyên mục cha không tồn tại')
@@ -70,6 +78,8 @@ export class CategoriesService {
       slug,
       description: dto.description?.trim() || null,
       parentId: dto.parentId ?? null,
+      createdBy: actor.id,
+      departmentId: await this.users.getDepartmentId(actor.id),
     })
     const saved = await this.repo.save(entity)
     return this.toNode(saved)

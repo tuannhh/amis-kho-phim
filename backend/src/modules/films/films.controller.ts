@@ -18,11 +18,20 @@ import { FilmsService } from './films.service'
 import { UpsertFilmDto, CreateUploadUrlDto, ConfirmVersionDto } from './dto/film.dto'
 import { CurrentUser } from '../../common/auth/current-user.decorator'
 import type { AuthUser } from '../../common/auth/auth-user'
+import { Roles } from '../../common/auth/roles.decorator'
+import { FILM_WRITE_ROLES } from '../users/entities/role.entity'
 
 /**
- * CRUD phim + storage (GĐ3). Xem: ai đăng nhập cũng được. Tạo: ai cũng upload
- * được (§5). Sửa/xoá + xin upload URL / thumbnail / xác nhận version: kiểm quyền
- * owner ở service (assertCanManage) — nhân viên chỉ thao tác phim của mình.
+ * CRUD phim + storage (GĐ3). Phân quyền theo RBAC 4 cấp (ADR-040):
+ *
+ *  - ĐỌC (`GET /films`, `GET /films/:slug`) + ghi nhận lượt xem: ai đăng nhập cũng được,
+ *    kể cả Cấp 1 (`viewer`).
+ *  - MỌI route GHI (tạo, sửa, xoá, xin upload URL, upload ảnh bìa, xác nhận bản mới) gắn
+ *    `@Roles(...FILM_WRITE_ROLES)` — Cấp 1 bị chặn NGAY Ở GUARD, trả 403 trước khi vào service.
+ *    Trước đây các route này KHÔNG có `@Roles` nào (mọi tài khoản đã đăng nhập đều tạo được
+ *    phim) — đó là khoảng trống phân quyền thật, nay đã bịt.
+ *  - Phạm vi chi tiết trong nhóm được ghi (của mình / cùng phòng ban / mọi phòng ban) kiểm
+ *    tiếp ở `FilmsService.assertCanManage` — guard là lớp một, không phải lớp duy nhất.
  */
 @Controller('films')
 export class FilmsController {
@@ -39,11 +48,13 @@ export class FilmsController {
   }
 
   @Post()
+  @Roles(...FILM_WRITE_ROLES)
   create(@CurrentUser() actor: AuthUser, @Body() dto: UpsertFilmDto) {
     return this.films.create(actor, dto)
   }
 
   @Patch(':id')
+  @Roles(...FILM_WRITE_ROLES)
   update(
     @CurrentUser() actor: AuthUser,
     @Param('id', ParseIntPipe) id: number,
@@ -53,6 +64,7 @@ export class FilmsController {
   }
 
   @Delete(':id')
+  @Roles(...FILM_WRITE_ROLES)
   @HttpCode(204)
   async remove(@CurrentUser() actor: AuthUser, @Param('id', ParseIntPipe) id: number) {
     await this.films.remove(actor, id)
@@ -75,6 +87,7 @@ export class FilmsController {
 
   /** Xin presigned PUT URL để upload thẳng file video lên MinIO. */
   @Post(':id/upload-url')
+  @Roles(...FILM_WRITE_ROLES)
   createUploadUrl(
     @CurrentUser() actor: AuthUser,
     @Param('id', ParseIntPipe) id: number,
@@ -85,6 +98,7 @@ export class FilmsController {
 
   /** Upload ảnh bìa (multipart, nhỏ) qua backend — validate 16:9 + MIME thật. */
   @Post(':id/thumbnail')
+  @Roles(...FILM_WRITE_ROLES)
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: 15 * 1024 * 1024 } }), // ảnh bìa <= 15MB
   )
@@ -98,6 +112,7 @@ export class FilmsController {
 
   /** Xác nhận tạo bản mới (film_versions) sau khi upload file/ảnh xong. */
   @Post(':id/versions')
+  @Roles(...FILM_WRITE_ROLES)
   confirmVersion(
     @CurrentUser() actor: AuthUser,
     @Param('id', ParseIntPipe) id: number,
