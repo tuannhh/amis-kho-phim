@@ -48,7 +48,9 @@ const router = createRouter({
       path: '/categories',
       name: 'categories',
       component: () => import('@/features/categories/CategoryView.vue'),
-      meta: { title: 'Chuyên mục' },
+      // Cấp 1 (viewer) chỉ có đúng "Kho phim": không thấy menu Chuyên mục và cũng không vào
+      // được bằng cách gõ thẳng URL (ẩn menu thôi thì chưa đủ).
+      meta: { title: 'Chuyên mục', roles: FILM_WRITE_ROLES },
     },
     {
       path: '/admin/departments',

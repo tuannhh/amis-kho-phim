@@ -16,6 +16,13 @@ const toast = useToast()
  * - storage: <video controls> gốc trình duyệt → có sẵn play/pause/tua/
  *   âm lượng/toàn màn hình, không cần dựng lại control tay.
  * - youtube/vimeo: nhúng iframe player chính thức (đã có đủ điều khiển).
+ *
+ *   ⚠️ BẮT BUỘC giữ `referrerpolicy="strict-origin-when-cross-origin"` trên 2 iframe nhúng.
+ *   nginx đặt `Referrer-Policy: no-referrer` cho toàn site (tốt cho quyền riêng tư), nhưng khi
+ *   KHÔNG có Referer thì YouTube không xác định được tên miền đang nhúng và từ chối khởi tạo
+ *   player: người dùng thấy "Error 153 — Video player configuration error" dù link hoàn toàn
+ *   hợp lệ. Thuộc tính này chỉ nới cho riêng 2 iframe player (gửi đúng origin, không gửi đường
+ *   dẫn đầy đủ), phần còn lại của app vẫn giữ nguyên no-referrer.
  * - gdrive/misadrive: không nhúng được ổn định → hiện nút mở link ngoài.
  */
 const props = defineProps<{
@@ -95,6 +102,7 @@ async function copyLink(url: string | undefined, label: string) {
         frameborder="0"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
         allowfullscreen
+        referrerpolicy="strict-origin-when-cross-origin"
       />
       <iframe
         v-else-if="activeSource === 'vimeo' && vimeoEmbed"
@@ -105,6 +113,7 @@ async function copyLink(url: string | undefined, label: string) {
         frameborder="0"
         allow="autoplay; fullscreen; picture-in-picture"
         allowfullscreen
+        referrerpolicy="strict-origin-when-cross-origin"
       />
       <!-- Google Drive / MISA Drive: mở link ngoài thay vì nhúng -->
       <div

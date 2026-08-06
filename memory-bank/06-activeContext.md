@@ -5,6 +5,27 @@
 
 ## Tóm tắt nhanh (đọc 30 giây là hiểu hết)
 
+### ✅ VỪA XONG: ĐỢT SỬA 5 VẤN ĐỀ TỪ TEST THỰC TẾ CỦA NGƯỜI DÙNG (2026-08-06, Opus 5)
+
+Người dùng tự test bản 3 cấp trên Docker và báo 5 vấn đề. **Đã sửa xong và push CẢ 2 NHÁNH**
+(cả 5 đều là bug/UX chung, không dính khác biệt RBAC). Chi tiết + bằng chứng verify ở
+`04-progress.md`; quyết định thiết kế ở **ADR-048** (hashtag) và **ADR-049** (YouTube).
+
+Hai điều quan trọng nhất cần nhớ:
+- **YouTube Error 153 là BUG THẬT ở tầng hạ tầng, không phải link demo giả.** `Referrer-Policy:
+  no-referrer` của nginx làm iframe không gửi Referer → YouTube từ chối khởi tạo player với MỌI
+  video. Đã sửa bằng `referrerpolicy="strict-origin-when-cross-origin"` đặt trên chính 2 iframe
+  trong `VideoPlayer.vue`. **Đừng xoá thuộc tính này vì tưởng thừa** — lỗi sẽ tái phát và cực
+  khó lần ra.
+- **Nút upload/xuất bản KHÔNG có bug.** Đã tái hiện đầy đủ trên browser thật (chọn file → tạo
+  phim → phát được, storage trả HTTP 206). Cái làm người dùng tưởng "nút chết" là khi **chưa
+  chọn Chuyên mục** — form chặn submit và báo đỏ đúng thiết kế. Nếu người dùng báo lại, hỏi
+  trước xem đã chọn Chuyên mục chưa.
+
+Control hashtag nay là `frontend/src/components/HashtagInput.vue` (lắp từ MInput + MTag), logic
+tách chuỗi thuần ở `frontend/src/features/upload/hashtags.ts`. `MCombobox` **không còn** dùng ở
+màn Thêm phim.
+
 ### 🔀 ĐANG CÓ 2 NHÁNH RBAC SONG SONG — CHỜ NGƯỜI DÙNG CHỌN (2026-08-06)
 
 **Chưa nhánh nào merge vào `main`.** Người dùng yêu cầu làm 2 bản để so sánh trực tiếp trên
@@ -15,7 +36,7 @@ GitHub rồi chốt một. `main` vẫn là bản trước RBAC.
 | Vai trò | viewer / employee / **dept_manager** / super_admin | viewer / employee / super_admin |
 | Cấp cao nhất | Cấp 3 chỉ phim **cùng phòng ban**; Cấp 4 mọi phim | Cấp 3 sửa **MỌI** phim, không xét phòng ban |
 | ADR | ADR-040 → 044 `[RBAC4]` | ADR-045 → 047 `[RBAC3]` |
-| Test | 174 + 82 + 43 | 163 + 80 + 38 |
+| Test | 174 + 82 + 52 = 308 | 163 + 80 + 47 = 290 |
 
 - **Lược đồ DB HAI NHÁNH GIỐNG HỆT NHAU** — bảng `departments` + các cột `department_id`/
   `created_by` có ở cả hai; khác nhau chỉ ở chỗ bản 3 cấp dùng chúng **thuần truy vết**, không

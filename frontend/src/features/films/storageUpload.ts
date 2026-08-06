@@ -21,10 +21,12 @@ export function putToStorage(
     }
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) resolve()
-      else reject(new Error(`Upload lên storage thất bại (mã ${xhr.status})`))
+      // Thông báo lỗi hiện thẳng lên toast cho người dùng cuối → viết bằng lời nghiệp vụ,
+      // không nhắc "storage"/"MinIO"/"CORS". Mã lỗi vẫn giữ để hỗ trợ kỹ thuật tra khi cần.
+      else reject(new Error(`Tải tệp lên không thành công (mã lỗi ${xhr.status})`))
     }
     xhr.onerror = () =>
-      reject(new Error('Không kết nối được tới storage. Kiểm tra MinIO đang chạy và CORS.'))
+      reject(new Error('Không kết nối được tới hệ thống. Vui lòng kiểm tra mạng rồi thử lại.'))
     xhr.send(file)
   })
 }
