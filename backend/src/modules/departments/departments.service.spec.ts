@@ -5,11 +5,12 @@ import type { AuthUser } from '../../common/auth/auth-user'
 import type { Department } from './entities/department.entity'
 
 /**
- * Danh mục phòng ban quyết định phạm vi quyền của Cấp 3 (ADR-040/042), nên hai hành vi dưới
- * đây là hành vi BẢO MẬT, không chỉ là tiện dụng:
- *  - không cho tồn tại 2 phòng ban trùng tên (nhập nhằng khi gán quyền);
- *  - KHÔNG xoá âm thầm phòng ban đang được tham chiếu (sẽ làm phim mất snapshot phòng ban và
- *    Cấp 3 lặng lẽ mất quyền quản lý chúng).
+ * Ở bản RBAC 3 CẤP PHẲNG (ADR-045/046) phòng ban KHÔNG còn quyết định quyền của ai, nhưng nó
+ * vẫn là dữ liệu TRUY VẾT của toàn bộ phim/tài khoản/chuyên mục — nên hai hành vi dưới đây
+ * vẫn phải giữ nguyên:
+ *  - không cho tồn tại 2 phòng ban trùng tên (nhập nhằng khi đối soát);
+ *  - KHÔNG xoá âm thầm phòng ban đang được tham chiếu (sẽ xoá trắng dữ liệu truy vết của
+ *    hàng loạt bản ghi mà không ai biết).
  */
 
 const actor: AuthUser = { id: 1, email: 'sa@misa.com.vn', roleCode: 'super_admin' }

@@ -10,8 +10,8 @@ import type { RoleCode } from './role.entity'
 
 /**
  * Người dùng hệ thống. Mật khẩu LƯU DẠNG HASH (bcrypt) — không bao giờ trả password_hash ra API.
- * created_by = id người tạo (Cấp 4), null với tài khoản seed hệ thống.
- * department_id = phòng ban (nullable) — dùng scope quyền Cấp 3, xem role.entity.ts.
+ * created_by = id người tạo (Cấp 3), null với tài khoản seed hệ thống.
+ * department_id = phòng ban (nullable) — thuần truy vết, xem role.entity.ts.
  * must_change_password: buộc đổi mật khẩu ở lần đăng nhập đầu (tài khoản do admin tạo).
  */
 @Entity({ name: 'users' })
@@ -36,9 +36,10 @@ export class User {
   createdBy!: number | null
 
   /**
-   * Phòng ban của người dùng — NGUỒN SỰ THẬT để scope quyền Cấp 3 (ADR-040).
-   * Nullable có chủ đích: Cấp 1 (chỉ xem) và Cấp 4 (toàn quyền) không cần thuộc phòng ban
-   * cụ thể nào; chỉ Cấp 2/Cấp 3 mới có ý nghĩa thực tế khi được gán.
+   * Phòng ban của người dùng — dữ liệu TRUY VẾT (ADR-046), KHÔNG quyết định quyền ở bản
+   * RBAC 3 cấp phẳng. Cũng là nguồn để ghi snapshot `films.department_id` khi tạo phim.
+   * Nullable có chủ đích: tài khoản seed hệ thống và Cấp 1 (chỉ xem) không bắt buộc thuộc
+   * phòng ban nào.
    */
   @Column({ name: 'department_id', type: 'int', nullable: true })
   departmentId!: number | null

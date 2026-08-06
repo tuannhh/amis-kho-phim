@@ -2,6 +2,85 @@
 
 > Ghi lại quyết định kiến trúc quan trọng + lý do. Thêm mục mới ở trên cùng.
 
+> ⚠️ **ĐỌC TRƯỚC — trong repo này có HAI phương án RBAC nằm trên HAI NHÁNH SONG SONG.** Các
+> ADR đánh dấu `[RBAC4]` (ADR-040 → 044) chỉ đúng trên nhánh `phan-quyen-4-cap`; các ADR đánh
+> dấu `[RBAC3]` (ADR-045 → 047) chỉ đúng trên nhánh `phan-quyen-3-cap` (nhánh hiện tại của file
+> này). Người dùng đang so sánh hai bản để chọn một; chưa nhánh nào merge vào `main`.
+
+## ADR-047 — Mapping dữ liệu vai trò CŨ → MỚI ở bản 3 cấp: `admin` → `super_admin` (không còn chỗ mơ hồ) [RBAC3]
+- **Quyết định:**
+  - `employee` cũ → **Cấp 2 `employee`** (hành vi giống hệt).
+  - `super_admin` cũ → **Cấp 3 `super_admin`** (hành vi giống hệt).
+  - `admin` cũ → **Cấp 3 `super_admin`**; dòng `admin` bị xoá khỏi danh mục `roles`.
+  - `dept_manager` (chỉ tồn tại trên DB đã từng chạy nhánh 4 cấp) → **hạ về Cấp 2 `employee`**.
+  - **KHÔNG tài khoản nào tự động lên Cấp 1** — `viewer` là cấp mới, Cấp 3 phải gán lại tường
+    minh qua `PATCH /users/:id`.
+- **Vì sao mapping này GỌN HƠN bản 4 cấp:** ở ADR-041 phải viết cả một đoạn biện luận để chứng
+  minh `admin` → Cấp 4 chứ không phải Cấp 3, vì tồn tại HAI cấp đều "quản được phim người khác"
+  và chọn sai là **thu hồi quyền âm thầm**. Bản 3 cấp phẳng chỉ có **ĐÚNG MỘT** cấp mang hành vi
+  "sửa được mọi phim toàn công ty" (`super_admin`), nên không có lựa chọn thứ hai để cân nhắc —
+  mapping là suy ra trực tiếp từ hành vi cũ, không cần phán đoán. Đây là một lợi thế thật của
+  phương án 3 cấp khi so sánh hai bản.
+- **Chiều hạ `dept_manager` → `employee` (không phải `super_admin`):** theo nguyên tắc 1 (bảo mật
+  trước). Nếu chọn nâng, một tài khoản từng là Trưởng phòng ở bản thử nghiệm sẽ lặng lẽ có quyền
+  sửa TOÀN BỘ kho phim. Thu hẹp rồi để quản trị gán lại tường minh là chiều an toàn.
+- **Đã kiểm chứng bằng SQL THẬT:** e2e chèn tài khoản `admin` cũ và tài khoản `dept_manager` vào
+  MySQL rồi chạy lại đúng hàm `migrateLegacyRoles`, kiểm kết quả + chạy 2 lần (idempotent).
+- **`down()` không đối xứng (nêu rõ, không giả vờ):** không phục hồi được tài khoản nào TỪNG là
+  `admin`, vì thông tin đó đã bị ghi đè ở `up()`.
+
+## ADR-046 — GIỮ bảng `departments` + các cột `department_id`/`created_by`, nhưng CHỈ để TRUY VẾT [RBAC3]
+- **Quyết định:** giữ nguyên 100% lược đồ của nhánh 4 cấp — bảng `departments` + module CRUD
+  (chỉ `super_admin`), `users.department_id`, `films.department_id` (snapshot lúc tạo),
+  `categories.created_by` + `categories.department_id`, index `IDX_films_department`. **KHÔNG**
+  cột nào trong số đó tham gia quyết định quyền.
+- **Lý do:** yêu cầu tường minh của người dùng là "mỗi bản ghi dữ liệu chính phải biết thuộc
+  phòng ban nào và ai tạo" — đó là yêu cầu TRUY VẾT, độc lập với việc phân quyền có scope hay
+  không. Bỏ các cột này đi sẽ là xoá một yêu cầu thật chỉ vì đơn giản hoá một yêu cầu khác.
+- **Hệ quả tích cực:** hai nhánh dùng CHUNG một lược đồ DB → người dùng so sánh hai phương án mà
+  không phải đổi cấu trúc dữ liệu, và nếu sau này đổi ý từ 3 cấp sang 4 cấp thì chỉ phải thêm
+  logic, không phải migrate lại dữ liệu.
+- **Rủi ro đã lường và cách bịt:** cột phòng ban còn nguyên là mảnh đất dễ để ai đó "tiện tay"
+  thêm lại điều kiện `department_id` vào `assertCanManage`. Đã đặt **chốt chặn hồi quy**: một ca
+  unit test khẳng định đường kiểm quyền KHÔNG gọi `UsersService.getDepartmentId` lần nào —
+  thêm scope trở lại sẽ làm đỏ test ngay, không lọt im lặng.
+- **Đã gỡ:** `UsersService.getRoleAndDepartment` (thêm ở ADR-043 riêng cho scope Cấp 3) không
+  còn caller nào nên đã xoá, tránh để lại mã chết. `getDepartmentId` giữ lại vì vẫn dùng để ghi
+  snapshot lúc tạo phim.
+- **Không áp dụng ADR-043 ở bản này:** vấn đề "token cũ mang phòng ban cũ" chỉ tồn tại khi phòng
+  ban quyết định quyền. Ở đây nó không quyết định gì, nên không có lỗ hổng tương ứng.
+
+## ADR-045 — RBAC 3 CẤP PHẲNG: bản song song để so sánh với RBAC 4 cấp [RBAC3]
+- **Bối cảnh:** yêu cầu GỐC ban đầu của người dùng là 3 cấp. Nhánh `phan-quyen-4-cap` đã cài đặt
+  một phương án mở rộng (thêm Trưởng phòng có scope phòng ban). Người dùng yêu cầu làm thêm bản
+  đúng yêu cầu gốc để **so sánh trực tiếp trên GitHub** rồi mới chọn.
+- **Quyết định — tên `RoleCode` cuối cùng:**
+  | Cấp | RoleCode | Nhãn | Quyền |
+  |---|---|---|---|
+  | 1 | `viewer` | Người xem | CHỈ xem. Không tạo/sửa/xoá phim |
+  | 2 | `employee` | Nhân viên văn phòng | Cấp 1 + tạo phim + sửa/xoá phim **của chính mình** |
+  | 3 | `super_admin` | Quản trị cao nhất | Cấp 2 + sửa/xoá **MỌI** phim (KHÔNG giới hạn phòng ban) + toàn bộ quyền quản trị |
+- **Lý do tái dùng đúng tên `viewer`/`employee`/`super_admin`:** Cấp 3 ở bản này có ngữ nghĩa
+  TRÙNG KHÍT `super_admin` trước khi có RBAC 4 cấp ("sửa được mọi phim + toàn quyền quản trị").
+  Đặt tên mới cho một hành vi không đổi chỉ làm người đọc code sau này tưởng có thay đổi. Vai trò
+  `admin` cũ vẫn bị **loại bỏ hoàn toàn** (ADR-047).
+- **Khác biệt so với nhánh 4 cấp — đúng 3 điểm:**
+  1. Không còn `dept_manager`; `RoleCode` từ 4 xuống 3 giá trị.
+  2. `assertCanManage` bỏ hẳn nhánh so sánh `department_id` (và bỏ điều kiện "người tạo phải là
+     Cấp 2") — Cấp 3 sửa được tất cả, không ngoại lệ.
+  3. Mapping migration gọn hơn, không phải biện luận (ADR-047).
+  Mọi thứ còn lại — lược đồ DB, module phòng ban, các chốt `@Roles`, lỗ hổng đã bịt ở
+  `/films` — **giữ nguyên**.
+- **Nguồn sự thật DUY NHẤT:** `backend/src/modules/users/entities/role.entity.ts`. Phía FE có bản
+  sao gọn ở `frontend/src/features/auth/permissions.ts` (chỉ để ẩn/hiện nút).
+- **LỖ HỔNG THẬT VẪN BỊT NGUYÊN:** 7 route GHI của `/films` giữ `@Roles(...FILM_WRITE_ROLES)` —
+  Cấp 1 bị chặn NGAY Ở GUARD. Đơn giản hoá lần này **không nới bất kỳ chốt chặn nào**; đã kiểm
+  lại từng route và có e2e riêng cho Cấp 1/Cấp 2.
+- **Đánh đổi cần người dùng cân nhắc khi chọn:** bản 3 cấp đơn giản hơn hẳn (ít mã, ít trạng
+  thái, ít chỗ sai) nhưng **không có mức trung gian** — muốn cho ai đó sửa phim của người khác
+  thì buộc phải trao luôn toàn quyền quản trị hệ thống (quản lý tài khoản, chuyên mục, báo cáo
+  có PII). Bản 4 cấp tách được hai thứ đó, đổi lại phức tạp hơn.
+
 ## ADR-044 — Chuyên mục & báo cáo & quản trị người dùng thu về CHỈ Cấp 4 (hệ quả của việc bỏ `admin`) [RBAC4]
 - **Quyết định:** `@Roles('super_admin')` cho `/users`, `/reports`, `/departments` và các route GHI của
   `/categories` (trước đây là `@Roles('super_admin','admin')`). Cấp 3 (`dept_manager`) **KHÔNG** có

@@ -33,7 +33,8 @@ export type AuditAction =
   | 'user.status_change'
   | 'user.delete'
   | 'film.delete'
-  // Danh mục phòng ban quyết định phạm vi quyền của Cấp 3 → mọi thay đổi đều là sự kiện nhạy cảm.
+  // Phòng ban là danh mục dùng chung toàn hệ thống và là dữ liệu truy vết của mọi phim →
+  // mọi thay đổi vẫn được ghi nhận, dù ở bản 3 cấp phẳng nó không còn quyết định quyền.
   | 'department.create'
   | 'department.update'
   | 'department.delete'

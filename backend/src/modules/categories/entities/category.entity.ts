@@ -36,9 +36,9 @@ export class Category {
   children?: Category[]
 
   /**
-   * TRUY VẾT — ai tạo chuyên mục này, và phòng ban của người đó lúc tạo (ADR-042).
+   * TRUY VẾT — ai tạo chuyên mục này, và phòng ban của người đó lúc tạo (ADR-046).
    * CỐ Ý KHÔNG dùng để scope quyền: chuyên mục là danh mục DÙNG CHUNG toàn công ty, quyền
-   * ghi giữ nguyên ở cấp cao nhất (Cấp 4) đúng `02-security-baseline.md` §2. Hai cột này
+   * ghi giữ nguyên ở cấp cao nhất (Cấp 3) đúng `02-security-baseline.md` §2. Hai cột này
    * chỉ phục vụ truy vết/kiểm toán theo yêu cầu tường minh của người dùng.
    */
   @Column({ name: 'created_by', type: 'int', nullable: true })

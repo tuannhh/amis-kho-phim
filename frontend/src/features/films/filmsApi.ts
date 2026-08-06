@@ -13,8 +13,9 @@ export interface ApiFilm {
   uploaderId: number
   uploaderName: string
   /**
-   * Snapshot phòng ban lúc tạo phim + vai trò hiện tại của người tạo (ADR-042). FE dùng để ẩn
-   * /hiện nút Sửa/Xoá cho Cấp 3; chốt chặn thật vẫn ở backend `assertCanManage`.
+   * Snapshot phòng ban lúc tạo phim + vai trò hiện tại của người tạo (ADR-046) — thuần TRUY
+   * VẾT/hiển thị. Ở bản 3 cấp phẳng chúng KHÔNG tham gia quyết định ẩn/hiện nút Sửa/Xoá
+   * (`canManageFilm` chỉ cần `uploaderId`); chốt chặn thật vẫn ở backend `assertCanManage`.
    */
   departmentId: number | null
   uploaderRoleCode: UserRole | null

@@ -6,12 +6,12 @@ import type { RoleCode } from './entities/role.entity'
 import type { User } from './entities/user.entity'
 
 /**
- * Ma trận quản trị người dùng — RBAC 4 CẤP (ADR-040). Sai ở đây nghĩa là một cấp thấp tự nâng
- * quyền, hoặc gán được phòng ban không tồn tại (làm lệch scope quyền của Cấp 3).
+ * Ma trận quản trị người dùng — RBAC 3 CẤP PHẲNG (ADR-045). Sai ở đây nghĩa là một cấp thấp
+ * tự nâng quyền, hoặc gán được phòng ban không tồn tại (làm bẩn dữ liệu truy vết).
  *
- * Cập nhật từ bộ test GĐ7: vai trò `admin` cũ KHÔNG CÒN TỒN TẠI (đã migrate sang Cấp 4), nên
- * các ca "admin quản lý được employee" được thay bằng "chỉ Cấp 4 quản lý được người dùng" —
- * đây là hành vi MỚI đã xác nhận theo đặc tả, không phải nới assertion cho test chạy qua.
+ * Vai trò `admin` cũ KHÔNG CÒN TỒN TẠI (đã migrate sang Cấp 3 `super_admin`), nên các ca
+ * "admin quản lý được employee" được thay bằng "chỉ Cấp 3 quản lý được người dùng" — đây là
+ * hành vi MỚI đã xác nhận theo đặc tả, không phải nới assertion cho test chạy qua.
  */
 
 const actor = (id: number, roleCode: RoleCode): AuthUser => ({ id, email: `u${id}@misa.com.vn`, roleCode })
@@ -32,12 +32,9 @@ function setup(found: User | null, departmentExists = true) {
   return { service: new UsersService(repo as never, departments as never), repo, departments }
 }
 
-describe('creatableRoles — ai gán được vai trò nào (RBAC 4 cấp)', () => {
-  it('Cấp 4 gán được Cấp 1/2/3, KHÔNG gán được Cấp 4 khác', () => {
-    expect(creatableRoles('super_admin')).toEqual(['viewer', 'employee', 'dept_manager'])
-  })
-  it('Cấp 3 (Trưởng phòng) KHÔNG quản lý người dùng', () => {
-    expect(creatableRoles('dept_manager')).toEqual([])
+describe('creatableRoles — ai gán được vai trò nào (RBAC 3 cấp phẳng)', () => {
+  it('Cấp 3 gán được Cấp 1/Cấp 2, KHÔNG gán được Cấp 3 khác', () => {
+    expect(creatableRoles('super_admin')).toEqual(['viewer', 'employee'])
   })
   it('Cấp 2 (Nhân viên) không tạo được ai', () => {
     expect(creatableRoles('employee')).toEqual([])
@@ -48,18 +45,7 @@ describe('creatableRoles — ai gán được vai trò nào (RBAC 4 cấp)', () 
 })
 
 describe('UsersService.create', () => {
-  it('Cấp 3 cố tạo tài khoản → 403 (dù FE gửi payload gì)', async () => {
-    const { service } = setup(null)
-    await expect(
-      service.create(actor(2, 'dept_manager'), {
-        email: 'x@misa.com.vn',
-        fullName: 'X',
-        roleCode: 'employee',
-      } as never),
-    ).rejects.toThrow(ForbiddenException)
-  })
-
-  it('Cấp 2 cố tạo tài khoản → 403', async () => {
+  it('Cấp 2 cố tạo tài khoản → 403 (dù FE gửi payload gì)', async () => {
     const { service } = setup(null)
     await expect(
       service.create(actor(3, 'employee'), { email: 'x@misa.com.vn', fullName: 'X', roleCode: 'employee' } as never),
@@ -73,7 +59,7 @@ describe('UsersService.create', () => {
     ).rejects.toThrow(ForbiddenException)
   })
 
-  it('KHÔNG ai gán được vai trò Cấp 4 (kể cả chính Cấp 4)', async () => {
+  it('KHÔNG ai gán được vai trò Cấp 3 (kể cả chính Cấp 3)', async () => {
     const { service } = setup(null)
     await expect(
       service.create(actor(1, 'super_admin'), {
@@ -108,7 +94,7 @@ describe('UsersService.create', () => {
     await service.create(actor(1, 'super_admin'), {
       email: 'x@misa.com.vn',
       fullName: 'X',
-      roleCode: 'dept_manager',
+      roleCode: 'employee',
       departmentId: 7,
     } as never)
     expect(departments.exists).toHaveBeenCalledWith(7)
@@ -167,48 +153,48 @@ describe('UsersService.create', () => {
   })
 })
 
-describe('UsersService.update — gán lại vai trò / phòng ban (chỉ Cấp 4)', () => {
-  it('Cấp 3 cố đổi vai trò người khác → 403', async () => {
+describe('UsersService.update — gán lại vai trò / phòng ban (chỉ Cấp 3)', () => {
+  it('Cấp 2 cố đổi vai trò người khác → 403', async () => {
     const { service } = setup(target(5, 'employee'))
     await expect(
-      service.update(actor(2, 'dept_manager'), 5, { roleCode: 'dept_manager' }),
+      service.update(actor(2, 'employee'), 5, { roleCode: 'employee' }),
     ).rejects.toThrow(ForbiddenException)
   })
 
-  it('Cấp 4 nâng Cấp 2 lên Cấp 3 và gán phòng ban', async () => {
-    const { service, repo } = setup(target(5, 'employee'))
-    const result = await service.update(actor(1, 'super_admin'), 5, { roleCode: 'dept_manager', departmentId: 3 })
-    expect(result.roleCode).toBe('dept_manager')
+  it('Cấp 3 nâng Cấp 1 lên Cấp 2 và gán phòng ban (truy vết)', async () => {
+    const { service, repo } = setup(target(5, 'viewer'))
+    const result = await service.update(actor(1, 'super_admin'), 5, { roleCode: 'employee', departmentId: 3 })
+    expect(result.roleCode).toBe('employee')
     expect(result.departmentId).toBe(3)
     expect(repo.save).toHaveBeenCalled()
   })
 
-  it('Cấp 4 hạ tài khoản xuống Cấp 1', async () => {
+  it('Cấp 3 hạ tài khoản xuống Cấp 1', async () => {
     const { service } = setup(target(5, 'employee', 3))
     const result = await service.update(actor(1, 'super_admin'), 5, { roleCode: 'viewer' })
     expect(result.roleCode).toBe('viewer')
   })
 
   it('departmentId = null → BỎ gán phòng ban', async () => {
-    const { service } = setup(target(5, 'dept_manager', 3))
+    const { service } = setup(target(5, 'employee', 3))
     const result = await service.update(actor(1, 'super_admin'), 5, { departmentId: null })
     expect(result.departmentId).toBeNull()
   })
 
   it('thiếu trường departmentId → KHÔNG đổi phòng ban đang có', async () => {
-    const { service } = setup(target(5, 'employee', 9))
-    const result = await service.update(actor(1, 'super_admin'), 5, { roleCode: 'dept_manager' })
+    const { service } = setup(target(5, 'viewer', 9))
+    const result = await service.update(actor(1, 'super_admin'), 5, { roleCode: 'employee' })
     expect(result.departmentId).toBe(9)
   })
 
-  it('KHÔNG nâng được ai lên Cấp 4 qua API', async () => {
+  it('KHÔNG nâng được ai lên Cấp 3 qua API', async () => {
     const { service } = setup(target(5, 'employee'))
     await expect(
       service.update(actor(1, 'super_admin'), 5, { roleCode: 'super_admin' as never }),
     ).rejects.toThrow(ForbiddenException)
   })
 
-  it('Cấp 4 KHÔNG sửa được Cấp 4 khác', async () => {
+  it('Cấp 3 KHÔNG sửa được Cấp 3 khác', async () => {
     const { service } = setup(target(2, 'super_admin'))
     await expect(service.update(actor(1, 'super_admin'), 2, { roleCode: 'viewer' })).rejects.toThrow(
       ForbiddenException,
@@ -230,41 +216,31 @@ describe('UsersService.update — gán lại vai trò / phòng ban (chỉ Cấp 
   })
 })
 
-describe('UsersService.setActive / remove — ai quản lý được ai (RBAC 4 cấp)', () => {
+describe('UsersService.setActive / remove — ai quản lý được ai (RBAC 3 cấp phẳng)', () => {
   it('không ai được tự khoá chính mình', async () => {
     const { service } = setup(target(1, 'super_admin'))
     await expect(service.setActive(actor(1, 'super_admin'), 1, false)).rejects.toThrow(/chính mình/)
   })
 
-  it('Cấp 4 KHÔNG tác động được Cấp 4 khác', async () => {
+  it('Cấp 3 KHÔNG tác động được Cấp 3 khác', async () => {
     const { service } = setup(target(2, 'super_admin'))
     await expect(service.setActive(actor(1, 'super_admin'), 2, false)).rejects.toThrow(ForbiddenException)
   })
 
-  it('Cấp 4 khoá được Cấp 3', async () => {
-    const { service, repo } = setup(target(2, 'dept_manager'))
-    const result = await service.setActive(actor(1, 'super_admin'), 2, false)
-    expect(result.isActive).toBe(false)
-    expect(repo.save).toHaveBeenCalled()
-  })
-
-  it('Cấp 4 khoá được Cấp 2 và Cấp 1', async () => {
+  it('Cấp 3 khoá được Cấp 2 và Cấp 1', async () => {
     const { service: s2 } = setup(target(5, 'employee'))
     await expect(s2.setActive(actor(1, 'super_admin'), 5, false)).resolves.toBeDefined()
     const { service: s1 } = setup(target(6, 'viewer'))
     await expect(s1.setActive(actor(1, 'super_admin'), 6, false)).resolves.toBeDefined()
   })
 
-  it('Cấp 3 KHÔNG khoá được ai (kể cả Cấp 2 cùng phòng ban)', async () => {
+  it('Cấp 2 không quản lý được ai (kể cả người cùng phòng ban)', async () => {
     const { service } = setup(target(5, 'employee', 3))
-    await expect(service.setActive(actor(2, 'dept_manager'), 5, false)).rejects.toThrow(
+    await expect(service.setActive(actor(2, 'employee'), 5, false)).rejects.toThrow(
       /không có quyền quản lý người dùng/,
     )
-  })
-
-  it('Cấp 2 không quản lý được ai', async () => {
-    const { service } = setup(target(6, 'employee'))
-    await expect(service.remove(actor(5, 'employee'), 6)).rejects.toThrow(ForbiddenException)
+    const { service: s2 } = setup(target(6, 'employee'))
+    await expect(s2.remove(actor(5, 'employee'), 6)).rejects.toThrow(ForbiddenException)
   })
 
   it('Cấp 1 không quản lý được ai', async () => {
@@ -284,22 +260,16 @@ describe('UsersService.setActive / remove — ai quản lý được ai (RBAC 4 
   })
 })
 
-describe('UsersService.getDepartmentId / getRoleAndDepartment — nguồn scope quyền', () => {
+describe('UsersService.getDepartmentId — nguồn snapshot phòng ban khi tạo phim (truy vết)', () => {
   it('đọc phòng ban từ DB, không từ token', async () => {
-    const { service, repo } = setup(target(5, 'dept_manager', 4))
+    const { service, repo } = setup(target(5, 'employee', 4))
     await expect(service.getDepartmentId(5)).resolves.toBe(4)
     expect(repo.findOne).toHaveBeenCalled()
   })
 
-  it('người dùng không tồn tại → null (mặc định từ chối, không mặc định cho phép)', async () => {
+  it('người dùng không tồn tại → null (không bịa giá trị)', async () => {
     const { service } = setup(null)
     await expect(service.getDepartmentId(404)).resolves.toBeNull()
-    await expect(service.getRoleAndDepartment(404)).resolves.toBeNull()
-  })
-
-  it('trả về đúng cặp vai trò + phòng ban của người tạo phim', async () => {
-    const { service } = setup(target(8, 'employee', 2))
-    await expect(service.getRoleAndDepartment(8)).resolves.toEqual({ roleCode: 'employee', departmentId: 2 })
   })
 })
 

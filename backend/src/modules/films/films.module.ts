@@ -12,8 +12,8 @@ import { NotificationsModule } from '../notifications/notifications.module'
 import { UsersModule } from '../users/users.module'
 
 /**
- * UsersModule được import để `FilmsService.assertCanManage` đọc được vai trò/phòng ban THẬT
- * từ DB (scope quyền Cấp 3) thay vì tin JWT — xem ADR-043.
+ * UsersModule được import để `FilmsService.create` đọc phòng ban THẬT của người tạo từ DB
+ * (snapshot truy vết `films.department_id`) thay vì tin JWT.
  */
 @Module({
   imports: [

@@ -66,7 +66,7 @@ onMounted(() => {
 /**
  * Điều hướng sidebar ↔ route (key = tên route gốc) — lọc theo RBAC 4 cấp (ADR-040):
  *  - "Thêm phim" chỉ từ Cấp 2 trở lên (Cấp 1 chỉ xem).
- *  - "Quản trị người dùng" / "Quản lý phòng ban" / "Báo cáo" chỉ Cấp 4.
+ *  - "Quản trị người dùng" / "Quản lý phòng ban" / "Báo cáo" chỉ Cấp 3.
  * Quyền thực vẫn do backend kiểm — đây chỉ là ẩn/hiện cho UX.
  * Icon lấy từ bộ Tabler đã đăng ký (`iconRegistry.generated.js`), không tự vẽ SVG.
  */

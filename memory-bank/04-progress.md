@@ -4,6 +4,9 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
+- ⚠️ **ĐANG CÓ HAI NHÁNH RBAC SONG SONG CHỜ NGƯỜI DÙNG CHỌN** (chưa nhánh nào merge vào `main`):
+  `phan-quyen-4-cap` (4 cấp có scope phòng ban) và `phan-quyen-3-cap` (3 cấp phẳng — nhánh của
+  file này). Xem nhật ký ngay dưới + ADR-045→047.
 - **Việc PHÁT SINH mới nhất (ngoài roadmap): RBAC 4 CẤP CÓ SCOPE PHÒNG BAN — ✅ XONG
   (2026-08-05, Opus 5).** Thay thế HOÀN TOÀN 3 vai trò cũ `super_admin`/`admin`/`employee`.
   Xem "Nhật ký RBAC 4 cấp" ngay dưới + ADR-040→044. **Tổng test: 174 unit BE + 82 tích hợp
@@ -22,6 +25,71 @@
   đắn dữ liệu thật** mà unit test không thể thấy: race condition ở `recordView` (ADR-036) và
   phụ thuộc ngầm vào múi giờ Node↔MySQL (ADR-037). **Tổng 201 test tự động.**
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
+
+## Nhật ký RBAC 3 CẤP PHẲNG (nhánh song song `phan-quyen-3-cap`) — 2026-08-06 — ✅ XONG
+
+> Yêu cầu: dựng **bản thứ hai** đúng yêu cầu GỐC (3 cấp, KHÔNG giới hạn phòng ban ở cấp cao
+> nhất) để so sánh trực tiếp với `phan-quyen-4-cap` trên GitHub rồi chọn một.
+> Nhánh tạo **từ `origin/phan-quyen-4-cap`** (không phải `main`) để tái dùng toàn bộ hạ tầng
+> migration/departments/test. Quyết định + lý do ở **ADR-045 → ADR-047**.
+
+### Khác biệt so với nhánh 4 cấp — đúng 3 điểm
+| | `phan-quyen-4-cap` | `phan-quyen-3-cap` (nhánh này) |
+|---|---|---|
+| `RoleCode` | 4: viewer/employee/**dept_manager**/super_admin | 3: viewer/employee/super_admin |
+| Cấp cao nhất sửa phim | Cấp 3 chỉ phim của Cấp 2 **cùng phòng ban**; Cấp 4 mọi phim | Cấp 3 sửa **MỌI** phim, KHÔNG xét phòng ban |
+| `assertCanManage` | 4 nhánh, async, đọc phòng ban + vai trò uploader từ DB | 3 nhánh, **không đọc phòng ban của ai** |
+| Mapping `admin` cũ | → Cấp 4, phải biện luận vì có 2 ứng viên (ADR-041) | → `super_admin`, **không có chỗ mơ hồ** (ADR-047) |
+| Vai trò gán được qua API | viewer/employee/dept_manager (3) | viewer/employee (**2**) |
+| Lược đồ DB | departments + 4 cột phòng ban | **GIỮ NGUYÊN 100%**, chỉ đổi ý nghĩa sang truy vết |
+
+### Đã làm
+- **Backend:** `role.entity.ts` còn 3 `RoleCode` (`ROLE_LEVEL` 1–3, `FILM_WRITE_ROLES` =
+  employee+super_admin); `assertCanManage` bỏ hẳn nhánh `department_id`; `creatableRoles` và
+  `ASSIGNABLE_ROLE_CODES` còn `viewer`/`employee`; migration đổi tên
+  `1722000000000-AddDepartmentsAndRbac3Levels.ts` (`RBAC3_ROLES` 3 dòng, `LEGACY_ROLE_MAP` thêm
+  `dept_manager → employee`); gỡ `UsersService.getRoleAndDepartment` (hết caller, tránh mã chết).
+- **GIỮ NGUYÊN có chủ đích:** bảng `departments` + module CRUD, mọi cột `department_id`/
+  `created_by`, snapshot `films.department_id` lúc tạo, index `IDX_films_department` — thuần
+  truy vết (ADR-046). Mọi `@Roles` giữ nguyên; **không nới bất kỳ chốt chặn nào**.
+- **Frontend:** `authStore.UserRole` 3 giá trị; `permissions.ts` bỏ `dept_manager`,
+  `canManageFilm` rút về đúng 2 điều kiện (chính chủ HOẶC `super_admin`), `FilmOwnership` chỉ
+  còn `uploaderId`; `UserAdminView` dropdown vai trò 2 lựa chọn, **giữ dropdown phòng ban**;
+  `DepartmentAdminView`/`CategoryView`/`App.vue` cập nhật nhãn + chú thích.
+- **Chốt chặn hồi quy:** có ca unit test khẳng định đường kiểm quyền KHÔNG gọi
+  `getDepartmentId` lần nào → ai thêm lại scope phòng ban sẽ làm đỏ test ngay.
+
+### Kiểm thử & verify (tất cả đã chạy thật, không phải suy luận trên giấy)
+- **BE unit 163/163 pass** · **BE tích hợp 80/80 pass trên MySQL thật** (gồm nhóm "Migration
+  RBAC 3 cấp": `roles` đúng 3 dòng, chèn tài khoản `admin` cũ VÀ `dept_manager` rồi chạy
+  `migrateLegacyRoles()` thật → `super_admin`/`employee`, idempotent 2 lần).
+- **FE 38/38 pass**; `backend npm run build` + `frontend npm run build` (`vue-tsc`) sạch.
+- **Migration chạy thật trên DB dev đang có** (`docker compose up -d --build`): `roles` từ 4 →
+  đúng 3 dòng (`dept_manager` biến mất), 2 tài khoản `tp1@`/`tp2@` **tự động hạ về `employee`**
+  đúng ADR-047, phòng ban + phim giữ nguyên.
+- **Probe API thật bằng curl** trên phim của Cấp 2 phòng Truyền thông: Cấp 1 → 403 · Cấp 2 khác
+  **cùng phòng** → 403 · Cấp 2 **khác phòng** → 403 · chính chủ → 200 · Cấp 3 → 200. Phim của
+  Cấp 3 (phòng NULL): Cấp 2 → 403, Cấp 3 → 200. Cấp 1 gọi POST/DELETE/upload-url → 403 cả 3.
+  `/users`, `/departments`, `/reports` với Cấp 2 → 403; với Cấp 3 → 200.
+  **Ca cốt lõi của bản phẳng:** gán `department_id = 2` cho `super_admin` rồi sửa phim phòng 1
+  → **200** (không bị chặn theo phòng ban). Ca khác biệt rõ nhất giữa 2 nhánh: `tp1@` (Trưởng
+  phòng ở bản 4 cấp → 200) nay là Cấp 2 nên sửa phim đồng nghiệp cùng phòng → **403**.
+- **Browser test thật (Docker, localhost:8180)** đủ 3 cấp: Cấp 1 → sidebar chỉ Kho phim +
+  Chuyên mục, không có "Thêm phim", màn chi tiết không có Sửa/Xoá · Cấp 2 → có "Thêm phim",
+  **KHÔNG** có Sửa/Xoá trên phim đồng nghiệp cùng phòng, **CÓ** trên phim của mình · Cấp 3 →
+  đủ 3 mục quản trị, **CÓ Sửa/Xoá trên phim của người khác khác phòng ban**; màn Quản trị người
+  dùng hiện `tp1@`/`tp2@` với nhãn "Nhân viên văn phòng" + cột Phòng ban còn nguyên; dropdown
+  vai trò **chỉ 2 lựa chọn** (Người xem, Nhân viên văn phòng).
+
+### ⚠️ Một điểm CỐ Ý làm khác yêu cầu chữ nghĩa — cần người dùng biết
+Yêu cầu ghi "dropdown chọn vai trò chỉ còn **3** lựa chọn". Thực tế còn **2**
+(`viewer`/`employee`). Lý do: chốt chặn có từ GĐ1 — **không ai gán được `super_admin` qua API**
+(DTO trả 400) — vẫn giữ nguyên ở cả hai nhánh; nhánh 4 cấp cũng chỉ có 3/4 vai trò trong
+dropdown vì đúng lý do này. Thêm `super_admin` vào dropdown để cho đủ "3 lựa chọn" sẽ **mở một
+khoảng trống bảo mật thật** (một tài khoản quản trị bị chiếm có thể tự nhân bản thêm quản trị),
+trái ràng buộc "không để lộ khoảng trống bảo mật nào". Nâng lên cấp cao nhất vẫn phải làm trực
+tiếp trên DB. Nếu người dùng thực sự muốn gán `super_admin` qua giao diện → đó là yêu cầu MỚI,
+cần xác nhận rõ.
 
 ## Nhật ký RBAC 4 CẤP CÓ SCOPE PHÒNG BAN (việc phát sinh, ngoài roadmap) — 2026-08-05 — ✅ XONG
 

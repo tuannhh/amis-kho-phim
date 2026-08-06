@@ -32,16 +32,16 @@ export interface PublicUser {
 const BCRYPT_ROUNDS = 10
 
 /**
- * Vai trò mà `byRole` được phép GÁN (tạo mới hoặc đổi vai trò) — ma trận RBAC 4 cấp (ADR-040).
- * Nguồn sự thật ở BE.
+ * Vai trò mà `byRole` được phép GÁN (tạo mới hoặc đổi vai trò) — ma trận RBAC 3 cấp phẳng
+ * (ADR-045). Nguồn sự thật ở BE.
  *
- * CHỈ Cấp 4 (`super_admin`) quản lý người dùng. Cấp 3 (`dept_manager`) KHÔNG có quyền này:
- * đặc tả Cấp 3 chỉ mở rộng phạm vi sửa/xoá PHIM cùng phòng ban, không nhắc quyền quản trị
- * tài khoản — và quyền tạo tài khoản của `admin` cũ đã theo mapping sang Cấp 4 (ADR-041).
- * Không ai gán được `super_admin` qua API (giữ nguyên chốt chặn từ GĐ1).
+ * CHỈ Cấp 3 (`super_admin`) quản lý người dùng; Cấp 1/Cấp 2 không gán được vai trò nào.
+ * Không ai gán được `super_admin` qua API (giữ nguyên chốt chặn từ GĐ1) — nâng lên cấp cao
+ * nhất phải làm trực tiếp trên DB, để một tài khoản quản trị bị chiếm không thể tự nhân bản
+ * thêm quản trị khác.
  */
 export function creatableRoles(byRole: RoleCode): RoleCode[] {
-  if (byRole === 'super_admin') return ['viewer', 'employee', 'dept_manager']
+  if (byRole === 'super_admin') return ['viewer', 'employee']
   return []
 }
 
@@ -69,25 +69,14 @@ export class UsersService {
   /**
    * Phòng ban HIỆN TẠI của một tài khoản, đọc từ DB.
    *
-   * CỐ Ý không nhét `departmentId` vào JWT payload (ADR-043): access token sống 15 phút, nếu
-   * mang theo phòng ban thì sau khi Cấp 4 chuyển một Trưởng phòng sang phòng khác, token cũ
-   * vẫn cho họ quản lý phim của phòng cũ tới khi token hết hạn. Với dữ liệu quyết định phạm
-   * vi phân quyền, đọc lại DB mỗi lần là đánh đổi đúng (nguyên tắc 1: bảo mật > hiệu năng).
+   * Ở bản RBAC 3 CẤP PHẲNG, phòng ban KHÔNG quyết định quyền (ADR-046) — hàm này chỉ còn phục
+   * vụ ghi snapshot `films.department_id` lúc TẠO phim (truy vết). Vẫn đọc DB thay vì lấy từ
+   * JWT để snapshot phản ánh đúng phòng ban tại thời điểm tạo, không phải phòng ban lúc token
+   * được phát (access token sống 15 phút).
    */
   async getDepartmentId(userId: number): Promise<number | null> {
     const u = await this.repo.findOne({ where: { id: userId }, select: { id: true, departmentId: true } })
     return u?.departmentId ?? null
-  }
-
-  /** Vai trò + phòng ban hiện tại (đọc DB) — dùng cho scope quyền ở FilmsService. */
-  async getRoleAndDepartment(
-    userId: number,
-  ): Promise<{ roleCode: RoleCode; departmentId: number | null } | null> {
-    const u = await this.repo.findOne({
-      where: { id: userId },
-      select: { id: true, roleCode: true, departmentId: true },
-    })
-    return u ? { roleCode: u.roleCode, departmentId: u.departmentId } : null
   }
 
   /** Chuẩn hoá + kiểm tra phòng ban do client gửi lên có tồn tại thật. */
@@ -124,7 +113,7 @@ export class UsersService {
 
   /**
    * Ai được quản lý (sửa/khoá/xoá) target — kiểm ở BE, không tin FE.
-   * RBAC 4 cấp: CHỈ Cấp 4 quản lý người dùng, và không đụng được Cấp 4 khác.
+   * RBAC 3 cấp phẳng: CHỈ Cấp 3 quản lý người dùng, và không đụng được Cấp 3 khác.
    */
   private assertCanManage(actor: AuthUser, target: User) {
     if (actor.id === target.id) {
@@ -178,9 +167,9 @@ export class UsersService {
   }
 
   /**
-   * Sửa vai trò và/hoặc phòng ban của tài khoản (chỉ Cấp 4). Đổi vai trò và đổi phòng ban đều
-   * là thay đổi RANH GIỚI PHÂN QUYỀN → ghi nhật ký kiểm toán bắt buộc
-   * (`02-security-baseline.md` §7).
+   * Sửa vai trò và/hoặc phòng ban của tài khoản (chỉ Cấp 3). Đổi vai trò là thay đổi RANH
+   * GIỚI PHÂN QUYỀN, đổi phòng ban là thay đổi dữ liệu truy vết → cả hai đều ghi nhật ký
+   * kiểm toán bắt buộc (`02-security-baseline.md` §7).
    */
   async update(actor: AuthUser, targetId: number, dto: UpdateUserDto): Promise<PublicUser> {
     const target = await this.repo.findOne({ where: { id: targetId } })

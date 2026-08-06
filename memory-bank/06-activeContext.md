@@ -5,7 +5,33 @@
 
 ## Tóm tắt nhanh (đọc 30 giây là hiểu hết)
 
-### ⭐ VIỆC MỚI NHẤT: RBAC 4 CẤP CÓ SCOPE PHÒNG BAN — ✅ XONG (2026-08-05, Opus 5)
+### 🔀 ĐANG CÓ 2 NHÁNH RBAC SONG SONG — CHỜ NGƯỜI DÙNG CHỌN (2026-08-06)
+
+**Chưa nhánh nào merge vào `main`.** Người dùng yêu cầu làm 2 bản để so sánh trực tiếp trên
+GitHub rồi chốt một. `main` vẫn là bản trước RBAC.
+
+| | `phan-quyen-4-cap` | `phan-quyen-3-cap` |
+|---|---|---|
+| Vai trò | viewer / employee / **dept_manager** / super_admin | viewer / employee / super_admin |
+| Cấp cao nhất | Cấp 3 chỉ phim **cùng phòng ban**; Cấp 4 mọi phim | Cấp 3 sửa **MỌI** phim, không xét phòng ban |
+| ADR | ADR-040 → 044 `[RBAC4]` | ADR-045 → 047 `[RBAC3]` |
+| Test | 174 + 82 + 43 | 163 + 80 + 38 |
+
+- **Lược đồ DB HAI NHÁNH GIỐNG HỆT NHAU** — bảng `departments` + các cột `department_id`/
+  `created_by` có ở cả hai; khác nhau chỉ ở chỗ bản 3 cấp dùng chúng **thuần truy vết**, không
+  quyết định quyền (ADR-046). Đổi qua lại giữa 2 phương án không phải migrate lại dữ liệu.
+- **Điểm đánh đổi để người dùng cân nhắc:** bản 3 cấp đơn giản hơn hẳn nhưng **không có mức
+  trung gian** — muốn cho ai đó sửa phim người khác thì phải trao luôn toàn quyền quản trị (tài
+  khoản, chuyên mục, báo cáo có PII). Bản 4 cấp tách được hai thứ đó, đổi lại phức tạp hơn.
+- ⚠️ **DB dev hiện tại (`localhost:8180`) đang mang trạng thái của nhánh 3 CẤP**: migration đã
+  chạy, `roles` còn 3 dòng, 2 tài khoản `tp1@`/`tp2@` đã bị hạ từ `dept_manager` xuống
+  `employee`. Muốn quay lại demo bản 4 cấp thì checkout nhánh đó, `docker compose up -d --build`
+  và **gán lại vai trò Trưởng phòng cho `tp1@`/`tp2@`** (migration không tự khôi phục được).
+- Chi tiết đầy đủ + kết quả verify: `04-progress.md` mục "Nhật ký RBAC 3 CẤP PHẲNG".
+- ⚠️ Một điểm cố ý làm khác chữ nghĩa yêu cầu (dropdown vai trò còn **2** chứ không phải 3, vì
+  giữ chốt "không ai gán được `super_admin` qua API") — đã giải thích ở cuối mục nhật ký đó.
+
+### ⭐ VIỆC TRƯỚC ĐÓ: RBAC 4 CẤP CÓ SCOPE PHÒNG BAN — ✅ XONG (2026-08-05, Opus 5) — nhánh `phan-quyen-4-cap`
 Việc **phát sinh ngoài roadmap**, đã thay thế **HOÀN TOÀN** 3 vai trò cũ
 `super_admin`/`admin`/`employee`. **Đọc ADR-040 → ADR-044 trước khi sửa bất cứ thứ gì liên quan
 phân quyền.**

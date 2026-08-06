@@ -30,9 +30,10 @@ export interface PublicFilm {
   uploaderId: number
   uploaderName: string
   /**
-   * Hai trường dưới đây phục vụ FE ẩn/hiện nút Sửa/Xoá đúng theo RBAC 4 cấp (Cấp 3 cần biết
-   * phim thuộc phòng ban nào và người tạo có phải Cấp 2 hay không). CHỈ là gợi ý hiển thị —
-   * chốt chặn thật vẫn là `assertCanManage` ở BE.
+   * Hai trường TRUY VẾT (ADR-046): phim thuộc phòng ban nào lúc tạo, và vai trò hiện tại của
+   * người tạo. Ở bản RBAC 3 CẤP PHẲNG chúng KHÔNG tham gia quyết định quyền — FE chỉ cần
+   * `uploaderId` để ẩn/hiện nút. Giữ lại để hiển thị/đối soát; chốt chặn thật vẫn là
+   * `assertCanManage` ở BE.
    */
   departmentId: number | null
   uploaderRoleCode: RoleCode | null
@@ -158,9 +159,9 @@ export class FilmsService {
     const slug = await this.uniqueSlug(dto.title)
     const hashtags = await this.findOrCreateHashtags(dto.hashtags || [])
 
-    // SNAPSHOT phòng ban của người tạo, lấy từ DB — KHÔNG nhận từ DTO. Trường này quyết định
-    // phạm vi quyền của Cấp 3 nên tuyệt đối không để client tự khai (`02-security-baseline`
-    // §2: "không tin trường có ý nghĩa phân quyền do client gửi lên").
+    // SNAPSHOT phòng ban của người tạo, lấy từ DB — KHÔNG nhận từ DTO. Ở bản 3 cấp phẳng đây
+    // là dữ liệu TRUY VẾT (không quyết định quyền), nhưng vẫn không để client tự khai: một
+    // trường truy vết bị client bịa thì mọi báo cáo/đối soát dựa trên nó đều vô nghĩa.
     const departmentId = await this.users.getDepartmentId(actor.id)
 
     const film = await this.films.save(
@@ -193,23 +194,19 @@ export class FilmsService {
   }
 
   /**
-   * Quyền sửa/xoá phim theo RBAC 4 CẤP CÓ SCOPE PHÒNG BAN (ADR-040) — thay thế hoàn toàn
-   * quy tắc `super_admin`/`admin` sửa mọi phim của ADR-002/014.
+   * Quyền sửa/xoá phim theo RBAC 3 CẤP PHẲNG (ADR-045) — thay thế quy tắc
+   * `super_admin`/`admin` sửa mọi phim của ADR-002/014.
    *
-   *  - Cấp 1 `viewer`       → LUÔN từ chối (đã bị chặn trước ở `@Roles` tại controller; đây là
-   *                           lớp phòng thủ thứ hai, không phải chốt duy nhất).
-   *  - Cấp 2 `employee`     → chỉ phim do CHÍNH MÌNH tạo. Không sửa được phim người khác kể
-   *                           cả cùng phòng ban.
-   *  - Cấp 3 `dept_manager` → phim của chính mình, HOẶC phim thoả cả hai: `department_id` của
-   *                           phim TRÙNG phòng ban hiện tại của actor, VÀ người tạo phim đang
-   *                           là Cấp 2. Cố ý KHÔNG mở rộng sang phim của Cấp 3 khác hay Cấp 4
-   *                           cùng phòng — đặc tả chỉ nói "chỉnh sửa của tất cả mọi người được
-   *                           phân quyền cấp 2".
-   *  - Cấp 4 `super_admin`  → mọi phim, mọi phòng ban.
+   *  - Cấp 1 `viewer`      → LUÔN từ chối (đã bị chặn trước ở `@Roles` tại controller; đây là
+   *                          lớp phòng thủ thứ hai, không phải chốt duy nhất).
+   *  - Cấp 2 `employee`    → CHỈ phim do CHÍNH MÌNH tạo. Không sửa được phim người khác, kể
+   *                          cả người cùng phòng ban.
+   *  - Cấp 3 `super_admin` → MỌI phim, KHÔNG phụ thuộc phòng ban.
    *
-   * MỌI dữ liệu dùng để quyết định đều đọc từ DB: phòng ban của actor và vai trò của người
-   * tạo phim lấy qua `UsersService` (không lấy từ JWT — xem ADR-043), `department_id` của phim
-   * lấy từ bản ghi đã lưu (không nhận từ client). Đúng `02-security-baseline.md` §2.
+   * KHÔNG có nhánh nào so sánh `department_id`: bản này cố ý PHẲNG (ADR-046). Cột
+   * `films.department_id` vẫn được ghi khi tạo phim nhưng chỉ để truy vết, không quyết định
+   * quyền. Dữ liệu quyết định vẫn lấy từ bản ghi đã lưu ở DB, không nhận từ client
+   * (`02-security-baseline.md` §2).
    */
   private async assertCanManage(actor: AuthUser, film: Film): Promise<void> {
     if (actor.roleCode === 'super_admin') return
@@ -219,19 +216,6 @@ export class FilmsService {
     }
 
     if (film.uploaderId === actor.id) return
-
-    if (actor.roleCode === 'dept_manager') {
-      const actorDepartmentId = await this.users.getDepartmentId(actor.id)
-      // Phòng ban chưa gán (null) KHÔNG được coi là "trùng nhau" — nếu không, mọi Trưởng
-      // phòng chưa gán phòng ban sẽ quản được toàn bộ phim cũ chưa có department_id.
-      if (actorDepartmentId != null && film.departmentId === actorDepartmentId) {
-        const uploader = await this.users.getRoleAndDepartment(film.uploaderId)
-        if (uploader?.roleCode === 'employee') return
-      }
-      throw new ForbiddenException(
-        'Trưởng phòng chỉ sửa/xoá được phim của nhân viên cùng phòng ban',
-      )
-    }
 
     throw new ForbiddenException('Bạn chỉ có thể sửa/xoá phim của chính mình')
   }

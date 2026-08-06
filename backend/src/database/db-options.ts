@@ -15,7 +15,7 @@ import { InitCatalog1721600000000 } from './migrations/1721600000000-InitCatalog
 import { AddFilmVersions1721700000000 } from './migrations/1721700000000-AddFilmVersions'
 import { AddFilmViews1721800000000 } from './migrations/1721800000000-AddFilmViews'
 import { AddNotifications1721900000000 } from './migrations/1721900000000-AddNotifications'
-import { AddDepartmentsAndRbac4Levels1722000000000 } from './migrations/1722000000000-AddDepartmentsAndRbac4Levels'
+import { AddDepartmentsAndRbac3Levels1722000000000 } from './migrations/1722000000000-AddDepartmentsAndRbac3Levels'
 
 /**
  * Cấu hình kết nối MySQL DÙNG CHUNG cho AppModule (runtime) và DataSource CLI (migration).
@@ -65,7 +65,7 @@ export const dbOptions: DataSourceOptions = {
     AddFilmVersions1721700000000,
     AddFilmViews1721800000000,
     AddNotifications1721900000000,
-    AddDepartmentsAndRbac4Levels1722000000000,
+    AddDepartmentsAndRbac3Levels1722000000000,
   ],
   synchronize: false,
   migrationsRun: true,

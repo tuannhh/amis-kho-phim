@@ -8,7 +8,7 @@ import { DepartmentsModule } from '../departments/departments.module'
 
 /**
  * Module người dùng: entity + CRUD. Export UsersService để AuthModule và FilmsModule dùng lại
- * (FilmsService cần đọc vai trò/phòng ban thật từ DB để scope quyền Cấp 3).
+ * (FilmsService cần đọc phòng ban thật từ DB để ghi snapshot truy vết khi tạo phim).
  */
 @Module({
   imports: [TypeOrmModule.forFeature([User, Role]), DepartmentsModule],

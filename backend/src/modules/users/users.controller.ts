@@ -17,7 +17,7 @@ import type { AuthUser } from '../../common/auth/auth-user'
 
 /**
  * Quản trị người dùng. Toàn bộ route yêu cầu đăng nhập (JwtAuthGuard toàn cục) và chỉ
- * Cấp 4 (`super_admin`) — RBAC 4 cấp (ADR-040). Chi tiết quyền (ai tác động được ai, gán
+ * Cấp 3 (`super_admin`) — RBAC 3 cấp phẳng (ADR-045). Chi tiết quyền (ai tác động được ai, gán
  * được vai trò nào) kiểm lại ở service, không chỉ dựa vào guard.
  */
 @Controller('users')
@@ -35,7 +35,7 @@ export class UsersController {
     return this.users.create(actor, dto)
   }
 
-  /** Sửa vai trò / phòng ban của tài khoản (gán lại Cấp 1/Cấp 3 sau migration RBAC). */
+  /** Sửa vai trò / phòng ban của tài khoản (gán lại Cấp 1 sau migration RBAC). */
   @Patch(':id')
   update(
     @CurrentUser() actor: AuthUser,

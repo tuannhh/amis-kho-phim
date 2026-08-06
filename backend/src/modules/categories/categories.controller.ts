@@ -6,12 +6,12 @@ import { CurrentUser } from '../../common/auth/current-user.decorator'
 import type { AuthUser } from '../../common/auth/auth-user'
 
 /**
- * Xem: ai đăng nhập cũng được (kể cả Cấp 1). Ghi (tạo/sửa/xoá): CHỈ Cấp 4 (`super_admin`).
+ * Xem: ai đăng nhập cũng được (kể cả Cấp 1). Ghi (tạo/sửa/xoá): CHỈ Cấp 3 (`super_admin`).
  *
  * Giữ nguyên nguyên tắc cũ "danh mục dùng chung chỉ cấp cao nhất được ghi"
  * (`02-security-baseline.md` §2) — chỉ đổi tên vai trò do `admin` cũ đã bị loại bỏ và
- * migrate sang Cấp 4 (ADR-041). Cấp 3 KHÔNG được ghi: chuyên mục là danh mục toàn công ty,
- * không thuộc phạm vi phòng ban nào.
+ * migrate sang Cấp 3 (ADR-047). Cấp 2 KHÔNG được ghi: chuyên mục là danh mục toàn công ty,
+ * không thuộc sở hữu của người tạo phim nào.
  */
 @Controller('categories')
 export class CategoriesController {

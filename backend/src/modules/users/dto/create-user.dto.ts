@@ -12,7 +12,7 @@ import {
 import type { RoleCode } from '../entities/role.entity'
 
 /** Vai trò mà API cho phép GÁN — không ai tạo/đổi thành `super_admin` qua API (giữ nguyên GĐ1). */
-export const ASSIGNABLE_ROLE_CODES = ['viewer', 'employee', 'dept_manager'] as const
+export const ASSIGNABLE_ROLE_CODES = ['viewer', 'employee'] as const
 export type AssignableRoleCode = Exclude<RoleCode, 'super_admin'>
 
 export class CreateUserDto {
@@ -51,9 +51,9 @@ export class UpdateUserStatusDto {
 }
 
 /**
- * Sửa tài khoản (Cấp 4). Cần thiết vì hai cấp MỚI (Cấp 1 `viewer`, Cấp 3 `dept_manager`)
- * không có tài khoản nào tự động chuyển sang khi migrate — Cấp 4 phải tự gán lại, và phải
- * gán được phòng ban cho Cấp 2/Cấp 3 sau khi tài khoản đã tồn tại.
+ * Sửa tài khoản (Cấp 3). Cần thiết vì cấp MỚI `viewer` (Cấp 1) không có tài khoản nào tự
+ * động chuyển sang khi migrate — Cấp 3 phải tự gán lại, và phải gán được phòng ban (truy
+ * vết) cho tài khoản sau khi đã tồn tại.
  *
  * `departmentId: null` = BỎ gán phòng ban (khác với thiếu trường = không đổi gì).
  */

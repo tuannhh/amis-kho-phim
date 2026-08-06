@@ -20,14 +20,14 @@ import { isSystemAdmin } from '@/features/auth/permissions'
  * form thêm/sửa bên phải. Cha chỉ chọn được lúc tạo (giữ UX GĐ0.5); sửa chỉ
  * đổi tên/mô tả (backend UpdateCategoryDto không nhận parentId).
  *
- * RBAC 4 cấp (ADR-040): ai đăng nhập cũng XEM được cây chuyên mục, nhưng quyền GHI chỉ Cấp 4
+ * RBAC 3 cấp phẳng (ADR-045): ai đăng nhập cũng XEM được cây chuyên mục, quyền GHI chỉ Cấp 3
  * (`@Roles('super_admin')` ở backend). Trước đây FE hiện nút "Thêm chuyên mục" cho mọi vai trò
  * rồi để backend trả 403 — nay ẩn hẳn để Cấp 1/2/3 không thấy nút mình không dùng được.
  */
 const toast = useToast()
 const auth = useAuthStore()
 
-/** Chỉ Cấp 4 được tạo/sửa/xoá chuyên mục — khớp `@Roles('super_admin')` ở backend. */
+/** Chỉ Cấp 3 được tạo/sửa/xoá chuyên mục — khớp `@Roles('super_admin')` ở backend. */
 const canWrite = computed(() => isSystemAdmin(auth.role))
 
 const tree = ref<ApiCategoryNode[]>([])

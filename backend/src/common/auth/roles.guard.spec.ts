@@ -6,8 +6,8 @@ import { FILM_WRITE_ROLES, type RoleCode } from '../../modules/users/entities/ro
 
 /**
  * RolesGuard là chốt phân quyền theo vai trò cho /users, /reports, /departments, /categories
- * và MỌI route ghi của /films (RBAC 4 cấp — ADR-040). Nếu guard này sai, Cấp 1 tạo được phim
- * và Cấp 2 đọc được báo cáo toàn công ty.
+ * và MỌI route ghi của /films (RBAC 3 cấp phẳng — ADR-045). Nếu guard này sai, Cấp 1 tạo được
+ * phim và Cấp 2 đọc được báo cáo toàn công ty.
  */
 
 function contextWith(user: AuthUser | undefined): ExecutionContext {
@@ -36,8 +36,8 @@ describe('RolesGuard', () => {
   })
 
   it('đúng vai trò → cho qua', () => {
-    const guard = guardRequiring(['dept_manager', 'super_admin'])
-    expect(guard.canActivate(contextWith(userWith('dept_manager')))).toBe(true)
+    const guard = guardRequiring(['employee', 'super_admin'])
+    expect(guard.canActivate(contextWith(userWith('employee')))).toBe(true)
     expect(guard.canActivate(contextWith(userWith('super_admin')))).toBe(true)
   })
 
@@ -50,13 +50,13 @@ describe('RolesGuard', () => {
     const guard = guardRequiring(FILM_WRITE_ROLES)
     expect(() => guard.canActivate(contextWith(userWith('viewer')))).toThrow(ForbiddenException)
     expect(guard.canActivate(contextWith(userWith('employee')))).toBe(true)
-    expect(guard.canActivate(contextWith(userWith('dept_manager')))).toBe(true)
     expect(guard.canActivate(contextWith(userWith('super_admin')))).toBe(true)
   })
 
-  it('Cấp 3 KHÔNG vào được route chỉ dành riêng Cấp 4 (/users, /reports, /departments)', () => {
+  it('Cấp 1/Cấp 2 KHÔNG vào được route chỉ dành riêng Cấp 3 (/users, /reports, /departments)', () => {
     const guard = guardRequiring(['super_admin'])
-    expect(() => guard.canActivate(contextWith(userWith('dept_manager')))).toThrow(ForbiddenException)
+    expect(() => guard.canActivate(contextWith(userWith('viewer')))).toThrow(ForbiddenException)
+    expect(() => guard.canActivate(contextWith(userWith('employee')))).toThrow(ForbiddenException)
   })
 
   it('không có req.user (guard xác thực bị bỏ qua) → từ chối, KHÔNG mặc định cho qua', () => {
@@ -66,7 +66,8 @@ describe('RolesGuard', () => {
 
   it('vai trò lạ/giả mạo trong token → từ chối (kể cả tên vai trò cũ đã bị loại bỏ)', () => {
     const guard = guardRequiring(['super_admin'])
-    for (const bad of ['root', 'admin']) {
+    // `dept_manager` là vai trò của NHÁNH 4 CẤP — ở bản này nó phải bị coi như vai trò lạ.
+    for (const bad of ['root', 'admin', 'dept_manager']) {
       const fake = { id: 1, email: 'x@y.z', roleCode: bad as unknown as RoleCode }
       expect(() => guard.canActivate(contextWith(fake))).toThrow(ForbiddenException)
     }

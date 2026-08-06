@@ -13,7 +13,7 @@ export interface UpsertDepartmentPayload {
   name: string
 }
 
-/** Toàn bộ endpoint /departments chỉ Cấp 4 gọi được (backend `@Roles('super_admin')`). */
+/** Toàn bộ endpoint /departments chỉ Cấp 3 gọi được (backend `@Roles('super_admin')`). */
 export const departmentsApi = {
   list: () => apiFetch<ApiDepartment[]>('/departments'),
   create: (payload: UpsertDepartmentPayload) =>

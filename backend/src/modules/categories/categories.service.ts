@@ -63,9 +63,9 @@ export class CategoriesService {
   }
 
   /**
-   * `created_by` + `department_id` là cột TRUY VẾT (ADR-042) — snapshot người tạo và phòng ban
+   * `created_by` + `department_id` là cột TRUY VẾT (ADR-046) — snapshot người tạo và phòng ban
    * của người đó lúc tạo, lấy từ danh tính đã xác thực + DB, không nhận từ DTO. KHÔNG dùng để
-   * scope quyền: chuyên mục vẫn là danh mục dùng chung, quyền ghi giữ ở Cấp 4.
+   * scope quyền: chuyên mục vẫn là danh mục dùng chung, quyền ghi giữ ở Cấp 3.
    */
   async create(actor: AuthUser, dto: CreateCategoryDto): Promise<CategoryNode> {
     if (dto.parentId != null) {

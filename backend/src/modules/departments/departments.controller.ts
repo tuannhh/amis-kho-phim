@@ -6,11 +6,11 @@ import { CurrentUser } from '../../common/auth/current-user.decorator'
 import type { AuthUser } from '../../common/auth/auth-user'
 
 /**
- * Danh mục phòng ban — TOÀN BỘ route (kể cả đọc) giới hạn Cấp 4 (`super_admin`).
+ * Danh mục phòng ban — TOÀN BỘ route (kể cả đọc) giới hạn Cấp 3 (`super_admin`).
  *
  * Vì sao khoá cả quyền đọc: danh sách phòng ban chỉ được dùng ở màn quản trị (dropdown gán
- * phòng ban cho tài khoản + màn Quản lý phòng ban), đều là màn Cấp 4. Không có nhu cầu thật
- * nào cần Cấp 1/2/3 đọc danh mục này, nên áp nguyên tắc quyền tối thiểu thay vì mở sẵn.
+ * phòng ban cho tài khoản + màn Quản lý phòng ban), đều là màn Cấp 3. Không có nhu cầu thật
+ * nào cần Cấp 1/Cấp 2 đọc danh mục này, nên áp nguyên tắc quyền tối thiểu thay vì mở sẵn.
  */
 @Controller('departments')
 @Roles('super_admin')

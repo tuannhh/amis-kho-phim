@@ -22,7 +22,7 @@ import { Roles } from '../../common/auth/roles.decorator'
 import { FILM_WRITE_ROLES } from '../users/entities/role.entity'
 
 /**
- * CRUD phim + storage (GĐ3). Phân quyền theo RBAC 4 cấp (ADR-040):
+ * CRUD phim + storage (GĐ3). Phân quyền theo RBAC 3 cấp phẳng (ADR-045):
  *
  *  - ĐỌC (`GET /films`, `GET /films/:slug`) + ghi nhận lượt xem: ai đăng nhập cũng được,
  *    kể cả Cấp 1 (`viewer`).
@@ -30,7 +30,7 @@ import { FILM_WRITE_ROLES } from '../users/entities/role.entity'
  *    `@Roles(...FILM_WRITE_ROLES)` — Cấp 1 bị chặn NGAY Ở GUARD, trả 403 trước khi vào service.
  *    Trước đây các route này KHÔNG có `@Roles` nào (mọi tài khoản đã đăng nhập đều tạo được
  *    phim) — đó là khoảng trống phân quyền thật, nay đã bịt.
- *  - Phạm vi chi tiết trong nhóm được ghi (của mình / cùng phòng ban / mọi phòng ban) kiểm
+ *  - Phạm vi chi tiết trong nhóm được ghi (Cấp 2 chỉ phim của mình / Cấp 3 mọi phim) kiểm
  *    tiếp ở `FilmsService.assertCanManage` — guard là lớp một, không phải lớp duy nhất.
  */
 @Controller('films')

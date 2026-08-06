@@ -7,7 +7,7 @@ export interface ApiUser {
   email: string
   fullName: string
   roleCode: UserRole
-  /** Phòng ban (null = chưa gán) — dùng scope quyền Cấp 3 (ADR-040). */
+  /** Phòng ban (null = chưa gán) — thuần truy vết, KHÔNG ảnh hưởng quyền (ADR-046). */
   departmentId: number | null
   createdBy: number | null
   isActive: boolean
@@ -44,10 +44,10 @@ export { ROLE_LABEL, ROLE_COLOR, ROLE_HINT } from '@/features/auth/permissions'
 
 /**
  * Vai trò mà `byRole` được phép gán (khớp `creatableRoles` của backend — chỉ để dựng UI).
- * RBAC 4 cấp: CHỈ Cấp 4 quản lý người dùng; không ai gán được Cấp 4.
+ * RBAC 3 cấp phẳng: CHỈ Cấp 3 quản lý người dùng; không ai gán được Cấp 3.
  */
 export function creatableRoles(byRole: UserRole | null): AssignableRole[] {
-  if (byRole === 'super_admin') return ['viewer', 'employee', 'dept_manager']
+  if (byRole === 'super_admin') return ['viewer', 'employee']
   return []
 }
 

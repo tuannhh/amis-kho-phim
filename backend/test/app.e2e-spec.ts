@@ -7,9 +7,9 @@ import { createHmac } from 'crypto'
 import { AppModule } from '../src/app.module'
 import {
   LEGACY_ROLE_MAP,
-  RBAC4_ROLES,
+  RBAC3_ROLES,
   migrateLegacyRoles,
-} from '../src/database/migrations/1722000000000-AddDepartmentsAndRbac4Levels'
+} from '../src/database/migrations/1722000000000-AddDepartmentsAndRbac3Levels'
 
 /**
  * KIỂM THỬ TÍCH HỢP (e2e) — chạy trên MySQL THẬT, route THẬT, guard THẬT.
@@ -22,8 +22,8 @@ import {
  * tích hợp mới thấy.
  *
  * Phạm vi ưu tiên theo RỦI RO (11-phase-refactor-legacy §7): xác thực, phân quyền theo vai trò,
- * SCOPE PHÒNG BAN của RBAC 4 cấp (ADR-040), quyền sở hữu (IDOR), validate đầu vào, endpoint
- * công khai — không phủ cơ học CRUD.
+ * RBAC 3 CẤP PHẲNG (ADR-045) gồm cả bằng chứng phòng ban KHÔNG ảnh hưởng quyền, quyền sở hữu
+ * (IDOR), validate đầu vào, endpoint công khai — không phủ cơ học CRUD.
  *
  * Dữ liệu: database RIÊNG `kho_phim_e2e`, dựng lại sạch mỗi lần chạy (xem global-setup.ts).
  */
@@ -45,10 +45,7 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
   let empA1Id: number
   let empA2Token: string
   let empB1Token: string
-  let mgrA1Token: string
-  let mgrA1Id: number
-  let mgrA2Token: string
-  let mgrB1Token: string
+  let empB1Id: number
 
   let deptAId: number
   let deptBId: number
@@ -86,7 +83,8 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
     superToken = login.body.accessToken
     superId = login.body.user.id
 
-    // Hai phòng ban thật để kiểm scope quyền Cấp 3.
+    // Hai phòng ban thật — ở bản 3 cấp phẳng chúng dùng để CHỨNG MINH phòng ban KHÔNG
+    // ảnh hưởng quyền (chứ không phải để scope quyền như nhánh 4 cấp).
     const mkDept = async (name: string) => {
       const r = await http()
         .post('/api/departments')
@@ -115,12 +113,9 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
     empA1Token = empA1.token
     empA1Id = empA1.id
     empA2Token = (await mk('e2e-nv-a2@misa.com.vn', 'employee', 'E2eNvA2@2026', deptAId)).token
-    empB1Token = (await mk('e2e-nv-b1@misa.com.vn', 'employee', 'E2eNvB1@2026', deptBId)).token
-    const mgrA1 = await mk('e2e-tp-a1@misa.com.vn', 'dept_manager', 'E2eTpA1@2026', deptAId)
-    mgrA1Token = mgrA1.token
-    mgrA1Id = mgrA1.id
-    mgrA2Token = (await mk('e2e-tp-a2@misa.com.vn', 'dept_manager', 'E2eTpA2@2026', deptAId)).token
-    mgrB1Token = (await mk('e2e-tp-b1@misa.com.vn', 'dept_manager', 'E2eTpB1@2026', deptBId)).token
+    const empB1 = await mk('e2e-nv-b1@misa.com.vn', 'employee', 'E2eNvB1@2026', deptBId)
+    empB1Token = empB1.token
+    empB1Id = empB1.id
 
     const cat = await http()
       .post('/api/categories')
@@ -157,14 +152,14 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
     })
   })
 
-  // ── Migration RBAC 4 cấp trên MySQL thật (ADR-040/041) ───────────────────
-  describe('Migration RBAC 4 cấp — lược đồ + dữ liệu vai trò cũ → mới', () => {
-    it('bảng `roles` chứa ĐÚNG 4 vai trò mới, KHÔNG còn `admin`', async () => {
+  // ── Migration RBAC 3 cấp trên MySQL thật (ADR-045/047) ───────────────────
+  describe('Migration RBAC 3 cấp — lược đồ + dữ liệu vai trò cũ → mới', () => {
+    it('bảng `roles` chứa ĐÚNG 3 vai trò mới, KHÔNG còn `admin` lẫn `dept_manager`', async () => {
       const rows: Array<{ code: string; name: string }> = await dataSource.query(
         'SELECT `code`, `name` FROM `roles` ORDER BY `code`',
       )
-      expect(rows.map((r) => r.code).sort()).toEqual(['dept_manager', 'employee', 'super_admin', 'viewer'])
-      for (const expected of RBAC4_ROLES) {
+      expect(rows.map((r) => r.code).sort()).toEqual(['employee', 'super_admin', 'viewer'])
+      for (const expected of RBAC3_ROLES) {
         expect(rows.find((r) => r.code === expected.code)?.name).toBe(expected.name)
       }
     })
@@ -187,18 +182,37 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
         'films.department_id',
         'users.department_id',
       ])
-      // Mọi cột phòng ban đều NULLABLE (Cấp 1/Cấp 4 không cần thuộc phòng ban nào).
+      // Mọi cột phòng ban đều NULLABLE (không tài khoản/bản ghi nào bắt buộc có phòng ban).
       for (const c of cols.filter((x) => x.COLUMN_NAME !== 'name')) {
         expect(c.IS_NULLABLE).toBe('YES')
       }
     })
 
-    it('MAP vai trò cũ → mới đúng như ADR-041 (admin → super_admin, KHÔNG phải dept_manager)', () => {
+    it('MAP vai trò cũ → mới đúng như ADR-047 (admin → super_admin; dept_manager của nhánh 4 cấp → employee)', () => {
       expect(LEGACY_ROLE_MAP).toEqual({
         super_admin: 'super_admin',
         admin: 'super_admin',
         employee: 'employee',
+        dept_manager: 'employee',
       })
+    })
+
+    it('tài khoản `dept_manager` (từ nhánh 4 cấp) bị HẠ về `employee`, không âm thầm lên cấp cao nhất', async () => {
+      await dataSource.query(
+        'INSERT INTO `users` (`email`, `full_name`, `password_hash`, `role_code`, `is_active`, `must_change_password`) ' +
+          "VALUES ('e2e-tp-cu@misa.com.vn', 'TP cũ', 'x', 'dept_manager', 1, 0)",
+      )
+      const qr = dataSource.createQueryRunner()
+      try {
+        await migrateLegacyRoles(qr)
+      } finally {
+        await qr.release()
+      }
+      const rows: Array<{ role_code: string }> = await dataSource.query(
+        "SELECT `role_code` FROM `users` WHERE `email` = 'e2e-tp-cu@misa.com.vn'",
+      )
+      expect(rows[0].role_code).toBe('employee')
+      await dataSource.query("DELETE FROM `users` WHERE `email` = 'e2e-tp-cu@misa.com.vn'")
     })
 
     it('tài khoản `admin` cũ trong DB được migrate thành `super_admin` (chạy SQL THẬT)', async () => {
@@ -265,9 +279,9 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
       expect(r.body).not.toHaveProperty('password_hash')
     })
 
-    it('/auth/me trả kèm departmentId để FE ẩn/hiện nút đúng cấp', async () => {
-      const r = await http().get('/api/auth/me').set('Authorization', `Bearer ${mgrA1Token}`).expect(200)
-      expect(r.body.roleCode).toBe('dept_manager')
+    it('/auth/me trả kèm departmentId (thông tin truy vết, không dùng để phân quyền)', async () => {
+      const r = await http().get('/api/auth/me').set('Authorization', `Bearer ${empA1Token}`).expect(200)
+      expect(r.body.roleCode).toBe('employee')
       expect(r.body.departmentId).toBe(deptAId)
     })
 
@@ -439,20 +453,14 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
       await http().get('/api/departments').set('Authorization', `Bearer ${empA1Token}`).expect(403)
     })
 
-    it('CẤP 3 KHÔNG xem được danh sách người dùng / báo cáo / phòng ban → 403', async () => {
-      await http().get('/api/users').set('Authorization', `Bearer ${mgrA1Token}`).expect(403)
-      await http().get('/api/reports/films').set('Authorization', `Bearer ${mgrA1Token}`).expect(403)
-      await http().get('/api/departments').set('Authorization', `Bearer ${mgrA1Token}`).expect(403)
-    })
-
-    it('CẤP 3 KHÔNG tạo được tài khoản → 403 (khác hẳn `admin` cũ)', () =>
+    it('CẤP 2 KHÔNG tạo được tài khoản → 403 (khác hẳn `admin` cũ)', () =>
       http()
         .post('/api/users')
-        .set('Authorization', `Bearer ${mgrA1Token}`)
-        .send({ email: 'e2e-tp-tao@misa.com.vn', fullName: 'TP tạo', roleCode: 'employee', password: 'E2eX@20261' })
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .send({ email: 'e2e-nv-tao@misa.com.vn', fullName: 'NV tạo', roleCode: 'employee', password: 'E2eX@20261' })
         .expect(403))
 
-    it('CẤP 2 và CẤP 3 KHÔNG tạo được chuyên mục → 403', async () => {
+    it('CẤP 1 và CẤP 2 KHÔNG tạo được chuyên mục → 403', async () => {
       await http()
         .post('/api/categories')
         .set('Authorization', `Bearer ${empA1Token}`)
@@ -460,32 +468,35 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
         .expect(403)
       await http()
         .post('/api/categories')
-        .set('Authorization', `Bearer ${mgrA1Token}`)
-        .send({ name: 'Cấp 3 cố tạo' })
+        .set('Authorization', `Bearer ${viewerToken}`)
+        .send({ name: 'Cấp 1 cố tạo' })
         .expect(403)
     })
 
-    it('CẤP 4 xem được danh sách người dùng, báo cáo và phòng ban', async () => {
+    it('CẤP 3 xem được danh sách người dùng, báo cáo và phòng ban', async () => {
       await http().get('/api/users').set('Authorization', `Bearer ${superToken}`).expect(200)
       await http().get('/api/reports/films').set('Authorization', `Bearer ${superToken}`).expect(200)
       await http().get('/api/departments').set('Authorization', `Bearer ${superToken}`).expect(200)
     })
 
-    it('KHÔNG ai tạo được tài khoản Cấp 4 (DTO chặn giá trị vai trò)', () =>
+    it('KHÔNG ai tạo được tài khoản Cấp 3 (DTO chặn giá trị vai trò)', () =>
       http()
         .post('/api/users')
         .set('Authorization', `Bearer ${superToken}`)
         .send({ email: 'e2e-super2@misa.com.vn', fullName: 'Super Hai', roleCode: 'super_admin', password: 'E2eX@20261' })
         .expect(400))
 
-    it('vai trò `admin` cũ KHÔNG còn được DTO chấp nhận → 400', () =>
-      http()
-        .post('/api/users')
-        .set('Authorization', `Bearer ${superToken}`)
-        .send({ email: 'e2e-admin-moi@misa.com.vn', fullName: 'Admin', roleCode: 'admin', password: 'E2eX@20261' })
-        .expect(400))
+    it('vai trò `admin` cũ và `dept_manager` (nhánh 4 cấp) KHÔNG còn được DTO chấp nhận → 400', async () => {
+      for (const roleCode of ['admin', 'dept_manager']) {
+        await http()
+          .post('/api/users')
+          .set('Authorization', `Bearer ${superToken}`)
+          .send({ email: `e2e-${roleCode}-moi@misa.com.vn`, fullName: 'X', roleCode, password: 'E2eX@20261' })
+          .expect(400)
+      }
+    })
 
-    it('CẤP 4 KHÔNG tự khoá được chính mình → 403', () =>
+    it('CẤP 3 KHÔNG tự khoá được chính mình → 403', () =>
       http()
         .patch(`/api/users/${superId}/status`)
         .set('Authorization', `Bearer ${superToken}`)
@@ -502,8 +513,8 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
     })
   })
 
-  // ── Danh mục phòng ban (Cấp 4) ───────────────────────────────────────────
-  describe('Danh mục phòng ban — chỉ Cấp 4, chặn xoá khi còn tham chiếu', () => {
+  // ── Danh mục phòng ban (Cấp 3) ───────────────────────────────────────────
+  describe('Danh mục phòng ban — chỉ Cấp 3, chặn xoá khi còn tham chiếu', () => {
     it('tạo trùng tên → 409 (ràng buộc unique thật ở DB)', () =>
       http()
         .post('/api/departments')
@@ -521,8 +532,8 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
     it('danh sách kèm số người dùng thật của từng phòng ban', async () => {
       const r = await http().get('/api/departments').set('Authorization', `Bearer ${superToken}`).expect(200)
       const a = r.body.find((d: { id: number }) => d.id === deptAId)
-      // Phòng A có 2 nhân viên + 2 trưởng phòng đã tạo ở beforeAll.
-      expect(a.userCount).toBe(4)
+      // Phòng A có 2 nhân viên đã tạo ở beforeAll.
+      expect(a.userCount).toBe(2)
     })
 
     it('KHÔNG xoá được phòng ban đang có người dùng → 409', () =>
@@ -550,8 +561,8 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
       http().delete('/api/departments/999999').set('Authorization', `Bearer ${superToken}`).expect(404))
   })
 
-  // ── Gán vai trò / phòng ban cho tài khoản (Cấp 4) ─────────────────────────
-  describe('Sửa tài khoản — gán lại Cấp 1/Cấp 3 và phòng ban', () => {
+  // ── Gán vai trò / phòng ban cho tài khoản (Cấp 3) ─────────────────────────
+  describe('Sửa tài khoản — gán lại Cấp 1/Cấp 2 và phòng ban', () => {
     let tempId: number
 
     beforeAll(async () => {
@@ -573,13 +584,13 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
       expect(r.body.find((u: { id: number }) => u.id === tempId).departmentId).toBeNull()
     })
 
-    it('nâng Cấp 1 → Cấp 3 kèm phòng ban', async () => {
+    it('nâng Cấp 1 → Cấp 2 kèm phòng ban', async () => {
       const r = await http()
         .patch(`/api/users/${tempId}`)
         .set('Authorization', `Bearer ${superToken}`)
-        .send({ roleCode: 'dept_manager', departmentId: deptBId })
+        .send({ roleCode: 'employee', departmentId: deptBId })
         .expect(200)
-      expect(r.body.roleCode).toBe('dept_manager')
+      expect(r.body.roleCode).toBe('employee')
       expect(r.body.departmentId).toBe(deptBId)
     })
 
@@ -599,40 +610,38 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
       expect(r.body.departmentId).toBeNull()
     })
 
-    it('KHÔNG nâng được ai lên Cấp 4 → 400', () =>
+    it('KHÔNG nâng được ai lên Cấp 3 → 400', () =>
       http()
         .patch(`/api/users/${tempId}`)
         .set('Authorization', `Bearer ${superToken}`)
         .send({ roleCode: 'super_admin' })
         .expect(400))
 
-    it('Cấp 3 KHÔNG sửa được tài khoản người khác → 403', () =>
+    it('Cấp 2 KHÔNG sửa được tài khoản người khác → 403', () =>
       http()
         .patch(`/api/users/${tempId}`)
-        .set('Authorization', `Bearer ${mgrA1Token}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
         .send({ roleCode: 'viewer' })
         .expect(403))
   })
 
-  // ── SCOPE PHÒNG BAN — trái tim của đợt thay đổi này ───────────────────────
-  describe('Scope phòng ban (RBAC 4 cấp) — ai sửa/xoá được phim của ai', () => {
+  // ── RBAC 3 CẤP PHẲNG — trái tim của đợt thay đổi này ──────────────────────
+  describe('RBAC 3 cấp phẳng — ai sửa/xoá được phim của ai', () => {
     let filmEmpA1: { id: number; slug: string; departmentId: number | null }
     let filmEmpB1: { id: number; slug: string }
-    let filmMgrA2: { id: number; slug: string }
     let filmSuper: { id: number; slug: string }
 
     beforeAll(async () => {
       filmEmpA1 = await createFilm(empA1Token, 'Phim của nhân viên A1')
       filmEmpB1 = await createFilm(empB1Token, 'Phim của nhân viên B1')
-      filmMgrA2 = await createFilm(mgrA2Token, 'Phim của trưởng phòng A2')
       filmSuper = await createFilm(superToken, 'Phim của quản trị cao nhất')
     })
 
-    it('SNAPSHOT: phim mới mang department_id của người tạo lúc tạo', () => {
+    it('SNAPSHOT: phim mới mang department_id của người tạo lúc tạo (truy vết)', () => {
       expect(filmEmpA1.departmentId).toBe(deptAId)
     })
 
-    it('uploaderId + departmentId lấy từ token/DB, KHÔNG nhận từ body (chống giả mạo scope)', async () => {
+    it('uploaderId + departmentId lấy từ token/DB, KHÔNG nhận từ body (chống giả mạo dữ liệu)', async () => {
       const r = await http()
         .post('/api/films')
         .set('Authorization', `Bearer ${empB1Token}`)
@@ -647,6 +656,22 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
       expect(r.body.uploaderId).not.toBe(99999)
     })
 
+    // ── Cấp 1 ────────────────────────────────────────────────────────────────
+    it('CẤP 1 không tạo/sửa/xoá được phim nào → 403', async () => {
+      await http()
+        .post('/api/films')
+        .set('Authorization', `Bearer ${viewerToken}`)
+        .send({ title: 'Cấp 1 cố tạo phim', categoryId })
+        .expect(403)
+      await http()
+        .patch(`/api/films/${filmEmpA1.id}`)
+        .set('Authorization', `Bearer ${viewerToken}`)
+        .send({ title: 'Cấp 1 cố sửa', categoryId })
+        .expect(403)
+      await http().delete(`/api/films/${filmEmpA1.id}`).set('Authorization', `Bearer ${viewerToken}`).expect(403)
+    })
+
+    // ── Cấp 2 ────────────────────────────────────────────────────────────────
     it('CẤP 2 sửa được phim CỦA CHÍNH MÌNH', async () => {
       const r = await http()
         .patch(`/api/films/${filmEmpA1.id}`)
@@ -662,6 +687,22 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
         .set('Authorization', `Bearer ${empA2Token}`)
         .send({ title: 'A2 chiếm phim của A1', categoryId })
         .expect(403))
+
+    it('CẤP 2 KHÔNG sửa được phim của Cấp 2 ở phòng ban KHÁC → 403', () =>
+      http()
+        .patch(`/api/films/${filmEmpB1.id}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .send({ title: 'A1 chiếm phim phòng B', categoryId })
+        .expect(403))
+
+    it('CẤP 2 KHÔNG sửa/xoá được phim của Cấp 3 → 403', async () => {
+      await http()
+        .patch(`/api/films/${filmSuper.id}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .send({ title: 'A1 cố sửa phim quản trị', categoryId })
+        .expect(403)
+      await http().delete(`/api/films/${filmSuper.id}`).set('Authorization', `Bearer ${empA1Token}`).expect(403)
+    })
 
     it('CẤP 2 KHÔNG xoá được phim của Cấp 2 khác cùng phòng ban → 403', () =>
       http().delete(`/api/films/${filmEmpA1.id}`).set('Authorization', `Bearer ${empA2Token}`).expect(403))
@@ -680,47 +721,28 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
         .send({ storageKey: `video-${'0'.repeat(8)}-0000-0000-0000-000000000000.mp4` })
         .expect(403))
 
-    it('CẤP 3 SỬA ĐƯỢC phim của Cấp 2 CÙNG phòng ban', async () => {
-      const r = await http()
-        .patch(`/api/films/${filmEmpA1.id}`)
-        .set('Authorization', `Bearer ${mgrA1Token}`)
-        .send({ title: 'Trưởng phòng A1 sửa phim của nhân viên cùng phòng', categoryId })
+    it('đổi phòng ban của Cấp 2 KHÔNG mở rộng quyền của họ (phòng ban không phải quyền)', async () => {
+      // Chuyển B1 sang phòng A — nếu phòng ban còn ảnh hưởng quyền thì B1 sẽ đụng được phim A1.
+      await http()
+        .patch(`/api/users/${empB1Id}`)
+        .set('Authorization', `Bearer ${superToken}`)
+        .send({ departmentId: deptAId })
         .expect(200)
-      expect(r.body.title).toBe('Trưởng phòng A1 sửa phim của nhân viên cùng phòng')
+      await http()
+        .patch(`/api/films/${filmEmpA1.id}`)
+        .set('Authorization', `Bearer ${empB1Token}`)
+        .send({ title: 'B1 cố sửa phim A1 sau khi cùng phòng', categoryId })
+        .expect(403)
+      // Trả lại phòng ban ban đầu.
+      await http()
+        .patch(`/api/users/${empB1Id}`)
+        .set('Authorization', `Bearer ${superToken}`)
+        .send({ departmentId: deptBId })
+        .expect(200)
     })
 
-    it('CẤP 3 KHÔNG sửa được phim của Cấp 2 ở PHÒNG BAN KHÁC → 403', () =>
-      http()
-        .patch(`/api/films/${filmEmpB1.id}`)
-        .set('Authorization', `Bearer ${mgrA1Token}`)
-        .send({ title: 'Trưởng phòng A cố sửa phim phòng B', categoryId })
-        .expect(403))
-
-    it('CẤP 3 KHÔNG sửa được phim của CẤP 3 KHÁC cùng phòng ban → 403', () =>
-      http()
-        .patch(`/api/films/${filmMgrA2.id}`)
-        .set('Authorization', `Bearer ${mgrA1Token}`)
-        .send({ title: 'TP A1 cố sửa phim TP A2', categoryId })
-        .expect(403))
-
-    it('CẤP 3 KHÔNG sửa được phim của CẤP 4 → 403', () =>
-      http()
-        .patch(`/api/films/${filmSuper.id}`)
-        .set('Authorization', `Bearer ${mgrA1Token}`)
-        .send({ title: 'TP cố sửa phim quản trị', categoryId })
-        .expect(403))
-
-    it('CẤP 3 sửa được phim CỦA CHÍNH MÌNH', () =>
-      http()
-        .patch(`/api/films/${filmMgrA2.id}`)
-        .set('Authorization', `Bearer ${mgrA2Token}`)
-        .send({ title: 'TP A2 tự sửa phim của mình', categoryId })
-        .expect(200))
-
-    it('CẤP 3 ở phòng khác KHÔNG xoá được phim phòng A → 403', () =>
-      http().delete(`/api/films/${filmEmpA1.id}`).set('Authorization', `Bearer ${mgrB1Token}`).expect(403))
-
-    it('CẤP 4 sửa được phim của mọi phòng ban', async () => {
+    // ── Cấp 3 — PHẲNG, sửa được TẤT CẢ ───────────────────────────────────────
+    it('CẤP 3 sửa được phim của MỌI người, MỌI phòng ban', async () => {
       await http()
         .patch(`/api/films/${filmEmpA1.id}`)
         .set('Authorization', `Bearer ${superToken}`)
@@ -733,6 +755,39 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
         .expect(200)
     })
 
+    /**
+     * KHÁC BIỆT CỐT LÕI so với nhánh `phan-quyen-4-cap`: kể cả khi tài khoản cấp cao nhất CÓ
+     * gán phòng ban, quyền của họ vẫn phủ toàn bộ kho phim. Gán phòng ban cho cấp cao nhất
+     * phải làm thẳng trên DB vì API cố ý không cho sửa tài khoản `super_admin`.
+     */
+    it('CẤP 3 CÓ phòng ban vẫn sửa/xoá được phim của phòng ban KHÁC', async () => {
+      await dataSource.query('UPDATE `users` SET `department_id` = ? WHERE `id` = ?', [deptBId, superId])
+      try {
+        await http()
+          .patch(`/api/films/${filmEmpA1.id}`)
+          .set('Authorization', `Bearer ${superToken}`)
+          .send({ title: 'Quản trị (phòng B) sửa phim phòng A', categoryId })
+          .expect(200)
+        const filmXoa = await createFilm(empA1Token, 'Phim phòng A để quản trị phòng B xoá')
+        await http().delete(`/api/films/${filmXoa.id}`).set('Authorization', `Bearer ${superToken}`).expect(204)
+      } finally {
+        await dataSource.query('UPDATE `users` SET `department_id` = NULL WHERE `id` = ?', [superId])
+      }
+    })
+
+    it('CẤP 3 sửa/xoá được cả phim KHÔNG có phòng ban (department_id NULL)', async () => {
+      const detail = await http()
+        .get(`/api/films/${filmSuper.slug}`)
+        .set('Authorization', `Bearer ${superToken}`)
+        .expect(200)
+      expect(detail.body.departmentId).toBeNull()
+      await http()
+        .patch(`/api/films/${filmSuper.id}`)
+        .set('Authorization', `Bearer ${superToken}`)
+        .send({ title: 'Quản trị sửa phim không phòng ban', categoryId })
+        .expect(200)
+    })
+
     it('phim không tồn tại → 404 (không lộ thành 403 hay ngược lại)', () =>
       http()
         .patch('/api/films/999999')
@@ -742,65 +797,9 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
 
     it('mọi người đã đăng nhập đều XEM được phim của người khác (đúng thiết kế)', () =>
       http().get(`/api/films/${filmEmpA1.slug}`).set('Authorization', `Bearer ${empB1Token}`).expect(200))
-
-    /**
-     * Ca then chốt của ADR-043: phòng ban dùng để phân quyền phải đọc từ DB mỗi lần, không lấy
-     * từ JWT. Nếu lấy từ token, Trưởng phòng vừa bị chuyển sang phòng khác vẫn giữ quyền cũ
-     * suốt 15 phút cho tới khi access token hết hạn.
-     */
-    it('CẤP 3 bị chuyển phòng ban → MẤT QUYỀN NGAY, dù access token cũ vẫn còn hiệu lực', async () => {
-      const filmA = await createFilm(empA1Token, 'Phim kiểm đổi phòng ban')
-
-      // Token cũ đang quản được phim phòng A.
-      await http()
-        .patch(`/api/films/${filmA.id}`)
-        .set('Authorization', `Bearer ${mgrA1Token}`)
-        .send({ title: 'TP A1 sửa trước khi bị chuyển phòng', categoryId })
-        .expect(200)
-
-      // Cấp 4 chuyển TP A1 sang phòng B.
-      await http()
-        .patch(`/api/users/${mgrA1Id}`)
-        .set('Authorization', `Bearer ${superToken}`)
-        .send({ departmentId: deptBId })
-        .expect(200)
-
-      // CÙNG access token cũ → giờ phải bị từ chối.
-      await http()
-        .patch(`/api/films/${filmA.id}`)
-        .set('Authorization', `Bearer ${mgrA1Token}`)
-        .send({ title: 'TP A1 cố sửa sau khi bị chuyển phòng', categoryId })
-        .expect(403)
-
-      // Trả lại trạng thái ban đầu để không ảnh hưởng bài test khác.
-      await http()
-        .patch(`/api/users/${mgrA1Id}`)
-        .set('Authorization', `Bearer ${superToken}`)
-        .send({ departmentId: deptAId })
-        .expect(200)
-      await http()
-        .patch(`/api/films/${filmA.id}`)
-        .set('Authorization', `Bearer ${mgrA1Token}`)
-        .send({ title: 'TP A1 sửa lại được sau khi về phòng cũ', categoryId })
-        .expect(200)
-    })
-
-    it('phim chưa có phòng ban (department_id NULL) → Cấp 3 KHÔNG quản lý được', async () => {
-      // Phim do Cấp 4 (không thuộc phòng ban nào) tạo → department_id NULL.
-      expect(filmSuper).toBeDefined()
-      const detail = await http()
-        .get(`/api/films/${filmSuper.slug}`)
-        .set('Authorization', `Bearer ${superToken}`)
-        .expect(200)
-      expect(detail.body.departmentId).toBeNull()
-      await http()
-        .delete(`/api/films/${filmSuper.id}`)
-        .set('Authorization', `Bearer ${mgrA1Token}`)
-        .expect(403)
-    })
   })
 
-  // ── Truy vết chuyên mục (ADR-042) ────────────────────────────────────────
+  // ── Truy vết chuyên mục (ADR-046) ────────────────────────────────────────
   describe('Chuyên mục — cột truy vết created_by / department_id', () => {
     it('ghi lại người tạo, KHÔNG dùng để scope quyền', async () => {
       const r = await http()
@@ -813,7 +812,7 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
           r.body.id,
         ])
       expect(rows[0].created_by).toBe(superId)
-      // Cấp 4 không thuộc phòng ban nào → NULL, không bịa giá trị.
+      // Tài khoản seed cấp cao nhất không thuộc phòng ban nào → NULL, không bịa giá trị.
       expect(rows[0].department_id).toBeNull()
     })
   })

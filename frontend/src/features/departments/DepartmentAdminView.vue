@@ -16,8 +16,9 @@ import { departmentsApi, type ApiDepartment } from './departmentsApi'
  * `--mds-shadow-card`, tiêu đề bên trái / nút Primary ngoài cùng bên phải, ô tìm kiếm ở trái
  * toolbar bảng, action dòng hiện khi hover — `patterns/data-table.md` §1/§4).
  *
- * Chỉ Cấp 4 vào được (router guard + `@Roles('super_admin')` ở backend). Danh mục này quyết
- * định phạm vi quyền của Cấp 3 nên không mở cho cấp thấp hơn.
+ * Chỉ Cấp 3 vào được (router guard + `@Roles('super_admin')` ở backend). Ở bản 3 cấp phẳng
+ * phòng ban KHÔNG quyết định quyền của ai (ADR-046), nhưng vẫn là danh mục dùng chung toàn hệ
+ * thống nên quyền ghi giữ ở cấp cao nhất.
  */
 const toast = useToast()
 
@@ -207,7 +208,7 @@ async function confirmDelete() {
           </label>
           <MInput v-model="form.name" placeholder="VD: Phòng Truyền thông" :error="errors.name" />
           <p class="mt-1 text-[12px]" style="color: var(--mds-text-secondary)">
-            Phòng ban quyết định phạm vi quản lý phim của Trưởng phòng — tên không được trùng nhau.
+            Phòng ban dùng để truy vết phim/tài khoản, không ảnh hưởng quyền — tên không được trùng nhau.
           </p>
         </div>
       </div>

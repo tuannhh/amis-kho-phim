@@ -8,12 +8,15 @@ import type { Film } from './entities/film.entity'
 /**
  * "OwnerGuard" của dự án nằm ở `FilmsService.assertCanManage` (ADR-014: kiểm ở tầng service,
  * không tách class guard). Đây là quy tắc nghiệp vụ quan trọng nhất của Kho phim, nay là
- * RBAC 4 CẤP CÓ SCOPE PHÒNG BAN (ADR-040):
+ * RBAC 3 CẤP PHẲNG (ADR-045):
  *
- *   Cấp 1 viewer       → không sửa/xoá gì
- *   Cấp 2 employee     → chỉ phim của chính mình
- *   Cấp 3 dept_manager → phim của mình + phim của employee CÙNG phòng ban
- *   Cấp 4 super_admin  → mọi phim
+ *   Cấp 1 viewer      → không sửa/xoá gì
+ *   Cấp 2 employee    → chỉ phim của chính mình
+ *   Cấp 3 super_admin → MỌI phim, KHÔNG phụ thuộc phòng ban
+ *
+ * Phòng ban vẫn được lưu (truy vết) nhưng KHÔNG được phép ảnh hưởng kết quả phân quyền — có
+ * ca test riêng chứng minh điều đó, để một lần "tiện tay" thêm lại điều kiện phòng ban vào
+ * `assertCanManage` sẽ làm đỏ test chứ không lọt im lặng.
  *
  * Test qua các phương thức public (update/remove/createUploadUrl/saveThumbnail/confirmVersion)
  * — đúng cách người dùng thật chạm tới nó, thay vì gọi thẳng hàm private.
@@ -26,20 +29,16 @@ const DEPT_B = 2
 const EMP_A = 10 // Cấp 2, phòng A — chủ sở hữu phim mặc định trong test
 const EMP_A2 = 11 // Cấp 2, phòng A
 const EMP_B = 30 // Cấp 2, phòng B
-const MGR_A = 20 // Cấp 3, phòng A
-const MGR_A2 = 21 // Cấp 3, phòng A (trưởng phòng khác, cùng phòng)
-const MGR_B = 25 // Cấp 3, phòng B
-const SUPER = 40 // Cấp 4
+const SUPER = 40 // Cấp 3, không thuộc phòng ban nào
+const SUPER_B = 41 // Cấp 3 khác, có gán phòng ban B
 const VIEWER = 50 // Cấp 1
 
 const DIRECTORY: Record<number, { roleCode: AuthUser['roleCode']; departmentId: number | null }> = {
   [EMP_A]: { roleCode: 'employee', departmentId: DEPT_A },
   [EMP_A2]: { roleCode: 'employee', departmentId: DEPT_A },
   [EMP_B]: { roleCode: 'employee', departmentId: DEPT_B },
-  [MGR_A]: { roleCode: 'dept_manager', departmentId: DEPT_A },
-  [MGR_A2]: { roleCode: 'dept_manager', departmentId: DEPT_A },
-  [MGR_B]: { roleCode: 'dept_manager', departmentId: DEPT_B },
   [SUPER]: { roleCode: 'super_admin', departmentId: null },
+  [SUPER_B]: { roleCode: 'super_admin', departmentId: DEPT_B },
   [VIEWER]: { roleCode: 'viewer', departmentId: null },
 }
 
@@ -79,7 +78,7 @@ interface Mocks {
   }
   storage: { isAllowedVideoType: jest.Mock; isWithinLimit: jest.Mock; createVideoUploadUrl: jest.Mock; stat: jest.Mock; delete: jest.Mock; putThumbnail: jest.Mock }
   versions: { findOne: jest.Mock; save: jest.Mock; create: jest.Mock }
-  users: { getDepartmentId: jest.Mock; getRoleAndDepartment: jest.Mock }
+  users: { getDepartmentId: jest.Mock }
 }
 
 function setup(film: Film | null = filmOwnedByOwner): Mocks {
@@ -131,15 +130,12 @@ function setup(film: Film | null = filmOwnedByOwner): Mocks {
     putThumbnail: jest.fn().mockResolvedValue('thumb-x.jpg'),
   }
   const notifications = { notify: jest.fn() }
-  // UsersService giả lập DANH BẠ THẬT trong DB. Quan trọng: `assertCanManage` phải đọc vai
-  // trò/phòng ban từ đây (DB) chứ không từ token — nên test cố tình cho `AuthUser.roleCode`
-  // và danh bạ khớp nhau, và có riêng một ca kiểm chứng service thực sự gọi vào danh bạ.
+  // UsersService giả lập DANH BẠ THẬT trong DB. Ở bản 3 cấp phẳng nó CHỈ còn phục vụ snapshot
+  // `films.department_id` lúc tạo phim — đường kiểm quyền không được chạm vào nó (có ca test
+  // riêng khẳng định điều này).
   const users = {
     getDepartmentId: jest.fn().mockImplementation((id: number) =>
       Promise.resolve(DIRECTORY[id]?.departmentId ?? null),
-    ),
-    getRoleAndDepartment: jest.fn().mockImplementation((id: number) =>
-      Promise.resolve(DIRECTORY[id] ?? null),
     ),
   }
 
@@ -193,77 +189,47 @@ describe('FilmsService — owner policy (assertCanManage)', () => {
     expect(films.remove).not.toHaveBeenCalled()
   })
 
-  // ── Cấp 3 (dept_manager) ──────────────────────────────────────────────────
-  it('CẤP 3 sửa/xoá được phim của CẤP 2 CÙNG phòng ban', async () => {
-    const { service, films } = setup()
-    await service.remove(actor(MGR_A, 'dept_manager'), 1)
-    expect(films.remove).toHaveBeenCalled()
-  })
-
-  it('CẤP 3 KHÔNG sửa được phim của Cấp 2 ở PHÒNG BAN KHÁC', async () => {
+  it('CẤP 2 KHÔNG sửa được phim của Cấp 2 ở PHÒNG BAN KHÁC (vẫn chỉ phim của mình)', async () => {
     const { service } = setup(filmBy(EMP_B, DEPT_B))
-    await expect(service.update(actor(MGR_A, 'dept_manager'), 1, dto as never)).rejects.toThrow(
-      /cùng phòng ban/,
+    await expect(service.update(actor(EMP_A, 'employee'), 1, dto as never)).rejects.toThrow(
+      /phim của chính mình/,
     )
   })
 
-  it('CẤP 3 KHÔNG sửa được phim của CẤP 3 KHÁC cùng phòng ban', async () => {
-    const { service } = setup(filmBy(MGR_A2, DEPT_A))
-    await expect(service.update(actor(MGR_A, 'dept_manager'), 1, dto as never)).rejects.toThrow(
-      ForbiddenException,
-    )
-  })
-
-  it('CẤP 3 KHÔNG sửa được phim của CẤP 4 (dù snapshot phòng ban trùng)', async () => {
-    const { service } = setup(filmBy(SUPER, DEPT_A))
-    await expect(service.update(actor(MGR_A, 'dept_manager'), 1, dto as never)).rejects.toThrow(
-      ForbiddenException,
-    )
-  })
-
-  it('CẤP 3 sửa được phim CỦA CHÍNH MÌNH (kế thừa quyền Cấp 2)', async () => {
-    const { service, films } = setup(filmBy(MGR_A, DEPT_A))
-    await service.remove(actor(MGR_A, 'dept_manager'), 1)
-    expect(films.remove).toHaveBeenCalled()
-  })
-
-  it('phim chưa có phòng ban (department_id NULL) → CẤP 3 KHÔNG quản lý được', async () => {
-    const { service } = setup(filmBy(EMP_A, null))
-    await expect(service.update(actor(MGR_A, 'dept_manager'), 1, dto as never)).rejects.toThrow(
-      ForbiddenException,
-    )
-  })
-
-  it('CẤP 3 chưa được gán phòng ban → NULL không được coi là "trùng NULL"', async () => {
-    const { service, users } = setup(filmBy(EMP_A, null))
-    users.getDepartmentId.mockResolvedValue(null)
-    await expect(service.update(actor(MGR_A, 'dept_manager'), 1, dto as never)).rejects.toThrow(
-      ForbiddenException,
-    )
-  })
-
-  it('phòng ban của CẤP 3 được đọc từ DB, KHÔNG từ token (chống token cũ giữ quyền cũ)', async () => {
-    const { service, users } = setup()
-    await service.remove(actor(MGR_A, 'dept_manager'), 1)
-    expect(users.getDepartmentId).toHaveBeenCalledWith(MGR_A)
-    expect(users.getRoleAndDepartment).toHaveBeenCalledWith(OWNER_ID)
-  })
-
-  it('CẤP 3 bị chuyển sang phòng khác trong DB → mất quyền ngay, dù token chưa hết hạn', async () => {
-    const { service, users } = setup()
-    users.getDepartmentId.mockResolvedValue(DEPT_B) // DB nói: giờ thuộc phòng B
-    await expect(service.update(actor(MGR_A, 'dept_manager'), 1, dto as never)).rejects.toThrow(
-      ForbiddenException,
-    )
-  })
-
-  // ── Cấp 4 (super_admin) ───────────────────────────────────────────────────
-  it('CẤP 4 xoá được phim của mọi người, mọi phòng ban', async () => {
-    for (const f of [filmBy(EMP_A, DEPT_A), filmBy(EMP_B, DEPT_B), filmBy(MGR_B, DEPT_B), filmBy(EMP_A, null)]) {
+  // ── Cấp 3 (super_admin) — PHẲNG, không giới hạn phòng ban ──────────────────
+  it('CẤP 3 sửa/xoá được phim của MỌI người, MỌI phòng ban (kể cả phòng ban khác mình)', async () => {
+    const cases: Array<[string, ReturnType<typeof filmBy>]> = [
+      ['phim của Cấp 2 phòng A', filmBy(EMP_A, DEPT_A)],
+      ['phim của Cấp 2 phòng B', filmBy(EMP_B, DEPT_B)],
+      ['phim của Cấp 3 khác', filmBy(SUPER_B, DEPT_B)],
+      ['phim chưa có phòng ban (NULL)', filmBy(EMP_A, null)],
+    ]
+    for (const [label, f] of cases) {
       const { service, films } = setup(f)
       await service.remove(actor(SUPER, 'super_admin'), 1)
       expect(films.remove).toHaveBeenCalled()
+      expect(label).toBeTruthy()
     }
+  })
+
+  it('CẤP 3 CÓ gán phòng ban vẫn sửa được phim của phòng ban KHÁC (khác hẳn bản 4 cấp)', async () => {
+    const { service, films } = setup(filmBy(EMP_A, DEPT_A)) // phim phòng A
+    await service.remove(actor(SUPER_B, 'super_admin'), 1) // actor thuộc phòng B
+    expect(films.remove).toHaveBeenCalled()
+  })
+
+  it('quyết định phân quyền KHÔNG đọc phòng ban của ai (phẳng — không còn scope theo phòng ban)', async () => {
+    // Chốt chặn hồi quy: nếu ai đó thêm lại điều kiện department_id vào assertCanManage thì
+    // đường kiểm quyền sẽ phải gọi UsersService và ca này đỏ ngay.
+    const { service, users } = setup(filmBy(EMP_B, DEPT_B))
+    await service.remove(actor(SUPER, 'super_admin'), 1)
+    expect(users.getDepartmentId).not.toHaveBeenCalled()
+
+    const denied = setup(filmBy(EMP_B, DEPT_B))
+    await expect(denied.service.update(actor(EMP_A, 'employee'), 1, dto as never)).rejects.toThrow(
+      ForbiddenException,
+    )
+    expect(denied.users.getDepartmentId).not.toHaveBeenCalled()
   })
 
   it('phim không tồn tại → 404 (không lộ thành 403 hay ngược lại)', async () => {
@@ -386,7 +352,7 @@ describe('FilmsService — đếm lượt xem (ADR-023 + sửa race condition G�
   })
 })
 
-describe('FilmsService.create — snapshot phòng ban của người tạo (ADR-042)', () => {
+describe('FilmsService.create — snapshot phòng ban của người tạo (truy vết, ADR-046)', () => {
   /**
    * `uniqueSlug` lặp tới khi tìm được slug chưa dùng, nên lần `findOne` ĐẦU phải trả null
    * (slug còn trống); các lần sau trả phim để `getBySlug` cuối hàm có dữ liệu.
@@ -400,7 +366,8 @@ describe('FilmsService.create — snapshot phòng ban của người tạo (ADR-
 
   it('department_id lấy từ DB của người tạo, KHÔNG nhận từ DTO client gửi', async () => {
     const { service, films, users } = setupForCreate()
-    // Client cố khai một phòng ban khác để chiếm scope quyền — phải bị bỏ qua hoàn toàn.
+    // Client cố khai một phòng ban khác — dù ở bản này phòng ban không đổi được quyền, dữ
+    // liệu truy vết bị client bịa cũng làm mọi báo cáo dựa trên nó vô nghĩa → phải bỏ qua.
     await service.create(actor(EMP_B, 'employee'), {
       title: 'Phim mới',
       categoryId: 1,

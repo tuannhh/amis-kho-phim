@@ -23,12 +23,11 @@ import {
 } from './usersApi'
 
 /**
- * Quản trị người dùng — RBAC 4 CẤP CÓ SCOPE PHÒNG BAN (ADR-040).
+ * Quản trị người dùng — RBAC 3 CẤP PHẲNG (ADR-045).
  *
- * CHỈ Cấp 4 (`super_admin`) vào được màn này; gán được Cấp 1/2/3 và phòng ban, KHÔNG gán được
- * Cấp 4 khác. Phòng ban là bắt buộc về mặt NGHIỆP VỤ với Cấp 2/Cấp 3 (không có phòng ban thì
- * Trưởng phòng không quản được ai) nên form cảnh báo rõ khi để trống — nhưng vẫn cho lưu, vì
- * backend cho phép null và có thể gán sau.
+ * CHỈ Cấp 3 (`super_admin`) vào được màn này; gán được Cấp 1/Cấp 2 và phòng ban, KHÔNG gán
+ * được Cấp 3 khác. Phòng ban ở bản này KHÔNG ảnh hưởng quyền (ADR-046) — chỉ dùng để truy
+ * vết/đối soát, nên form không cảnh báo khi để trống.
  *
  * Quyền THỰC do backend kiểm (RolesGuard + service); FE chỉ ẩn/hiện nút cho UX.
  */
@@ -109,8 +108,8 @@ function formatDate(iso: string): string {
 }
 
 /**
- * Ai được sửa/khoá/xoá ai — khớp `UsersService.assertCanManage`: chỉ Cấp 4, không tự tác động
- * chính mình, không đụng Cấp 4 khác. Chỉ để ẩn/hiện nút (backend vẫn chặn thật).
+ * Ai được sửa/khoá/xoá ai — khớp `UsersService.assertCanManage`: chỉ Cấp 3, không tự tác động
+ * chính mình, không đụng Cấp 3 khác. Chỉ để ẩn/hiện nút (backend vẫn chặn thật).
  */
 function canManage(row: ApiUser) {
   if (row.id === auth.user?.id) return false
@@ -128,10 +127,13 @@ const form = reactive({
   tempPassword: '',
 })
 
-/** Cảnh báo mềm: Cấp 2/Cấp 3 không có phòng ban thì scope quyền không có ý nghĩa thực tế. */
+/**
+ * Gợi ý mềm: phòng ban KHÔNG ảnh hưởng quyền ở bản 3 cấp phẳng, nhưng để trống thì phim do
+ * người này tạo sẽ không có dữ liệu truy vết phòng ban.
+ */
 const departmentWarning = computed(() =>
-  form.departmentId === NO_DEPARTMENT && (form.role === 'employee' || form.role === 'dept_manager')
-    ? 'Cấp này nên thuộc một phòng ban: Trưởng phòng không có phòng ban sẽ không quản lý được phim của ai.'
+  form.departmentId === NO_DEPARTMENT && form.role === 'employee'
+    ? 'Chưa gán phòng ban: phim do tài khoản này tạo sẽ không có thông tin phòng ban để truy vết. Không ảnh hưởng quyền.'
     : '',
 )
 
@@ -159,15 +161,15 @@ function openCreate() {
 }
 
 // ── Sửa tài khoản: đổi vai trò + phòng ban ─────────────────────────────────
-// Cần thiết vì Cấp 1 và Cấp 3 là hai cấp MỚI — không tài khoản nào tự động chuyển sang khi
-// migrate RBAC, Cấp 4 phải tự gán lại ở đây (ADR-041).
+// Cần thiết vì Cấp 1 (`viewer`) là cấp MỚI — không tài khoản nào tự động chuyển sang khi
+// migrate RBAC, Cấp 3 phải tự gán lại ở đây (ADR-047).
 const editOpen = ref(false)
 const editing = ref<ApiUser | null>(null)
 const editForm = reactive({ role: undefined as AssignableRole | undefined, departmentId: NO_DEPARTMENT as number })
 
 function openEdit(row: ApiUser) {
   editing.value = row
-  // Tài khoản đang là Cấp 4 không sửa được (canManage đã chặn), nên role luôn nằm trong danh
+  // Tài khoản đang là Cấp 3 không sửa được (canManage đã chặn), nên role luôn nằm trong danh
   // sách gán được.
   editForm.role = row.roleCode === 'super_admin' ? undefined : (row.roleCode as AssignableRole)
   editForm.departmentId = row.departmentId ?? NO_DEPARTMENT
@@ -421,8 +423,8 @@ async function copyPassword() {
             placeholder="Chọn phòng ban"
           />
           <p class="mt-1 text-[12px]" style="color: var(--mds-text-secondary)">
-            Đổi phòng ban có hiệu lực NGAY với quyền của Trưởng phòng — phim đã tạo vẫn giữ phòng
-            ban lúc tạo.
+            Phòng ban chỉ dùng để truy vết, KHÔNG ảnh hưởng quyền sửa/xoá phim — phim đã tạo vẫn
+            giữ phòng ban lúc tạo.
           </p>
         </div>
       </div>

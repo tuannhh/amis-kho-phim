@@ -1,12 +1,13 @@
 import { Entity, PrimaryGeneratedColumn, Column, Index, CreateDateColumn } from 'typeorm'
 
 /**
- * Phòng ban — danh mục tổ chức dùng để SCOPE quyền của Cấp 3 (Trưởng phòng) theo
- * `users.department_id` và `films.department_id` (ADR-040/042).
+ * Phòng ban — danh mục tổ chức gắn vào `users.department_id`, `films.department_id`,
+ * `categories.department_id`.
  *
- * Danh mục này ảnh hưởng trực tiếp tới ranh giới phân quyền, nên quyền ghi giới hạn ở
- * cấp cao nhất (Cấp 4) — đúng `02-security-baseline.md` §2 ("endpoint quản lý danh mục
- * dùng chung toàn hệ thống nên giới hạn quyền ghi ở cấp cao nhất").
+ * Ở bản RBAC 3 CẤP PHẲNG (ADR-045/046) danh mục này KHÔNG scope quyền của ai cả — thuần
+ * TRUY VẾT/báo cáo. Quyền ghi vẫn giới hạn ở cấp cao nhất (Cấp 3 `super_admin`) đúng
+ * `02-security-baseline.md` §2 ("endpoint quản lý danh mục dùng chung toàn hệ thống nên
+ * giới hạn quyền ghi ở cấp cao nhất").
  */
 @Entity({ name: 'departments' })
 export class Department {

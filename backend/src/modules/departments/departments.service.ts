@@ -97,10 +97,9 @@ export class DepartmentsService {
    * Xoá phòng ban — CHẶN nếu còn bản ghi tham chiếu (người dùng, phim, chuyên mục).
    *
    * Cố ý KHÔNG dựa vào `ON DELETE SET NULL` của khoá ngoại ở đây: xoá âm thầm sẽ làm
-   * `films.department_id` về NULL, tức là phim mất ngữ cảnh phòng ban lúc tạo và Cấp 3
-   * lặng lẽ mất quyền quản lý chúng. Với dữ liệu quyết định phân quyền, thà từ chối rõ
-   * ràng còn hơn thay đổi phạm vi quyền mà không ai biết (nguyên tắc 1: bảo mật trước
-   * tiện lợi). `ON DELETE SET NULL` giữ lại chỉ như lưới an toàn ở tầng DB.
+   * `films.department_id`/`users.department_id` về NULL, tức là mất trắng dữ liệu truy vết
+   * của hàng loạt bản ghi mà không ai biết. Thà từ chối rõ ràng còn hơn phá dữ liệu lịch sử
+   * trong im lặng. `ON DELETE SET NULL` giữ lại chỉ như lưới an toàn ở tầng DB.
    */
   async remove(actor: AuthUser, id: number): Promise<void> {
     const entity = await this.repo.findOne({ where: { id } })

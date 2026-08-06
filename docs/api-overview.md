@@ -11,26 +11,29 @@
 - Xác thực: header `Authorization: Bearer <accessToken>`. Access token sống 15 phút, refresh
   token 7 ngày (ADR-012). Guard toàn cục `JwtAuthGuard` bảo vệ **mọi** route trừ route gắn
   `@Public`. Frontend (`lib/http.ts`) tự gắn token và tự refresh một lần khi gặp 401.
-- **Vai trò — RBAC 4 CẤP CÓ SCOPE PHÒNG BAN** (cột `users.role_code`, cập nhật 2026-08-05,
-  ADR-040 → 044). Vai trò `admin` cũ **KHÔNG CÒN TỒN TẠI**:
+- **Vai trò — RBAC 3 CẤP PHẲNG** (cột `users.role_code`, cập nhật 2026-08-06,
+  ADR-045 → 047). Vai trò `admin` cũ **KHÔNG CÒN TỒN TẠI**:
 
   | Cấp | `role_code` | Nhãn | Quyền |
   |---|---|---|---|
   | 1 | `viewer` | Người xem | CHỈ xem phim/chuyên mục, ghi lượt xem |
   | 2 | `employee` | Nhân viên văn phòng | + tạo phim, sửa/xoá phim **của chính mình** |
-  | 3 | `dept_manager` | Trưởng phòng | + sửa/xoá phim của **mọi Cấp 2 CÙNG phòng ban** |
-  | 4 | `super_admin` | Quản trị cao nhất | + mọi phòng ban + toàn bộ quyền quản trị hệ thống |
+  | 3 | `super_admin` | Quản trị cao nhất | + sửa/xoá **MỌI** phim (không giới hạn phòng ban) + toàn bộ quyền quản trị hệ thống |
 
-  Phòng ban lấy từ `users.department_id`; phim mang **snapshot** `films.department_id` của người tạo
-  tại thời điểm tạo (ADR-042). Cấp 3 chỉ quản phim do **Cấp 2** tạo, không quản phim của Cấp 3 khác.
+  **PHẲNG**: `department_id` (ở `users`/`films`/`categories`) và bảng `departments` vẫn tồn tại
+  nhưng CHỈ để **truy vết**, KHÔNG tham gia quyết định quyền (ADR-046). Phim vẫn mang **snapshot**
+  `films.department_id` của người tạo tại thời điểm tạo.
+
+  > Nhánh song song `phan-quyen-4-cap` cài đặt phương án 4 cấp có scope phòng ban (thêm
+  > `dept_manager`) để so sánh — xem ADR-045.
 - Lỗi trả về theo chuẩn Nest: `{ statusCode, message, error }`; `message` có thể là mảng khi
   DTO validate fail. Toàn bộ thông điệp bằng tiếng Việt.
 - Mã trạng thái hay gặp: `401` chưa/không hợp lệ token · `403` sai vai trò hoặc không phải
   chủ sở hữu · `404` không tồn tại · `409` trùng dữ liệu · `429` vượt giới hạn tần suất.
 
 Ký hiệu cột "Ai gọi được": **Công khai** = không cần đăng nhập · **Đã đăng nhập** = mọi vai trò (kể
-cả Cấp 1) · **Cấp 2+** = `employee`/`dept_manager`/`super_admin` · **Cấp 4** = chỉ `super_admin` ·
-**Quản lý được phim** = chủ sở hữu, hoặc Trưởng phòng cùng phòng ban (với phim của Cấp 2), hoặc Cấp 4.
+cả Cấp 1) · **Cấp 2+** = `employee`/`super_admin` · **Cấp 3** = chỉ `super_admin` ·
+**Quản lý được phim** = chủ sở hữu, hoặc Cấp 3 (với bất kỳ phim nào).
 
 ---
 
@@ -56,43 +59,42 @@ phân quyền của Cấp 3 nên áp quyền tối thiểu (`02-security-baselin
 
 | Method | Đường dẫn | Ai gọi được | Mô tả |
 |---|---|---|---|
-| GET | `/api/departments` | Cấp 4 | Danh sách phòng ban kèm `userCount` (số người dùng đang thuộc). |
-| POST | `/api/departments` | Cấp 4 | Tạo (`{ name }`). Trùng tên → `409` (unique index ở DB). |
-| PATCH | `/api/departments/:id` | Cấp 4 | Đổi tên. Trùng tên → `409`. |
-| DELETE | `/api/departments/:id` | Cấp 4 | Xoá. **`409` nếu còn user/phim/chuyên mục tham chiếu** — thông điệp nêu rõ số bản ghi từng loại. Trả `204` khi thành công. |
+| GET | `/api/departments` | Cấp 3 | Danh sách phòng ban kèm `userCount` (số người dùng đang thuộc). |
+| POST | `/api/departments` | Cấp 3 | Tạo (`{ name }`). Trùng tên → `409` (unique index ở DB). |
+| PATCH | `/api/departments/:id` | Cấp 3 | Đổi tên. Trùng tên → `409`. |
+| DELETE | `/api/departments/:id` | Cấp 3 | Xoá. **`409` nếu còn user/phim/chuyên mục tham chiếu** — thông điệp nêu rõ số bản ghi từng loại. Trả `204` khi thành công. |
 
 ## `users` — Quản trị người dùng
 
-Cả controller gắn `@Roles('super_admin')` — **chỉ Cấp 4**; Cấp 1/2/3 gọi bất kỳ route nào cũng `403`.
-(Trước 2026-08-05 là `super_admin`+`admin`; `admin` đã bị loại bỏ và migrate sang Cấp 4 — ADR-041.)
+Cả controller gắn `@Roles('super_admin')` — **chỉ Cấp 3**; Cấp 1/Cấp 2 gọi bất kỳ route nào cũng `403`.
+(Trước đây là `super_admin`+`admin`; `admin` đã bị loại bỏ và migrate sang Cấp 3 — ADR-047.)
 Chi tiết "ai quản lý được ai" kiểm thêm ở tầng service:
 
 - Không ai được tự sửa/khoá/xoá chính mình.
-- Cấp 4 quản lý được Cấp 1/2/3, **không** đụng được Cấp 4 khác.
-- Gán vai trò: Cấp 4 gán được `viewer`/`employee`/`dept_manager`. **Không ai gán được
-  `super_admin` qua API** (DTO chặn, trả `400`) — giá trị `admin` cũ cũng bị chặn.
-- Cấp 3 (`dept_manager`) **KHÔNG** có quyền quản trị tài khoản (khác hẳn `admin` cũ).
+- Cấp 3 quản lý được Cấp 1/Cấp 2, **không** đụng được Cấp 3 khác.
+- Gán vai trò: Cấp 3 gán được `viewer`/`employee`. **Không ai gán được `super_admin` qua API**
+  (DTO chặn, trả `400`) — giá trị `admin` cũ và `dept_manager` (nhánh 4 cấp) cũng bị chặn.
 
 | Method | Đường dẫn | Ai gọi được | Mô tả |
 |---|---|---|---|
-| GET | `/api/users` | Cấp 4 | Danh sách người dùng, kèm `departmentId` (không bao giờ kèm `password_hash`). |
-| POST | `/api/users` | Cấp 4 | Tạo tài khoản (`{ email, fullName, roleCode, departmentId?, password? }`). `departmentId` được validate tồn tại thật. Bỏ trống `password` → hệ thống sinh mật khẩu tạm 12 ký tự và trả về **một lần duy nhất** trong response. |
-| PATCH | `/api/users/:id` | Cấp 4 | **[MỚI]** Đổi vai trò và/hoặc phòng ban (`{ roleCode?, departmentId? }`). Thiếu trường = không đổi; `departmentId: null` = **bỏ gán** phòng ban. Cần thiết vì Cấp 1/Cấp 3 là hai cấp mới, không tài khoản nào tự động chuyển sang khi migrate. |
-| PATCH | `/api/users/:id/status` | Cấp 4 | Khoá/mở khoá (`{ isActive: boolean }`). |
-| DELETE | `/api/users/:id` | Cấp 4 | Xoá tài khoản. Trả `204`. |
+| GET | `/api/users` | Cấp 3 | Danh sách người dùng, kèm `departmentId` (không bao giờ kèm `password_hash`). |
+| POST | `/api/users` | Cấp 3 | Tạo tài khoản (`{ email, fullName, roleCode, departmentId?, password? }`). `departmentId` được validate tồn tại thật. Bỏ trống `password` → hệ thống sinh mật khẩu tạm 12 ký tự và trả về **một lần duy nhất** trong response. |
+| PATCH | `/api/users/:id` | Cấp 3 | **[MỚI]** Đổi vai trò và/hoặc phòng ban (`{ roleCode?, departmentId? }`). Thiếu trường = không đổi; `departmentId: null` = **bỏ gán** phòng ban. Cần thiết vì Cấp 1/Cấp 3 là hai cấp mới, không tài khoản nào tự động chuyển sang khi migrate. |
+| PATCH | `/api/users/:id/status` | Cấp 3 | Khoá/mở khoá (`{ isActive: boolean }`). |
+| DELETE | `/api/users/:id` | Cấp 3 | Xoá tài khoản. Trả `204`. |
 
 ## `categories` — Chuyên mục (cây cha–con)
 
-Đọc: mọi người đã đăng nhập. **Ghi (tạo/sửa/xoá): chỉ Cấp 4** (`@Roles('super_admin')`, đổi từ
-`super_admin`+`admin` — ADR-044). Chuyên mục là danh mục dùng chung toàn công ty, KHÔNG scope theo
-phòng ban; 2 cột `created_by`/`department_id` mới chỉ để truy vết (ADR-042).
+Đọc: mọi người đã đăng nhập. **Ghi (tạo/sửa/xoá): chỉ Cấp 3** (`@Roles('super_admin')`, đổi từ
+`super_admin`+`admin` — ADR-047). Chuyên mục là danh mục dùng chung toàn công ty; 2 cột
+`created_by`/`department_id` chỉ để truy vết (ADR-046).
 
 | Method | Đường dẫn | Ai gọi được | Mô tả |
 |---|---|---|---|
 | GET | `/api/categories` | Đã đăng nhập | Cây chuyên mục đầy đủ. |
-| POST | `/api/categories` | Cấp 4 | Tạo chuyên mục (`parentId` tuỳ chọn). Slug do BE tự sinh (ADR-015). |
-| PATCH | `/api/categories/:id` | Cấp 4 | Sửa tên/mô tả. **Không đổi được chuyên mục cha** (tránh tạo vòng lặp). |
-| DELETE | `/api/categories/:id` | Cấp 4 | Xoá. Trả `204`. |
+| POST | `/api/categories` | Cấp 3 | Tạo chuyên mục (`parentId` tuỳ chọn). Slug do BE tự sinh (ADR-015). |
+| PATCH | `/api/categories/:id` | Cấp 3 | Sửa tên/mô tả. **Không đổi được chuyên mục cha** (tránh tạo vòng lặp). |
+| DELETE | `/api/categories/:id` | Cấp 3 | Xoá. Trả `204`. |
 
 ## `films` — Phim (metadata, link ngoài, storage, lượt xem)
 
@@ -136,14 +138,14 @@ Mỗi người chỉ đọc được thông báo **của chính mình** (lọc t
 
 ## `reports` — Báo cáo quản trị
 
-Cả controller gắn `@Roles('super_admin')` — **chỉ Cấp 4**. Cố ý KHÔNG mở cho Cấp 3: báo cáo là xuất dữ
-liệu hàng loạt có PII và đặc tả chỉ nói Cấp 4 xem báo cáo toàn công ty (ADR-044). Nếu cần Trưởng phòng
-xem báo cáo **của phòng mình** thì đó là yêu cầu mới (phải thêm bộ lọc theo `department_id`).
+Cả controller gắn `@Roles('super_admin')` — **chỉ Cấp 3**. Cố ý KHÔNG mở cho Cấp 2: báo cáo là xuất dữ
+liệu hàng loạt có PII và đặc tả không nhắc quyền báo cáo của Cấp 2. Nếu cần mở rộng thì đó là yêu cầu
+mới, không tự suy diễn.
 
 | Method | Đường dẫn | Ai gọi được | Mô tả |
 |---|---|---|---|
-| GET | `/api/reports/films` | Cấp 4 | Ai upload bao nhiêu phim trong kỳ + danh sách phim. Lọc: `uploaderId`, `from`, `to` (`YYYY-MM-DD`). |
-| GET | `/api/reports/films?format=csv` | Cấp 4 | Cùng endpoint, trả file CSV (BOM UTF-8 để Excel hiện tiếng Việt đúng — ADR-026). Ô bắt đầu bằng `= + - @` được vô hiệu hoá chống CSV injection (GĐ7). |
+| GET | `/api/reports/films` | Cấp 3 | Ai upload bao nhiêu phim trong kỳ + danh sách phim. Lọc: `uploaderId`, `from`, `to` (`YYYY-MM-DD`). |
+| GET | `/api/reports/films?format=csv` | Cấp 3 | Cùng endpoint, trả file CSV (BOM UTF-8 để Excel hiện tiếng Việt đúng — ADR-026). Ô bắt đầu bằng `= + - @` được vô hiệu hoá chống CSV injection (GĐ7). |
 
 ## `media` — Phát video/ảnh (NGOÀI prefix `/api`)
 

@@ -7,7 +7,7 @@ import { User } from '../modules/users/entities/user.entity'
 
 /**
  * Seed lúc khởi động (idempotent — chạy nhiều lần không nhân đôi):
- *  1. 4 vai trò tĩnh viewer/employee/dept_manager/super_admin (RBAC 4 cấp, ADR-040).
+ *  1. 3 vai trò tĩnh viewer/employee/super_admin (RBAC 3 cấp phẳng, ADR-045).
  *  2. Tài khoản super_admin đầu tiên từ .env (SEED_SUPER_ADMIN_*).
  * Chạy sau khi migration đã tạo bảng (migrationsRun=true khi init DataSource).
  */
