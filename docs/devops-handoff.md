@@ -38,6 +38,27 @@ có test phủ ở `security.config.spec.ts`.
 
 ---
 
+## 0b. Tài khoản Cấp cao nhất (`super_admin`) — KHÔNG gán được qua UI/API, đây là chủ đích
+
+Dropdown chọn vai trò ở màn Quản trị người dùng chỉ hiện các vai trò THẤP HƠN cấp cao nhất
+(3/4 vai trò). Đây không phải thiếu sót — nếu để `super_admin` xuất hiện trong danh sách chọn
+qua UI/API, một tài khoản cấp thấp hơn (hoặc kẻ khai thác lỗ hổng khác) có thể tự phong mình
+lên cấp cao nhất. Quyết định này đã được chủ dự án xác nhận (2026-08-05): **vẫn giữ khả năng
+tồn tại tài khoản `super_admin` ở tầng dữ liệu (migration/seed), chỉ cố ý không lộ ra UI/API.**
+
+**Cách tạo tài khoản `super_admin` đầu tiên khi triển khai thật**: thao tác trực tiếp trên
+database (không qua web), ví dụ:
+
+```sql
+UPDATE users SET role_code = 'super_admin' WHERE email = '<email-người-quản-trị-đầu-tiên>';
+```
+
+Sau khi có 1 tài khoản `super_admin`, các tài khoản `super_admin` tiếp theo (nếu cần) cũng
+phải tạo bằng cách này — KHÔNG bổ sung `super_admin` vào dropdown UI để "cho tiện" mà chưa
+đánh giá lại rủi ro tự leo quyền.
+
+---
+
 ## 1. Biến môi trường — rà trước khi lên prod
 
 Nguồn đầy đủ: `.env.example`. Cột "Bắt buộc đổi" là bắt buộc theo nghĩa đen — hệ thống chặn
