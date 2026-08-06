@@ -4,6 +4,14 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
+- **Việc mới nhất: ĐỢT SỬA 5 VẤN ĐỀ TỪ TEST THỰC TẾ — ✅ XONG (2026-08-06, Opus 5), áp dụng
+  CẢ HAI NHÁNH.** Trong đó 4 việc là bug/UX thật đã sửa (ẩn Chuyên mục với Cấp 1, bỏ chữ kỹ
+  thuật, thiết kế lại nhập hashtag, YouTube Error 153) và **1 việc xác định KHÔNG phải bug**
+  (nút upload/xuất bản chạy đúng — do thao tác thiếu chọn Chuyên mục). Xem nhật ký ngay dưới +
+  ADR-048, ADR-049.
+- ⚠️ **ĐANG CÓ HAI NHÁNH RBAC SONG SONG CHỜ NGƯỜI DÙNG CHỌN** (chưa nhánh nào merge vào `main`):
+  `phan-quyen-4-cap` (4 cấp có scope phòng ban — **nhánh của file này**) và `phan-quyen-3-cap`
+  (3 cấp phẳng). Xem nhật ký ngay dưới + ADR-040→044.
 - **Việc PHÁT SINH mới nhất (ngoài roadmap): RBAC 4 CẤP CÓ SCOPE PHÒNG BAN — ✅ XONG
   (2026-08-05, Opus 5).** Thay thế HOÀN TOÀN 3 vai trò cũ `super_admin`/`admin`/`employee`.
   Xem "Nhật ký RBAC 4 cấp" ngay dưới + ADR-040→044. **Tổng test: 174 unit BE + 82 tích hợp
@@ -22,6 +30,62 @@
   đắn dữ liệu thật** mà unit test không thể thấy: race condition ở `recordView` (ADR-036) và
   phụ thuộc ngầm vào múi giờ Node↔MySQL (ADR-037). **Tổng 201 test tự động.**
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
+
+## Nhật ký ĐỢT SỬA 5 VẤN ĐỀ TỪ TEST THỰC TẾ CỦA NGƯỜI DÙNG — 2026-08-06 — ✅ XONG (áp dụng CẢ 2 NHÁNH)
+
+> Người dùng tự test bản 3 cấp trên Docker `localhost:8180` và báo 5 vấn đề. Cả 5 đều là
+> bug/UX **chung**, không liên quan khác biệt RBAC → đã áp dụng y hệt lên cả
+> `phan-quyen-3-cap` và `phan-quyen-4-cap`. ADR mới: **ADR-048** (hashtag), **ADR-049** (YouTube).
+
+| # | Vấn đề người dùng báo | Kết luận | Đã làm |
+|---|---|---|---|
+| 1 | Sidebar "Chuyên mục" hiện với Cấp 1 (viewer) | Bug thật | Ẩn menu + chặn route |
+| 2 | Chữ kỹ thuật "(MinIO)/storage" trong form Thêm phim | Đúng, khó hiểu | Viết lại bằng lời nghiệp vụ |
+| 3 | Hashtag không thêm được | Bug thật + đổi yêu cầu | Thiết kế lại control (ADR-048) |
+| 4 | Nút upload "đang không chạy" | **KHÔNG phải bug** | Đã tái hiện thật — chạy đúng |
+| 5 | Video YouTube "Error 153" | **Bug thật** (không phải dữ liệu demo) | Sửa `referrerpolicy` (ADR-049) |
+
+**1. Ẩn "Chuyên mục" với Cấp 1.** `App.vue`: mục sidebar `categories` thêm `roles:
+FILM_WRITE_ROLES`. `router/index.ts`: route `/categories` thêm `meta.roles` — ẩn menu KHÔNG đủ,
+phải chặn cả gõ thẳng URL. *Verify:* đăng nhập `xem@misa.com.vn` → sidebar chỉ còn đúng "Kho
+phim"; gõ `/categories` → bị đẩy về `/films`.
+
+**2. Bỏ chữ kỹ thuật.** `FilmUploadView.vue`: "Tải phim lên storage nội bộ (MinIO)" → **"Tải phim
+lên"**; bỏ câu "File được lưu trực tiếp lên storage… (tua/seek)" → "Chọn 1 trong 2 cách: tải
+thẳng tệp phim lên…, hoặc dán link…"; ảnh bìa bỏ "được lưu lên storage" → "Bỏ trống thì hệ thống
+tự dùng ảnh mặc định theo chuyên mục". Rà thêm toàn FE: `storageUpload.ts` có 2 thông báo lỗi
+**hiện thẳng lên toast** lộ "storage"/"MinIO"/"CORS" → viết lại (giữ mã lỗi để hỗ trợ kỹ thuật
+tra). Các toast còn lại trong app đã thuần tiếng Việt nghiệp vụ, không phải sửa.
+
+**3. Thiết kế lại nhập hashtag — xem ADR-048.** Nguyên nhân gốc: `MCombobox allow-create` emit
+`create` nhưng màn Thêm phim **không lắng nghe** → Enter không làm gì. Không vá, mà dựng
+`HashtagInput.vue` (MInput + chip MTag) + `hashtags.ts::parseHashtags` (+9 test).
+*Verify thật:* gõ đúng chuỗi người dùng mô tả `"MISA, Agentic AI"` → ra **đúng 2 chip**
+`#MISA` và `#Agentic AI` (khoảng trắng trong "Agentic AI" giữ nguyên, KHÔNG bị tách). Xuất bản
+xong kiểm DB: `film_hashtags` của phim mới có đúng 2 dòng `MISA`, `Agentic AI`.
+
+**4. Nút upload — KHÔNG phải bug, đã tái hiện thật.** Không "sửa" gì cho mục này. Bằng chứng:
+- Bấm dropzone → click được chuyển đúng tới `<input type=file>` ẩn (đo bằng listener thật) →
+  hộp chọn file của HĐH mở bình thường. `MUpload.vue` bọc input trong `<label>` + gọi
+  `inputRef.click()`, cả hai đường đều hoạt động.
+- Chọn 1 tệp mp4 → hiện đúng "phim-test-060826.mp4 · 64 KB" kèm dấu tích xanh.
+- Bấm "Xuất bản" khi đã đủ trường → tạo phim thành công, chuyển sang màn Chi tiết, phát được
+  bằng player nội bộ. Tệp lấy về từ storage trả **HTTP 206** (range request) ⇒ tua/seek chạy.
+- **Điều dễ bị hiểu nhầm là "nút chết":** nếu **chưa chọn Chuyên mục** thì bấm "Xuất bản" sẽ
+  KHÔNG gửi request — đúng thiết kế. App có báo đỏ "Vui lòng chọn chuyên mục" và
+  `useFormValidation.focusField()` tự focus + cuộn về trường lỗi. Console sạch, không có request
+  nào lỗi/treo. ⇒ Kết luận: thao tác thiếu bước, không phải lỗi code.
+
+**5. YouTube Error 153 — LÀ BUG THẬT, không phải dữ liệu demo giả.** Giả thuyết ban đầu (link
+giả / chủ video chặn nhúng) đã bị **thực nghiệm bác bỏ** — xem ADR-049 để biết cách chứng minh
+A/B. Nguyên nhân: `Referrer-Policy: no-referrer` của nginx làm iframe không gửi Referer, YouTube
+từ chối khởi tạo player với MỌI video. Sửa: thêm `referrerpolicy="strict-origin-when-cross-origin"`
+vào 2 iframe YouTube/Vimeo trong `VideoPlayer.vue` (không nới header chung).
+*Verify:* trước khi sửa phim "Phim Giới thiệu Tập đoàn MISA - Full 6 phút" hiện Error 153; sau
+khi sửa + rebuild, **video MISA thật phát bình thường** trong app.
+
+**Test sau đợt này (nhánh 4 cấp): 174 unit BE + 82 e2e BE + 52 FE = 308** (trước: 299; +9 test
+`hashtags.spec.ts`). Build BE + FE sạch.
 
 ## Nhật ký RBAC 4 CẤP CÓ SCOPE PHÒNG BAN (việc phát sinh, ngoài roadmap) — 2026-08-05 — ✅ XONG
 

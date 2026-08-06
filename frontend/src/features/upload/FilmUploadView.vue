@@ -5,7 +5,7 @@ import MButton from '@/components/mds/MButton.vue'
 import MInput from '@/components/mds/MInput.vue'
 import MSelect from '@/components/mds/MSelect.vue'
 import MTextarea from '@/components/mds/MTextarea.vue'
-import MCombobox from '@/components/mds/MCombobox.vue'
+import HashtagInput from '@/components/HashtagInput.vue'
 import MUpload from '@/components/mds/MUpload.vue'
 import MDialog from '@/components/mds/MDialog.vue'
 import MIcon from '@/components/mds/MIcon.vue'
@@ -43,10 +43,11 @@ const isEditMode = computed(() => !!editingFilm.value)
 const categoryOptions = computed(() =>
   flattenCategoryTree(categoriesTree.value).map((c) => ({ label: c.name, value: c.id })),
 )
-const hashtagOptions = computed(() => {
-  const set = new Set(store.films.flatMap((f) => f.hashtags))
-  return Array.from(set).map((h) => ({ label: `#${h}`, value: h }))
-})
+// Hashtag đã có sẵn trong kho — đổ vào HashtagInput làm gợi ý bấm nhanh (tránh tạo trùng
+// kiểu "MISA" / "misa" do gõ tay mỗi lúc một khác).
+const hashtagSuggestions = computed(() =>
+  Array.from(new Set(store.films.flatMap((f) => f.hashtags))),
+)
 
 const form = reactive({
   title: '',
@@ -218,7 +219,7 @@ async function uploadAssets(filmId: number): Promise<boolean> {
       hasNewAsset = true
     } catch (e: unknown) {
       videoFileMeta.value[0].status = 'error'
-      videoFileMeta.value[0].errorMessage = e instanceof Error ? e.message : 'Upload video thất bại'
+      videoFileMeta.value[0].errorMessage = e instanceof Error ? e.message : 'Tải phim lên không thành công'
       toast.error(videoFileMeta.value[0].errorMessage!)
       return false
     }
@@ -236,7 +237,7 @@ async function uploadAssets(filmId: number): Promise<boolean> {
       hasNewAsset = true
     } catch (e: unknown) {
       thumbnailMeta.value[0].status = 'error'
-      thumbnailMeta.value[0].errorMessage = e instanceof Error ? e.message : 'Upload ảnh bìa thất bại'
+      thumbnailMeta.value[0].errorMessage = e instanceof Error ? e.message : 'Tải ảnh bìa lên không thành công'
       toast.error(thumbnailMeta.value[0].errorMessage!)
       return false
     }
@@ -441,13 +442,7 @@ function onLeaveSaveDraft() {
               <label class="mb-1 block text-[13px] font-medium" style="color: var(--mds-text-primary)">
                 Hashtag
               </label>
-              <MCombobox
-                v-model="form.hashtags"
-                :options="hashtagOptions"
-                multiple
-                allow-create
-                placeholder="Chọn hoặc thêm hashtag mới"
-              />
+              <HashtagInput v-model="form.hashtags" :suggestions="hashtagSuggestions" />
             </div>
 
             <div class="sm:col-span-2">
@@ -471,7 +466,7 @@ function onLeaveSaveDraft() {
           <div class="flex flex-col gap-5">
             <div>
               <MUpload
-                label="Tải phim lên storage nội bộ (MinIO)"
+                label="Tải phim lên"
                 accept="video/mp4,video/webm,video/ogg,video/quicktime,video/x-matroska"
                 :multiple="false"
                 :maxSizeMB="2048"
@@ -481,8 +476,8 @@ function onLeaveSaveDraft() {
                 @remove="onRemoveVideo"
               />
               <p class="mt-1 text-[12px]" style="color: var(--mds-text-secondary)">
-                Định dạng MP4/WebM/OGG/MOV/MKV. File được lưu trực tiếp lên storage nội bộ và phát
-                được ngay trong app (tua/seek). Hoặc dùng link ngoài bên dưới nếu phim ở nền tảng khác.
+                Chọn 1 trong 2 cách: tải thẳng tệp phim lên (định dạng MP4/WebM/OGG/MOV/MKV), hoặc
+                dán link ở bên dưới nếu phim đã có sẵn trên YouTube/Vimeo/Google Drive/MISA Drive.
               </p>
             </div>
 
@@ -549,8 +544,8 @@ function onLeaveSaveDraft() {
                 @remove="onRemoveThumbnail"
               />
               <p class="mt-1 text-[12px]" style="color: var(--mds-text-secondary)">
-                JPG/PNG/WebP, bắt buộc tỷ lệ 16:9 (vd 1280×720, 1920×1080). Ảnh được lưu lên storage
-                và dùng làm bìa trong Kho phim. Bỏ trống thì Kho phim dùng ảnh gradient theo chuyên mục.
+                JPG/PNG/WebP, bắt buộc tỷ lệ 16:9 (vd 1280×720, 1920×1080). Bỏ trống thì hệ thống tự
+                dùng ảnh mặc định theo chuyên mục.
               </p>
             </div>
           </div>

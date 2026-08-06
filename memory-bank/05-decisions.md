@@ -2,6 +2,57 @@
 
 > Ghi lại quyết định kiến trúc quan trọng + lý do. Thêm mục mới ở trên cùng.
 
+> ⚠️ **ĐỌC TRƯỚC — trong repo này có HAI phương án RBAC nằm trên HAI NHÁNH SONG SONG.** Các
+> ADR đánh dấu `[RBAC4]` (ADR-040 → 044) chỉ đúng trên nhánh `phan-quyen-4-cap` (**nhánh hiện
+> tại của file này**); các ADR đánh dấu `[RBAC3]` (ADR-045 → 047) chỉ đúng trên nhánh
+> `phan-quyen-3-cap` — không có trong file này. Người dùng đang so sánh hai bản để chọn một;
+> chưa nhánh nào merge vào `main`.
+>
+> **ADR-048 và ADR-049 KHÔNG gắn nhãn nhánh** — đây là bug/UX chung, đã áp dụng y hệt trên
+> CẢ HAI nhánh.
+
+## ADR-049 — Iframe YouTube/Vimeo phải tự đặt `referrerpolicy`, không sống được với `no-referrer` toàn site
+- **Bối cảnh:** người dùng test thật báo mọi phim nguồn YouTube đều hiện *"Error 153 — Video
+  player configuration error"*. Giả thuyết ban đầu (link demo giả/chủ video chặn nhúng) **SAI**.
+- **Chẩn đoán bằng thực nghiệm A/B** ngay trên `localhost:8180`, hai iframe cạnh nhau:
+  - ID thật của phim đang lỗi (`zJTiLOfBoHE`) + `referrerpolicy="strict-origin-when-cross-origin"`
+    → **phát bình thường**.
+  - ID công khai chắc chắn cho nhúng (`dQw4w9WgXcQ`) + KHÔNG có thuộc tính đó → **vẫn Error 153**.
+  - ⇒ biến quyết định là **Referer**, không phải video.
+- **Nguyên nhân gốc:** `nginx/nginx.conf` đặt `Referrer-Policy: no-referrer` cho toàn site. Khi
+  iframe nhúng không gửi Referer, YouTube không biết tên miền nào đang nhúng nên từ chối khởi
+  tạo player và trả Error 153 — với MỌI video, kể cả video hợp lệ hoàn toàn.
+- **Quyết định:** đặt `referrerpolicy="strict-origin-when-cross-origin"` **trên chính 2 thẻ
+  iframe** (YouTube + Vimeo) trong `VideoPlayer.vue`, KHÔNG nới header chung của nginx.
+- **Lý do:** giữ nguyên mặc định riêng tư `no-referrer` cho toàn bộ phần còn lại của app; chỉ
+  hai iframe player được gửi origin (không gửi đường dẫn đầy đủ) — đúng mức tối thiểu cần để
+  YouTube xác thực tên miền nhúng.
+- **Bẫy cho lần sau:** ai đó "dọn dẹp" thuộc tính này vì thấy thừa sẽ làm lỗi tái phát và rất
+  khó lần ra (link vẫn đúng, video vẫn tồn tại). Đã ghi cảnh báo ngay trong comment đầu
+  `VideoPlayer.vue`.
+
+## ADR-048 — Nhập hashtag: tự lắp control từ MInput + MTag, KHÔNG nhồi hành vi mới vào MCombobox
+- **Bối cảnh:** người dùng báo "hashtag không thêm được". Bug thật: `FilmUploadView.vue` dùng
+  `<MCombobox allow-create>` nhưng **không lắng nghe sự kiện `@create`** → nhấn Enter không có
+  gì xảy ra. Kèm theo đó người dùng chốt lại **yêu cầu nghiệp vụ mới**: gõ tự do, ngăn cách bằng
+  dấu phẩy — `"MISA, Agentic AI"` phải ra **2** hashtag `#MISA` và `#Agentic AI`.
+- **Quyết định:** KHÔNG vá `@create` cho MCombobox. Dựng control mới
+  `frontend/src/components/HashtagInput.vue` **lắp ráp từ 2 control MDS có sẵn**: `MInput` (ô
+  nhập) + `MTag closable` (chip đã chọn). Logic tách chuỗi nằm riêng ở
+  `frontend/src/features/upload/hashtags.ts` (`parseHashtags`).
+- **Lý do không dùng MCombobox:** combobox chuẩn MDS là control **CHỌN trong tập lựa chọn có
+  sẵn** — một lần Enter = một lựa chọn. Nghiệp vụ này ngược lại: một lần commit sinh ra **nhiều**
+  giá trị, và giá trị được phép **chứa khoảng trắng** ("Agentic AI"). Ép mô hình đó vào control
+  dùng chung sẽ làm lệch hành vi chuẩn của MCombobox ở mọi màn khác đang dùng nó.
+- **Vì sao vẫn đúng quy chuẩn MDS:** đây là "control chưa có trong bộ" → theo ưu tiên 1, lắp từ
+  component `.vue` có sẵn, **không viết HTML thô** cho input/nút. Đề xuất bổ sung TagInput vào
+  bộ MDS chung.
+- **Quy tắc tách chuỗi (chốt):** chỉ `,` ngăn cách (khoảng trắng KHÔNG) · trim từng phần · bỏ
+  phần rỗng · loại trùng không phân biệt hoa/thường (kể cả trùng với chip đã có) · bỏ `#` người
+  dùng quen gõ kèm · giữ nguyên thứ tự gõ. Commit khi: gõ `,` · Enter · blur. Backspace ở ô rỗng
+  xoá chip cuối. 9 test ở `hashtags.spec.ts`.
+- **Không đụng Backend:** payload vẫn là `hashtags: string[]` như cũ.
+
 ## ADR-044 — Chuyên mục & báo cáo & quản trị người dùng thu về CHỈ Cấp 4 (hệ quả của việc bỏ `admin`) [RBAC4]
 - **Quyết định:** `@Roles('super_admin')` cho `/users`, `/reports`, `/departments` và các route GHI của
   `/categories` (trước đây là `@Roles('super_admin','admin')`). Cấp 3 (`dept_manager`) **KHÔNG** có
