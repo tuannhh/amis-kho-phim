@@ -5,7 +5,27 @@
 
 ## Tóm tắt nhanh (đọc 30 giây là hiểu hết)
 
-### ✅ VỪA XONG: ĐỢT SỬA 5 VẤN ĐỀ TỪ TEST THỰC TẾ CỦA NGƯỜI DÙNG (2026-08-06, Opus 5)
+### ✅ VỪA XONG: ĐỢT 2 — 5 VIỆC (1, 2, 3, 4a, 7) TỪ TEST THỰC TẾ (2026-08-06, Opus 5)
+
+**CHỈ làm trên nhánh `phan-quyen-4-cap`** — người dùng yêu cầu sửa xong bên 4 cấp rồi mới port
+sang `phan-quyen-3-cap`. Việc **5, 6, 8 để đợt sau** (chưa đụng tới). Chi tiết + bằng chứng ở
+`04-progress.md`; quyết định ở **ADR-050** (nháp) và **ADR-051** (chuyên mục).
+
+Bốn điều quan trọng nhất cần nhớ:
+- **Việc 7 KHÔNG phải bug — đừng đi "sửa" nó.** Trưởng phòng SỬA/XOÁ ĐƯỢC phim của nhân viên
+  cùng phòng: đã chứng minh bằng curl (200/403/204 đúng ma trận), bằng DB (`department_id` của
+  phim demo đều đúng = 1), và bằng browser thật (nút Sửa/Xoá hiện, lưu thành công). Cái làm
+  người dùng tưởng hỏng: phim họ thử **không có nguồn phát nào**, nên nút Lưu bị validate
+  *"Cần ít nhất một nguồn"* chặn, toast lại nằm cuối trang nên dễ bỏ sót.
+- **Nháp form nay gắn `userId` vào khoá localStorage** (`kho-phim:film-draft-v2:<userId>:…`).
+  Đây là lỗi rò dữ liệu giữa hai tài khoản trên cùng máy, đã tái hiện và sửa. **Không bao giờ
+  quay lại khoá dùng chung**, kể cả khi chưa biết người dùng là ai (khi đó bỏ qua nháp).
+- **Quyền chuyên mục nay theo TẦNG, không theo một mức vai trò:** gốc = Cấp 4, con = Cấp 2 trở
+  lên. ADR-051 thay phần chuyên mục của ADR-044.
+- **Ưu tiên phát phim đổi thành `youtube → vimeo → storage → gdrive → misadrive`.** Một phim
+  được phép có nhiều nguồn cùng lúc (backend vốn đã hỗ trợ, chỉ chữ trên giao diện mô tả sai).
+
+### Việc trước đó: ĐỢT SỬA 5 VẤN ĐỀ TỪ TEST THỰC TẾ CỦA NGƯỜI DÙNG (2026-08-06, Opus 5)
 
 Người dùng tự test bản 3 cấp trên Docker và báo 5 vấn đề. **Đã sửa xong và push CẢ 2 NHÁNH**
 (cả 5 đều là bug/UX chung, không dính khác biệt RBAC). Chi tiết + bằng chứng verify ở
@@ -35,8 +55,12 @@ GitHub rồi chốt một. `main` vẫn là bản trước RBAC.
 |---|---|---|
 | Vai trò | viewer / employee / **dept_manager** / super_admin | viewer / employee / super_admin |
 | Cấp cao nhất | Cấp 3 chỉ phim **cùng phòng ban**; Cấp 4 mọi phim | Cấp 3 sửa **MỌI** phim, không xét phòng ban |
-| ADR | ADR-040 → 044 `[RBAC4]` | ADR-045 → 047 `[RBAC3]` |
-| Test | 174 + 82 + 52 = 308 | 163 + 80 + 47 = 290 |
+| ADR | ADR-040 → 044 `[RBAC4]`, +051 | ADR-045 → 047 `[RBAC3]` |
+| Test | **182 + 85 + 63 = 330** (sau đợt 2) | 163 + 80 + 47 = 290 |
+
+> ⚠️ **Nhánh 4 cấp đang đi trước 1 đợt sửa.** ADR-050 (nháp gắn userId — lỗi bảo mật) và các
+> sửa UI của việc 3/4a là chung cho cả hai mô hình RBAC, **cần port sang `phan-quyen-3-cap`**.
+> ADR-051 (chuyên mục theo tầng) phụ thuộc `FILM_WRITE_ROLES` nên khi port phải ánh xạ lại vai trò.
 
 - **Lược đồ DB HAI NHÁNH GIỐNG HỆT NHAU** — bảng `departments` + các cột `department_id`/
   `created_by` có ở cả hai; khác nhau chỉ ở chỗ bản 3 cấp dùng chúng **thuần truy vết**, không

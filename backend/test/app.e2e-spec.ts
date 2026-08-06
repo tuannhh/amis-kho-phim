@@ -452,18 +452,65 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
         .send({ email: 'e2e-tp-tao@misa.com.vn', fullName: 'TP tạo', roleCode: 'employee', password: 'E2eX@20261' })
         .expect(403))
 
-    it('CẤP 2 và CẤP 3 KHÔNG tạo được chuyên mục → 403', async () => {
+    // Quyền ghi chuyên mục phân theo TẦNG (ADR-051): gốc = Cấp 4, con = Cấp 2 trở lên.
+    it('CẤP 2 và CẤP 3 KHÔNG tạo được chuyên mục GỐC → 403', async () => {
       await http()
         .post('/api/categories')
         .set('Authorization', `Bearer ${empA1Token}`)
-        .send({ name: 'Cấp 2 cố tạo' })
+        .send({ name: 'Cấp 2 cố tạo gốc' })
         .expect(403)
       await http()
         .post('/api/categories')
         .set('Authorization', `Bearer ${mgrA1Token}`)
-        .send({ name: 'Cấp 3 cố tạo' })
+        .send({ name: 'Cấp 3 cố tạo gốc' })
         .expect(403)
     })
+
+    it('CẤP 2 và CẤP 3 TẠO ĐƯỢC chuyên mục CON bên trong chuyên mục gốc có sẵn', async () => {
+      const child2 = await http()
+        .post('/api/categories')
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .send({ name: 'Cấp 2 tạo con', parentId: categoryId })
+        .expect(201)
+      expect(child2.body.parentId).toBe(categoryId)
+
+      const child3 = await http()
+        .post('/api/categories')
+        .set('Authorization', `Bearer ${mgrA1Token}`)
+        .send({ name: 'Cấp 3 tạo con', parentId: categoryId })
+        .expect(201)
+      expect(child3.body.parentId).toBe(categoryId)
+
+      // …và sửa/xoá được chuyên mục con đó
+      await http()
+        .patch(`/api/categories/${child2.body.id}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .send({ name: 'Cấp 2 sửa con' })
+        .expect(200)
+      await http()
+        .delete(`/api/categories/${child3.body.id}`)
+        .set('Authorization', `Bearer ${mgrA1Token}`)
+        .expect(204)
+    })
+
+    it('CẤP 2/CẤP 3 KHÔNG sửa/xoá được chuyên mục GỐC → 403', async () => {
+      await http()
+        .patch(`/api/categories/${categoryId}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .send({ name: 'Cấp 2 cố sửa gốc' })
+        .expect(403)
+      await http()
+        .delete(`/api/categories/${categoryId}`)
+        .set('Authorization', `Bearer ${mgrA1Token}`)
+        .expect(403)
+    })
+
+    it('CẤP 1 KHÔNG tạo được chuyên mục con (bị guard chặn từ vòng ngoài) → 403', () =>
+      http()
+        .post('/api/categories')
+        .set('Authorization', `Bearer ${viewerToken}`)
+        .send({ name: 'Cấp 1 cố tạo con', parentId: categoryId })
+        .expect(403))
 
     it('CẤP 4 xem được danh sách người dùng, báo cáo và phòng ban', async () => {
       await http().get('/api/users').set('Authorization', `Bearer ${superToken}`).expect(200)

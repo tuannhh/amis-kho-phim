@@ -23,6 +23,19 @@ const props = defineProps({
   label: { type: String, default: 'Đính kèm' },
   // Cho phép dán ảnh đã copy (Ctrl+V) — chỉ bật cho các dropzone nhận ảnh
   pasteImage: { type: Boolean, default: false },
+  /**
+   * Dropzone kéo hết chiều rộng khối cha thay vì bó ~420px.
+   * MẶC ĐỊNH `false` để giữ đúng spec MDS (`patterns/popup-form.md` §Đính kèm: dropzone
+   * ~280×60px) cho form popup chứng từ. Chỉ bật ở form TRANG đầy đủ khi dropzone đứng
+   * cùng hàng với lưới field nhiều cột và cần thẳng mép trái/phải với lưới đó.
+   */
+  fullWidth: { type: Boolean, default: false },
+  /**
+   * Đưa chú thích "Dung lượng tối đa NMB" vào TRONG dropzone (dòng phụ dưới câu kéo/thả)
+   * thay vì đứng cạnh label ở dòng trên. Dùng khi dropzone full-width — để dòng label
+   * trên cùng gọn, còn thông tin giới hạn nằm ngay chỗ người dùng thả tệp.
+   */
+  hintInside: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['select-files', 'oversized', 'remove', 'retry'])
@@ -100,13 +113,17 @@ onBeforeUnmount(() => {
     <div class="flex items-center gap-2 text-[var(--mds-text)]">
       <MIcon name="paperclip" :size="16" class="text-[var(--mds-icon-neutral)]" />
       <span class="font-medium">{{ label }}</span>
-      <span class="text-[12px] text-[var(--mds-text-secondary)]">Dung lượng tối đa {{ maxSizeMB }}MB</span>
+      <span v-if="!hintInside" class="text-[12px] text-[var(--mds-text-secondary)]">
+        Dung lượng tối đa {{ maxSizeMB }}MB
+      </span>
     </div>
 
     <!-- Dropzone: click hoặc kéo-thả để chọn file -->
     <label
-      class="flex h-[60px] w-full max-w-[420px] items-center justify-center rounded-lg border-[1.5px] border-dashed text-center text-[12px] transition-colors"
+      class="flex w-full flex-col items-center justify-center gap-0.5 rounded-lg border-[1.5px] border-dashed px-4 py-4 text-center text-[12px] transition-colors"
       :class="[
+        fullWidth ? '' : 'max-w-[420px]',
+        hintInside ? 'min-h-[72px]' : 'min-h-[60px]',
         disabled
           ? 'cursor-not-allowed border-[var(--mds-border)] text-[var(--mds-text-placeholder)]'
           : 'cursor-pointer text-[var(--mds-text-secondary)] hover:border-[var(--mds-brand-600)] hover:bg-[var(--mds-brand-50)]',
@@ -117,8 +134,13 @@ onBeforeUnmount(() => {
       @dragleave.prevent="isDragOver = false"
       @drop.prevent="onDrop"
     >
-      Kéo/thả tệp vào đây hoặc bấm vào đây
-      <span v-if="pasteImage">&nbsp;• dán ảnh đã copy (Ctrl+V)</span>
+      <span>
+        Kéo/thả tệp vào đây hoặc bấm vào đây
+        <span v-if="pasteImage">&nbsp;• dán ảnh đã copy (Ctrl+V)</span>
+      </span>
+      <span v-if="hintInside" class="text-[12px] text-[var(--mds-text-placeholder)]">
+        Dung lượng tối đa {{ maxSizeMB }}MB
+      </span>
       <input
         ref="inputRef"
         type="file"

@@ -6,6 +6,8 @@ import {
   ADMIN_ROLES,
   canCreateFilm,
   canManageFilm,
+  canWriteCategory,
+  canCreateAnyCategory,
   isAtLeastLevel,
   isSystemAdmin,
   type FilmOwnership,
@@ -150,5 +152,38 @@ describe('canManageFilm — ẩn/hiện nút Sửa/Xoá theo scope phòng ban', 
     ]) {
       expect(canManageFilm(sa, f)).toBe(true)
     }
+  })
+})
+
+/**
+ * Quyền ghi chuyên mục theo TẦNG (ADR-051) — bản sao FE của `CategoriesService.assertCanWrite`.
+ * Hai bên lệch nhau là người dùng thấy nút rồi bấm vào ăn 403, hoặc mất nút dù có quyền.
+ */
+describe('canWriteCategory — chuyên mục gốc vs chuyên mục con', () => {
+  const ROLES = ['viewer', 'employee', 'dept_manager', 'super_admin'] as const
+
+  it('chuyên mục GỐC: chỉ Cấp 4', () => {
+    const allowed = ROLES.filter((r) => canWriteCategory(r, true))
+    expect(allowed).toEqual(['super_admin'])
+  })
+
+  it('chuyên mục CON: Cấp 2 trở lên, Cấp 1 không', () => {
+    const allowed = ROLES.filter((r) => canWriteCategory(r, false))
+    expect(allowed).toEqual(['employee', 'dept_manager', 'super_admin'])
+  })
+
+  it('chưa đăng nhập (null) thì không ghi được gì', () => {
+    expect(canWriteCategory(null, true)).toBe(false)
+    expect(canWriteCategory(null, false)).toBe(false)
+  })
+})
+
+describe('canCreateAnyCategory — hiện nút "Thêm chuyên mục"', () => {
+  it('Cấp 2 trở lên thấy nút; Cấp 1 và khách không', () => {
+    expect(canCreateAnyCategory('viewer')).toBe(false)
+    expect(canCreateAnyCategory('employee')).toBe(true)
+    expect(canCreateAnyCategory('dept_manager')).toBe(true)
+    expect(canCreateAnyCategory('super_admin')).toBe(true)
+    expect(canCreateAnyCategory(null)).toBe(false)
   })
 })

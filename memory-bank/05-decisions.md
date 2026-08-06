@@ -10,6 +10,53 @@
 >
 > **ADR-048 và ADR-049 KHÔNG gắn nhãn nhánh** — đây là bug/UX chung, đã áp dụng y hệt trên
 > CẢ HAI nhánh.
+>
+> **ADR-050 (nháp localStorage) chưa gắn nhãn nhánh nhưng HIỆN MỚI CÓ TRÊN `phan-quyen-4-cap`**
+> — là bug bảo mật chung, cần port sang `phan-quyen-3-cap` ở đợt sau. **ADR-051 gắn `[RBAC4]`**
+> vì phụ thuộc `FILM_WRITE_ROLES` của mô hình 4 cấp.
+
+## ADR-051 — Quyền ghi chuyên mục phân theo TẦNG (gốc = Cấp 4, con = Cấp 2 trở lên) [RBAC4]
+- **Bối cảnh:** ADR-044 khoá mọi thao tác ghi chuyên mục ở Cấp 4. Người dùng thấy quá chặt: họ
+  hình dung chuyên mục cha như "một album lớn", bên trong là các album nhỏ — việc mở một album
+  nhỏ nên để nhân viên tự làm, chỉ khung album lớn mới cần quản trị duyệt.
+- **Quyết định:** tách quyền theo `parentId` của bản ghi, thay vì một mức vai trò duy nhất:
+  - `parentId == null` (chuyên mục GỐC) → **chỉ Cấp 4**. Đây là khung phân loại của cả công ty,
+    sửa/xoá một cái ảnh hưởng toàn kho phim; xoá gốc còn cascade cả cây con.
+  - `parentId != null` (chuyên mục CON) → **Cấp 2 trở lên**. Nằm gọn trong khung sẵn có, rủi ro
+    thấp, không cần chờ quản trị.
+  - Cấp 1 `viewer` vẫn không ghi được gì.
+- **Chốt chặn:** `CategoriesService.assertCanWrite(actor, isRoot)`. `@Roles(...FILM_WRITE_ROLES)`
+  ở controller chỉ loại Cấp 1 từ vòng ngoài — tầng của bản ghi phụ thuộc `parentId` trong
+  body/DB nên KHÔNG biểu diễn được bằng `@Roles`. Cùng mô hình 2 lớp với
+  `FilmsService.assertCanManage` (ADR-014).
+- **`isRoot` luôn suy từ dữ liệu server tin được:** DTO khi tạo, bản ghi đã lưu khi sửa/xoá —
+  không nhận cờ "đây là chuyên mục con" do client tự khai. `UpdateCategoryDto` cũng không cho
+  đổi cha nên tầng của một chuyên mục là bất biến sau khi tạo.
+- **Phía FE:** `canWriteCategory(role, isRoot)` trong `features/auth/permissions.ts` là bản sao
+  của quy tắc này (sửa một bên phải sửa cả bên kia). Với Cấp 2/3, ô "Nằm trong chuyên mục" là
+  **bắt buộc** và dropdown KHÔNG có mục "chuyên mục gốc" — `MSelect` chỉ render mảng `options`,
+  `placeholder` là chữ hiển thị chứ không phải lựa chọn, nên root không thể chạm tới từ UI.
+- **Ngõ cụt có chủ đích:** nếu hệ thống chưa có chuyên mục gốc nào, Cấp 2/3 không tạo được gì
+  cho tới khi Cấp 4 tạo khung đầu tiên. Đúng thiết kế — nhưng phải hiện thông báo giải thích
+  (`noParentAvailable`), không bỏ mặc form câm lặng.
+- **Thay thế:** ADR-044 ở phần chuyên mục. Báo cáo/quản trị người dùng/phòng ban vẫn giữ Cấp 4.
+
+## ADR-050 — Nháp form (localStorage) phải gắn `userId` vào khoá; nháp định dạng cũ bị dọn, không migrate
+- **Bối cảnh:** người dùng test thật và phát hiện **rò dữ liệu giữa hai tài khoản**: nhập dở
+  form "Thêm phim" bằng `nv2@`, đăng xuất, đăng nhập `superadmin@` rồi vào lại màn đó thì thấy
+  nguyên nội dung nháp của `nv2`. Đã tái hiện đúng nguyên văn trên browser.
+- **Nguyên nhân gốc:** khoá nháp là `kho-phim:film-draft:new|edit:<slug>` — **không có định
+  danh người dùng**. localStorage theo origin chứ không theo phiên đăng nhập, nên mọi tài khoản
+  dùng chung một máy đều đọc trúng cùng một khoá.
+- **Quyết định:** khoá mới `kho-phim:film-draft-v2:<userId>:new|edit:<slug>`, dựng bởi hàm
+  thuần `buildDraftKey(userId, editingSlug)` (`features/upload/draftKey.ts`) để unit test được
+  mà không cần localStorage thật.
+- **Chưa biết là ai thì trả `null`** và nơi gọi bỏ qua hẳn việc đọc/ghi nháp. KHÔNG được rơi về
+  một khoá dùng chung — khoá dùng chung chính là lỗi đang sửa.
+- **Không migrate nháp cũ, mà dọn hẳn** (`purgeLegacyDrafts`): nháp cũ không xác định được của
+  ai, gán cho bất kỳ tài khoản nào cũng là tái tạo đúng lỗi rò. Nháp chỉ là tiện ích tạm nên
+  mất đi chấp nhận được. Lưu ý khi dọn: tiền tố cũ `film-draft` là **tiền tố con** của tiền tố
+  mới `film-draft-v2`, phải loại trừ tường minh kẻo xoá nhầm nháp hợp lệ.
 
 ## ADR-049 — Iframe YouTube/Vimeo phải tự đặt `referrerpolicy`, không sống được với `no-referrer` toàn site
 - **Bối cảnh:** người dùng test thật báo mọi phim nguồn YouTube đều hiện *"Error 153 — Video

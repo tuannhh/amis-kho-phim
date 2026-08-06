@@ -4,7 +4,13 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
-- **Việc mới nhất: ĐỢT SỬA 5 VẤN ĐỀ TỪ TEST THỰC TẾ — ✅ XONG (2026-08-06, Opus 5), áp dụng
+- **Việc mới nhất: ĐỢT 2 SỬA THEO TEST THỰC TẾ (5 việc: 1, 2, 3, 4a, 7) — ✅ XONG
+  (2026-08-06, Opus 5), CHỈ trên nhánh `phan-quyen-4-cap`.** Trong đó **3 bug thật đã sửa**
+  (rò nháp giữa 2 tài khoản, quyền chuyên mục quá chặt, layout/nội dung khung tải phim),
+  **1 đổi nghiệp vụ** (cho dùng nhiều nguồn cùng lúc + đổi ưu tiên phát) và **1 việc xác định
+  KHÔNG phải bug** (việc 7 — Trưởng phòng SỬA/XOÁ ĐƯỢC phim nhân viên cùng phòng). Xem nhật ký
+  ngay dưới + ADR-050, ADR-051. **Tổng test: 182 unit BE + 85 tích hợp BE + 63 FE = 330.**
+- **Việc trước đó: ĐỢT SỬA 5 VẤN ĐỀ TỪ TEST THỰC TẾ — ✅ XONG (2026-08-06, Opus 5), áp dụng
   CẢ HAI NHÁNH.** Trong đó 4 việc là bug/UX thật đã sửa (ẩn Chuyên mục với Cấp 1, bỏ chữ kỹ
   thuật, thiết kế lại nhập hashtag, YouTube Error 153) và **1 việc xác định KHÔNG phải bug**
   (nút upload/xuất bản chạy đúng — do thao tác thiếu chọn Chuyên mục). Xem nhật ký ngay dưới +
@@ -30,6 +36,69 @@
   đắn dữ liệu thật** mà unit test không thể thấy: race condition ở `recordView` (ADR-036) và
   phụ thuộc ngầm vào múi giờ Node↔MySQL (ADR-037). **Tổng 201 test tự động.**
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
+
+## Nhật ký ĐỢT 2 SỬA THEO TEST THỰC TẾ (việc 1, 2, 3, 4a, 7) — 2026-08-06 — ✅ XONG (CHỈ nhánh `phan-quyen-4-cap`)
+
+> Người dùng đánh số việc theo thứ tự họ báo; việc 5, 6, 8 để đợt sau. Toàn bộ verify bằng
+> browser thật trên `localhost:8180` (Docker build lại từ nhánh này) + curl + truy vấn DB.
+> **Chưa port sang `phan-quyen-3-cap`** — người dùng yêu cầu sửa xong bên 4 cấp rồi mới port.
+
+### Việc 1 — Chuyên mục cha/con phân quyền theo tầng ✅ (ADR-051)
+- BE: `CategoriesService.assertCanWrite(actor, isRoot)`; controller đổi từ `@Roles('super_admin')`
+  sang `@Roles(...FILM_WRITE_ROLES)`; `update`/`remove` nay nhận `actor` và suy tầng từ **bản ghi
+  đã lưu**, `create` suy từ DTO.
+- FE `CategoryView.vue`: nhãn đổi "Chuyên mục cha" → **"Nằm trong chuyên mục"**; với Cấp 2/3 là
+  trường **bắt buộc**, dropdown không có mục gốc, kèm câu giải thích và thông báo riêng khi kho
+  chưa có chuyên mục nào để chọn. Chọn trúng chuyên mục gốc thì ẩn Lưu/Xoá + nói rõ lý do.
+- **Trả lời câu hỏi "làm thế nào để thêm chuyên mục cha?": KHÔNG phải bug — chỉ là UX chưa rõ.**
+  Cấp 4 để trống ô "Nằm trong chuyên mục" là tạo được chuyên mục gốc; trước đây placeholder
+  "Không có (chuyên mục gốc)" không nói rõ điều đó. Đã verify: Cấp 4 tạo root qua UI thành công.
+- Verify: Cấp 4 tạo root qua UI OK; Cấp 2 tạo root → 403 kèm thông báo chỉ đường sang tạo con;
+  Cấp 2 tạo con → 201. Test: 8 unit + 4 e2e.
+
+### Việc 2 — BUG BẢO MẬT: nháp lộ giữa các tài khoản ✅ (ADR-050)
+- **Tái hiện đúng nguyên văn trước khi sửa**: build cũ ghi khoá `kho-phim:film-draft:new`
+  (không userId) — đọc thẳng từ localStorage của browser trong lúc test.
+- Sửa: `features/upload/draftKey.ts` — `buildDraftKey(userId, slug)` +
+  `purgeLegacyDrafts(storage)`. Khoá mới `kho-phim:film-draft-v2:<userId>:...`.
+- Verify end-to-end trên browser: nv2 lưu nháp → đăng xuất → superadmin vào "Thêm phim" →
+  **ô Tên phim rỗng, nháp cũ đã bị dọn** (`draftKeysLeft: []`). Test: 7 unit FE.
+
+### Việc 3 — Layout khung "Tải phim lên" ✅
+- `MUpload.vue` thêm 2 prop **opt-in**: `fullWidth` (bỏ `max-w-[420px]`) và `hintInside` (đưa
+  "Dung lượng tối đa NMB" vào trong dropzone). Mặc định `false` để giữ nguyên spec MDS
+  (`patterns/popup-form.md` §Đính kèm: dropzone ~280×60px) và **không đụng dropzone ảnh bìa**.
+- `FilmUploadView.vue` bật cả hai cho dropzone video → khung kéo dài thẳng mép trái (cột Link
+  YouTube) tới mép phải (cột Link Vimeo).
+
+### Việc 4a — Cho dùng NHIỀU nguồn cùng lúc + đổi ưu tiên phát ✅
+- **Backend đã hỗ trợ sẵn** (mỗi nguồn là 1 dòng `film_links`, `storage` lấy từ
+  `film_versions.storage_key`) — chỉ giao diện mô tả sai. Verify: phim id 24 cùng lúc có
+  storage + youtube + gdrive, API trả đủ 3 trong `links`.
+- Sửa chữ hướng dẫn: bỏ "Chọn 1 trong 2 cách", nay là "Dùng được cùng lúc nhiều nguồn…".
+- `VideoPlayer.vue`: `preferredOrder` đổi `['storage','youtube',…]` →
+  **`['youtube','vimeo','storage','gdrive','misadrive']`**. Cơ chế "thiếu thì next" đã có sẵn
+  qua `orderedSources` (lọc theo thứ tự này), không phải thêm gì.
+- Verify browser: phim 3 nguồn hiện "Xem từ: **YouTube**(đang chọn) | Nội bộ | Google Drive" —
+  YouTube là mặc định. gdrive/misadrive **giữ nguyên** hành vi chỉ mở/tải ngoài, không nhúng.
+
+### Việc 7 — KẾT LUẬN: KHÔNG phải bug, hệ thống chạy ĐÚNG ✅
+- **Dữ liệu demo cũng đúng** (loại trừ giả thuyết `department_id` NULL):
+  `SELECT id,uploader_id,department_id FROM films` → phim 19/20/22/25 của nv1/nv2 đều có
+  `department_id = 1`, khớp phòng ban của `tp1@`.
+- **Backend đúng** (curl): `tp1@` PATCH phim 19 của nv1 → **HTTP 200**; `tp2@` (phòng khác)
+  PATCH cùng phim → **403** đúng thông báo. Tạo phim mới bằng nv1 rồi `tp1@` DELETE → **204**,
+  bản ghi biến mất khỏi DB.
+- **Frontend đúng** (browser thật): đăng nhập `tp1@`, mở phim của nv1 → **có đủ nút Sửa và
+  Xoá**; bấm Sửa mở được form; bấm Lưu thay đổi → lưu thành công và tự quay về trang chi tiết.
+  `/api/films/:slug` trả đủ `departmentId` + `uploaderRoleCode`; `/auth/me` và `/auth/refresh`
+  đều trả `departmentId: 1` nên `canManageFilm` tính đúng.
+- **Cái gây hiểu nhầm:** phim 19 (nhiều khả năng là phim người dùng thử) **không có nguồn phát
+  nào**. Bấm "Lưu thay đổi" trên phim đó luôn bị chặn bởi validate *"Cần ít nhất một nguồn"* —
+  toast hiện ở cuối trang, rất dễ bỏ sót nếu đang nhìn phần đầu form → trông như "nút chết".
+  Đây là hiện tượng cùng họ với ghi chú "chưa chọn Chuyên mục" ở đợt trước.
+- **Không sửa code cho việc 7** (đúng nguyên tắc: không "sửa" thứ đang chạy đúng). Muốn tự
+  kiểm chứng: đăng nhập nv1 tạo phim MỚI **có ít nhất 1 link**, rồi đăng nhập `tp1@` sửa/xoá.
 
 ## Nhật ký ĐỢT SỬA 5 VẤN ĐỀ TỪ TEST THỰC TẾ CỦA NGƯỜI DÙNG — 2026-08-06 — ✅ XONG (áp dụng CẢ 2 NHÁNH)
 

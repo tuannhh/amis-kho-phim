@@ -13,22 +13,32 @@ import { useToast } from '@/components/mds/toast.js'
 import { useFormValidation, rules } from '@/components/mds/useFormValidation.js'
 import { categoriesApi, type ApiCategoryNode } from './categoriesApi'
 import { useAuthStore } from '@/features/auth/authStore'
-import { isSystemAdmin } from '@/features/auth/permissions'
+import { canCreateAnyCategory, canWriteCategory, isSystemAdmin } from '@/features/auth/permissions'
 
 /**
  * Quản lý chuyên mục — GĐ2 (API thật). Master-Detail: cây chuyên mục bên trái,
  * form thêm/sửa bên phải. Cha chỉ chọn được lúc tạo (giữ UX GĐ0.5); sửa chỉ
  * đổi tên/mô tả (backend UpdateCategoryDto không nhận parentId).
  *
- * RBAC 4 cấp (ADR-040): ai đăng nhập cũng XEM được cây chuyên mục, nhưng quyền GHI chỉ Cấp 4
- * (`@Roles('super_admin')` ở backend). Trước đây FE hiện nút "Thêm chuyên mục" cho mọi vai trò
- * rồi để backend trả 403 — nay ẩn hẳn để Cấp 1/2/3 không thấy nút mình không dùng được.
+ * QUYỀN GHI THEO TẦNG (ADR-051, thay ADR-044):
+ *   - chuyên mục GỐC → chỉ Cấp 4
+ *   - chuyên mục CON → Cấp 2 trở lên
+ *
+ * Nên với Cấp 2/3, ô "Chuyên mục cha" là BẮT BUỘC và dropdown KHÔNG có lựa chọn "Không có
+ * (chuyên mục gốc)" — chặn ngay từ UI đúng bằng chốt chặn ở backend, thay vì để người dùng
+ * điền xong rồi mới ăn 403.
  */
 const toast = useToast()
 const auth = useAuthStore()
 
-/** Chỉ Cấp 4 được tạo/sửa/xoá chuyên mục — khớp `@Roles('super_admin')` ở backend. */
-const canWrite = computed(() => isSystemAdmin(auth.role))
+/** Có thấy nút "Thêm chuyên mục" không (Cấp 2 trở lên). */
+const canWrite = computed(() => canCreateAnyCategory(auth.role))
+
+/** Cấp 4 — người duy nhất được tạo/sửa/xoá chuyên mục gốc. */
+const canWriteRoot = computed(() => isSystemAdmin(auth.role))
+
+/** Cấp 2/3 bắt buộc chọn cha (không được tạo gốc). */
+const mustPickParent = computed(() => !canWriteRoot.value)
 
 const tree = ref<ApiCategoryNode[]>([])
 const loading = ref(false)
@@ -64,6 +74,20 @@ const expanded = ref<number[]>([])
 const selectedId = ref<number | null>(null)
 
 const parentOptions = computed(() => flatten().map((c) => ({ label: c.name, value: c.id })))
+
+/**
+ * Cấp 2/3 phải chọn cha nhưng kho chưa có chuyên mục nào để chọn → họ không tạo được gì cho
+ * tới khi Cấp 4 tạo chuyên mục gốc đầu tiên. Hiện thông báo giải thích, không bỏ mặc form câm.
+ */
+const noParentAvailable = computed(() => mustPickParent.value && parentOptions.value.length === 0)
+
+/** Chuyên mục đang chọn có phải gốc không (quyết định được sửa/xoá hay không). */
+const selectedIsRoot = computed(() => {
+  const node = flatten().find((c) => c.id === editingId.value)
+  return node ? node.parentId == null : false
+})
+/** Được sửa/xoá chuyên mục đang chọn không — khớp `assertCanWrite` theo tầng ở backend. */
+const canWriteSelected = computed(() => canWriteCategory(auth.role, selectedIsRoot.value))
 
 // parentId dùng undefined (không phải null) — MSelect không nhận null trong kiểu modelValue
 const form = reactive({ name: '', description: '', parentId: undefined as number | undefined })
@@ -107,6 +131,12 @@ function startCreate() {
 
 async function save() {
   if (!validate(form)) return
+  // Cấp 2/3 tạo mới mà chưa chọn cha = đang định tạo chuyên mục gốc → chặn tại chỗ, nói rõ lý
+  // do. Backend vẫn tự chặn độc lập (ADR-051); đây chỉ để người dùng khỏi mất công gửi lên.
+  if (isCreating.value && mustPickParent.value && form.parentId == null) {
+    toast.error('Bạn cần chọn một chuyên mục cha. Chỉ Quản trị cao nhất mới tạo được chuyên mục gốc.')
+    return
+  }
   submitting.value = true
   try {
     if (isCreating.value) {
@@ -216,9 +246,37 @@ async function confirmDelete() {
 
               <div v-if="isCreating">
                 <label class="mb-1 block text-[13px] font-medium" style="color: var(--mds-text-primary)">
-                  Chuyên mục cha
+                  Nằm trong chuyên mục
+                  <span v-if="mustPickParent" style="color: var(--mds-danger)">*</span>
                 </label>
-                <MSelect v-model="form.parentId" :options="parentOptions" placeholder="Không có (chuyên mục gốc)" />
+                <MSelect
+                  v-model="form.parentId"
+                  :options="parentOptions"
+                  :disabled="noParentAvailable"
+                  :placeholder="
+                    mustPickParent
+                      ? 'Chọn chuyên mục lớn để đặt vào trong'
+                      : 'Để trống — tạo một chuyên mục lớn mới'
+                  "
+                />
+                <p class="mt-1 text-[12px]" style="color: var(--mds-text-secondary)">
+                  <span v-if="canWriteRoot">
+                    Để trống ô này sẽ tạo một <strong>chuyên mục lớn</strong> đứng riêng ở ngoài
+                    cùng. Chọn một chuyên mục có sẵn thì mục mới nằm gọn bên trong nó.
+                  </span>
+                  <span v-else>
+                    Mục mới sẽ nằm bên trong chuyên mục bạn chọn. Chỉ Quản trị cao nhất mới tạo
+                    được chuyên mục lớn đứng riêng ở ngoài cùng.
+                  </span>
+                </p>
+                <p
+                  v-if="noParentAvailable"
+                  class="mt-2 rounded-lg p-3 text-[12px]"
+                  style="background: color-mix(in srgb, var(--mds-warning) 10%, white); color: var(--mds-text-primary)"
+                >
+                  Hệ thống chưa có chuyên mục lớn nào để đặt mục mới vào trong, nên bạn chưa tạo
+                  được chuyên mục. Hãy đề nghị Quản trị cao nhất tạo chuyên mục lớn trước.
+                </p>
               </div>
 
               <div>
@@ -231,13 +289,34 @@ async function confirmDelete() {
           </div>
 
           <!-- Footer ghim -->
-          <footer class="flex shrink-0 items-center justify-between border-t px-5 py-3" style="border-color: var(--mds-border-light,#E9EAEB)">
-            <MButton v-if="!isCreating" variant="danger" :disabled="submitting" @click="askDelete">
+          <footer class="flex shrink-0 items-center justify-between gap-3 border-t px-5 py-3" style="border-color: var(--mds-border-light,#E9EAEB)">
+            <MButton
+              v-if="!isCreating && canWriteSelected"
+              variant="danger"
+              :disabled="submitting"
+              @click="askDelete"
+            >
               <template #icon><MIcon name="trash" :size="16" /></template>
               Xoá
             </MButton>
+            <!-- Chuyên mục gốc, người xem không đủ quyền: nói rõ lý do thay vì footer trống trơn -->
+            <span
+              v-else-if="!isCreating"
+              class="text-[12px]"
+              style="color: var(--mds-text-secondary)"
+            >
+              Đây là chuyên mục lớn — chỉ Quản trị cao nhất được sửa hoặc xoá.
+            </span>
             <span v-else />
-            <MButton variant="primary" :loading="submitting" @click="save">Lưu</MButton>
+            <MButton
+              v-if="isCreating || canWriteSelected"
+              variant="primary"
+              :loading="submitting"
+              :disabled="noParentAvailable"
+              @click="save"
+            >
+              Lưu
+            </MButton>
           </footer>
         </div>
 
@@ -245,7 +324,7 @@ async function confirmDelete() {
           v-else
           type="initial"
           title="Chọn một chuyên mục để xem chi tiết"
-          :description="canWrite ? 'Hoặc bấm \'Thêm chuyên mục\' để tạo mới' : 'Chỉ Quản trị cao nhất được thêm/sửa chuyên mục'"
+          :description="canWrite ? 'Hoặc bấm \'Thêm chuyên mục\' để tạo mới' : 'Bạn chỉ có quyền xem danh sách chuyên mục'"
         />
       </div>
     </div>

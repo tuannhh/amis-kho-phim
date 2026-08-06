@@ -31,8 +31,16 @@ const props = defineProps<{
   links: Partial<Record<FilmSource, string>>
 }>()
 
-// Ưu tiên storage làm nguồn phát mặc định (không phải rời khỏi app)
-const preferredOrder: FilmSource[] = ['storage', 'youtube', 'vimeo', 'gdrive', 'misadrive']
+/**
+ * Thứ tự ưu tiên chọn nguồn phát mặc định. Một phim có thể có NHIỀU nguồn cùng lúc (vừa tệp
+ * trên storage, vừa link ngoài) — `orderedSources` lọc theo đúng thứ tự này nên nguồn nào
+ * thiếu thì tự rơi xuống nguồn kế tiếp, không cần xử lý riêng.
+ *
+ * YouTube/Vimeo đứng TRƯỚC storage: player của họ có sẵn CDN + nhiều mức phân giải, xem mượt
+ * hơn tệp phát thẳng từ MinIO nội bộ. gdrive/misadrive xếp cuối vì không nhúng phát được —
+ * chỉ hiện nút mở/tải ngoài, nên chỉ dùng làm nguồn mặc định khi không còn nguồn nào khác.
+ */
+const preferredOrder: FilmSource[] = ['youtube', 'vimeo', 'storage', 'gdrive', 'misadrive']
 const orderedSources = computed(() =>
   preferredOrder.filter((s) => props.sources.includes(s))
 )

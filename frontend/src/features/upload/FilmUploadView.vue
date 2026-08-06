@@ -15,6 +15,8 @@ import { useFilmsStore } from '@/features/films/filmsStore'
 import { filmsApi, type UpsertFilmPayload, type ConfirmVersionPayload } from '@/features/films/filmsApi'
 import { putToStorage, readVideoDuration, formatDuration } from '@/features/films/storageUpload'
 import { categoriesApi, flattenCategoryTree, type ApiCategoryNode } from '@/features/categories/categoriesApi'
+import { useAuthStore } from '@/features/auth/authStore'
+import { buildDraftKey, purgeLegacyDrafts } from './draftKey'
 
 /**
  * Thêm/Sửa phim — GĐ3 (API thật, storage MinIO thật). Luồng upload:
@@ -25,9 +27,13 @@ const toast = useToast()
 const route = useRoute()
 const router = useRouter()
 const store = useFilmsStore()
+const auth = useAuthStore()
 
 const categoriesTree = ref<ApiCategoryNode[]>([])
 onMounted(async () => {
+  // Dọn nháp ghi bằng định dạng cũ (không gắn userId) trước khi làm gì khác — không tài khoản
+  // nào được phép khôi phục chúng (ADR-050).
+  purgeLegacyDrafts(localStorage)
   await Promise.all([store.load(), categoriesApi.tree().then((t) => (categoriesTree.value = t))])
   loadEditingFilm()
   // Baseline để so sánh "có thay đổi chưa lưu" — lấy SAU khi đã nạp dữ liệu phim đang sửa
@@ -309,8 +315,10 @@ function cancel() {
 // Chỉ lưu các trường văn bản (không lưu được video/ảnh đã chọn — File không
 // thể serialize bền qua localStorage), nên khi khôi phục người dùng vẫn cần
 // chọn lại tệp nếu có.
-const DRAFT_PREFIX = 'kho-phim:film-draft:'
-const draftKey = computed(() => DRAFT_PREFIX + (editingSlug.value ? `edit:${editingSlug.value}` : 'new'))
+// Khoá nháp GẮN THEO NGƯỜI DÙNG (ADR-050) — xem `draftKey.ts` để biết lỗi rò nháp giữa hai
+// tài khoản trên cùng máy mà cách đặt khoá này khắc phục. `null` = chưa biết là ai → không
+// đọc/ghi nháp.
+const draftKey = computed(() => buildDraftKey(auth.user?.id, editingSlug.value))
 
 function snapshotFields() {
   return {
@@ -332,12 +340,15 @@ function isDirty() {
 }
 
 function saveDraft() {
+  if (!draftKey.value) return
   localStorage.setItem(draftKey.value, JSON.stringify(snapshotFields()))
 }
 function clearDraft() {
+  if (!draftKey.value) return
   localStorage.removeItem(draftKey.value)
 }
 function restoreDraftIfAny() {
+  if (!draftKey.value) return
   const raw = localStorage.getItem(draftKey.value)
   if (!raw) return
   try {
@@ -472,12 +483,14 @@ function onLeaveSaveDraft() {
                 :maxSizeMB="2048"
                 :model-value="videoFileMeta"
                 :disabled="submitting"
+                full-width
+                hint-inside
                 @select-files="onSelectVideo"
                 @remove="onRemoveVideo"
               />
-              <p class="mt-1 text-[12px]" style="color: var(--mds-text-secondary)">
-                Chọn 1 trong 2 cách: tải thẳng tệp phim lên (định dạng MP4/WebM/OGG/MOV/MKV), hoặc
-                dán link ở bên dưới nếu phim đã có sẵn trên YouTube/Vimeo/Google Drive/MISA Drive.
+              <p class="mt-2 text-[12px]" style="color: var(--mds-text-secondary)">
+                Dùng được cùng lúc nhiều nguồn: vừa tải tệp phim lên (MP4/WebM/OGG/MOV/MKV), vừa dán
+                link YouTube/Vimeo/Google Drive/MISA Drive ở bên dưới. Chỉ cần có ít nhất một nguồn.
               </p>
             </div>
 

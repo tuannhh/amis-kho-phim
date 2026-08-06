@@ -60,6 +60,26 @@ export function isSystemAdmin(role: UserRole | null): boolean {
   return role === 'super_admin'
 }
 
+/**
+ * Bản sao logic `CategoriesService.assertCanWrite` của backend (ADR-051) — quyền ghi chuyên mục
+ * phân theo TẦNG chứ không theo một mức vai trò duy nhất:
+ *
+ *   chuyên mục GỐC (`parentId == null`) → chỉ Cấp 4
+ *   chuyên mục CON (`parentId != null`) → Cấp 2 trở lên
+ *
+ * Sửa quy tắc ở backend thì PHẢI sửa cả đây (và ngược lại).
+ */
+export function canWriteCategory(role: UserRole | null, isRoot: boolean): boolean {
+  if (role === 'super_admin') return true
+  if (isRoot) return false
+  return isAtLeastLevel(role, 2)
+}
+
+/** Có thấy nút "Thêm chuyên mục" không — Cấp 2 trở lên (Cấp 2/3 chỉ tạo được chuyên mục con). */
+export function canCreateAnyCategory(role: UserRole | null): boolean {
+  return isAtLeastLevel(role, 2)
+}
+
 /** Thông tin tối thiểu của phim cần để quyết định ẩn/hiện nút Sửa/Xoá. */
 export interface FilmOwnership {
   uploaderId: number
