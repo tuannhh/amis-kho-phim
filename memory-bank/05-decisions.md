@@ -15,6 +15,52 @@
 > — là bug bảo mật chung, cần port sang `phan-quyen-3-cap` ở đợt sau. **ADR-051 gắn `[RBAC4]`**
 > vì phụ thuộc `FILM_WRITE_ROLES` của mô hình 4 cấp.
 
+## ADR-060 — Vùng chạm 48px xử lý TẠI CHỖ DÙNG, không sửa MButton toàn cục [GĐ8]
+- **Quyết định:** Các control trong màn mobile được nâng lên vùng chạm 48px bằng class
+  `min-h-12` đặt tại nơi dùng (`MButton class="min-h-12"`), KHÔNG thêm quy tắc
+  `@media (pointer: coarse)` vào chính `MButton`. Ba ngoại lệ có sửa tại component vì không
+  chạm tới được từ view cha: `MDropdownMenu` (menu teleport ra `body`), `MInput`/`MTextarea`
+  (font nhập liệu 16px chống iOS tự zoom — `mobile-pwa.md` §5), `MTree` (chỉnh qua `:deep`
+  trong màn mobile, có bọc `@media (pointer: coarse)`).
+- **Lý do:** `MButton` cao 32px là mật độ MDS desktop, dùng ở hàng trăm chỗ kể cả trong bảng
+  dày. Một quy tắc coarse-pointer toàn cục sẽ làm mọi nút trong MỌI màn (kể cả bản desktop
+  xem trên laptop cảm ứng) cao lên 48px — thay đổi diện rộng không kiểm soát được trong phạm
+  vi Giai đoạn A.
+- **Đánh đổi:** phải nhớ thêm `min-h-12` ở từng chỗ dùng trong màn mobile; bù lại bản desktop
+  chắc chắn không đổi một pixel nào.
+
+## ADR-059 — Thao tác trên thẻ phim mobile gom vào menu "⋯", bỏ hẳn cơ chế hover [GĐ8]
+- **Quyết định:** `FilmCardMobile` hiện nút "⋯" LUÔN NHÌN THẤY ở góc ảnh bìa; trong đó có
+  Copy link theo từng nguồn + Sửa/Xoá (chỉ khi `canManageFilm` cho phép). Bản desktop
+  (`FilmCard`) giữ nguyên kiểu hiện nút khi rê chuột.
+- **Lý do:** `mobile-pwa.md` §1 cấm để chức năng quan trọng phụ thuộc hover — màn cảm ứng
+  không có trạng thái đó, nút Sửa/Xoá của bản desktop sẽ KHÔNG BAO GIỜ hiện ra trên điện
+  thoại. Ngoài ra bản desktop dàn 2-4 nút chữ "YouTube/Vimeo/…" để copy link; ở 320px hàng đó
+  chắc chắn ngắt dòng, nên chuyển thành mục trong menu.
+- **Chốt an toàn:** danh sách mục menu dựng từ ĐÚNG helper `canManageFilm` mà desktop dùng —
+  không có bản sao quy tắc RBAC riêng cho mobile. Backend vẫn là nơi kiểm quyền thật.
+
+## ADR-058 — "1 route, 2 view": cùng URL, đổi component theo window size class [GĐ8]
+- **Quyết định:** Mỗi route chính giữ ĐÚNG MỘT đường dẫn nhưng có hai component: bản desktop
+  hiện có + bản mobile dựng riêng (hậu tố `Mobile`). Một resolver nhỏ
+  (`lib/responsiveView.ts` → `lazyResponsiveView`) đặt ở `router/index.ts` chọn component
+  theo `isCompact` của `useWindowSize()`. Phiên bản mobile KHÔNG phải bản desktop co giãn
+  bằng CSS — là cây component độc lập, chỉ dùng chung store/API/business logic.
+- **Lý do:** Yêu cầu là "cảm giác giống app native thật", mà bố cục native (bottom sheet lọc,
+  player full-bleed, hành động gom vào "⋯", số liệu xếp dọc) khác bản desktop về CẤU TRÚC chứ
+  không chỉ về khoảng cách — nhồi vào một template bằng breakpoint sẽ thành một file đầy
+  `v-if="isCompact"` rất khó sửa.
+- **Vì sao KHÔNG tách route riêng (vd `/m/films`):** link chia sẻ giữa máy tính và điện thoại
+  sẽ không mở được cùng một chỗ, và lịch sử back/forward của trình duyệt sẽ lệch nhau. Đổi
+  kích thước cửa sổ phải chỉ là đổi cách trình bày, không phải đổi địa chỉ.
+- **Chống lệch logic:** phần lọc/phân trang Kho phim được tách ra composable dùng chung
+  `useFilmListFilters.ts` (trước đây nằm thẳng trong `FilmListView.vue`); logic gom kệ theo
+  chuyên mục vẫn dùng chung `CategoryShelves` qua prop `mobile`. Chỉ lớp TRÌNH BÀY được nhân
+  đôi — mọi quy tắc nghiệp vụ vẫn tồn tại đúng một chỗ.
+- **Đánh đổi:** đổi qua lại mốc 600px làm Vue unmount view cũ / mount view mới, nên màn chi
+  tiết fetch lại phim một lần (backend đã dedupe lượt xem 30 phút nên không sai số liệu).
+  Đây là thao tác hiếm (kéo resize cửa sổ), chấp nhận được.
+
 ## ADR-057 — Cấp 4 VẪN có mục "Phim tôi quản lý" (dù trùng nội dung Kho phim) [Đợt 2 · việc 6]
 - **Quyết định:** Mục sidebar "Phim tôi quản lý" (`/my-films`) hiện với Cấp 2 trở lên, gồm cả
   Cấp 4 — với Cấp 4 nó liệt kê TOÀN BỘ kho phim, tức trùng dữ liệu với màn "Kho phim".

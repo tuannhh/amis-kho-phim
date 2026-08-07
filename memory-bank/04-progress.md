@@ -4,7 +4,14 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
-- **Việc mới nhất: ĐỢT 2 — 10 VIỆC (5, 6, 8, 9, 10, 11, 12, 13, 14, 15) — ✅ XONG 9/10,
+- **Việc mới nhất: GĐ 8 — MOBILE-NATIVE UI, GIAI ĐOẠN A (Kho phim / Xem phim / Đăng nhập)
+  — ✅ XONG (2026-08-07, Opus 5), CHỈ trên nhánh `phan-quyen-4-cap`.** Nhật ký đầy đủ ở mục
+  "Nhật ký GĐ 8 — Giai đoạn A" ngay dưới; quyết định ở **ADR-058 → ADR-060**.
+  **Tổng test: 216 unit BE + 106 tích hợp BE + 82 FE = 404** (trước đợt này 391; +13 test FE
+  mới cho `pickView` và bộ lọc dùng chung) + 2 script kiểm thử đồng thời.
+  ⚠️ **Giai đoạn B CHƯA LÀM** (Thêm/Sửa phim dạng wizard, popup → bottom sheet) — xem mục
+  "Để lại cho Giai đoạn B" cuối nhật ký.
+- **Việc trước đó: ĐỢT 2 — 10 VIỆC (5, 6, 8, 9, 10, 11, 12, 13, 14, 15) — ✅ XONG 9/10,
   hoãn có chủ đích 1 phần (2026-08-07, Opus 5), CHỈ trên nhánh `phan-quyen-4-cap`.**
   Nhật ký đầy đủ ở mục "Nhật ký ĐỢT 2 — 10 việc" ngay dưới; quyết định ở **ADR-052 → ADR-057**.
   **Tổng test: 216 unit BE + 106 tích hợp BE + 69 FE = 391** (trước đợt này 330) + 2 script
@@ -43,6 +50,112 @@
   phụ thuộc ngầm vào múi giờ Node↔MySQL (ADR-037). **Tổng 201 test tự động.**
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
 
+
+## Nhật ký GĐ 8 — Giai đoạn A (Mobile-native UI) — 2026-08-07, Opus 5 — ✅ XONG (CHỈ nhánh `phan-quyen-4-cap`)
+
+**Bối cảnh:** GĐ6 đã làm responsive theo window size class + PWA + bottom nav tạm. GĐ8 KHÔNG
+làm lại từ đầu mà THAY các trang chính bằng bộ màn hình mobile-first thật — "dựng riêng cho
+mobile, cảm giác giống app native", không phải desktop co giãn. Khung lấy từ
+`/Users/tuanbui/misa-design-system/ui/templates/mobile/` (`ListPageMobile.vue`,
+`DetailPageMobile.vue`, `MMobileTopBar.vue`) rồi sửa theo nghiệp vụ Kho phim.
+
+### Kiến trúc (ADR-058)
+- `frontend/src/lib/responsiveView.ts` — `pickView()` (hàm thuần, có test) +
+  `lazyResponsiveView()` dựng component resolver. Đặt ở `router/index.ts` cho 2 route
+  `films` và `film-detail`: **cùng URL, đổi component theo `isCompact`**, giữ lazy-load nên
+  máy tính không tải chunk mobile và ngược lại.
+- Chống lệch logic giữa 2 view: tách `features/films/useFilmListFilters.ts` (lọc theo từ
+  khoá/chuyên mục/phim mới, phân trang, `rangeText`) — **`FilmListView.vue` desktop đã được
+  refactor để dùng chính composable này**, template desktop giữ nguyên 100%.
+  `CategoryShelves` dùng chung qua prop `mobile` (logic gom kệ không nhân đôi).
+
+### A1 — Kho phim bản mobile (`FilmListMobileView.vue`, mới)
+- Toolbar 2 tầng: "Kho phim" + nút Primary **"Thêm"** (nhãn ngắn viết riêng cho mobile, desktop
+  vẫn "Thêm phim"); tầng sau là nút **Bộ lọc** có badge đếm số bộ lọc đang bật + `rangeText`.
+- Danh sách phim là **card 1 cột** (`FilmCardMobile.vue`, mới) — giữ ĐỦ trường của bản desktop:
+  ảnh bìa, thời lượng, tên phim, nhãn "Phim mới", chuyên mục, hashtag, lượt xem, ngày đăng,
+  người đăng. Thao tác gom vào nút **"⋯" luôn hiển thị** (ADR-059).
+- **Kệ ngang theo chuyên mục cha giữ nguyên**, cuộn ngang trong đúng container của từng kệ
+  (không tràn ngang cả trang); nhãn nút rút gọn "Xem tất cả" → **"Tất cả"**.
+- Bộ lọc chuyển thành **bottom sheet** (`MDrawer position="bottom"`, mới thêm — xem dưới):
+  cây chuyên mục bằng `MTree` (mở sẵn nhánh cha) + "Tất cả chuyên mục" + `MSwitch` "Chỉ hiển
+  thị phim mới" + số phim mỗi trang bằng `MRadioGroup`. Lọc áp dụng ngay khi chọn; footer chỉ
+  2 nút "Xoá lọc"/"Xong", mỗi nút nửa hàng, `whitespace-nowrap`.
+  ⚠️ Dùng `MRadioGroup` chứ KHÔNG dùng `MSelect` trong sheet: dropdown `MSelect` teleport ra
+  body ở `z-[1000]`, nằm DƯỚI panel bottom sheet `z-[1001]` nên sẽ bị che.
+- Bộ lọc đang bật hiện thành **chip bấm để bỏ** (từ khoá / chuyên mục / phim mới).
+- **Ô tìm kiếm KHÔNG dựng lại**: `MHeaderBar :compact` từ GĐ6 đã đổi ô tìm kiếm toàn cục thành
+  icon mở search full-width — đúng `mobile-pwa.md` §3, tái dùng nguyên trạng.
+
+### A2 — Xem phim bản mobile (`FilmDetailMobileView.vue`, mới)
+- `MMobileTopBar.vue` (clone khung MDS vào `components/mds/`) — Back + tiêu đề rút gọn + "⋯".
+  Bỏ biến thể `mode="home"` của khung gốc vì `MHeaderBar` đã là app shell cấp một.
+- **Player full-bleed** hết bề ngang (`VideoPlayer` thêm prop `compact`: bỏ bo góc, hàng chọn
+  nguồn thành **chip cuộn ngang** không wrap, nút mở link ngoài/copy nới vùng chạm 48px, khối
+  Google Drive/MISA Drive xếp dọc full-width thay vì 2 nút cạnh nhau).
+- Thông tin phim xếp DỌC dưới player; số liệu (lượt xem/lượt tải/người đăng/ngày đăng) thành
+  danh sách dọc thay vì một hàng ngang 4 số liệu.
+- **Hành động chính "Tải xuống" = nút full-width sticky đáy, đứng riêng một hàng** (chỉ khi
+  phim có bản lưu trữ nội bộ — cùng điều kiện với desktop). Sửa/Xoá + Copy link nằm trong "⋯".
+
+### A3 — Đăng nhập (`LoginView.vue`, sửa tại chỗ, KHÔNG tạo file mobile riêng)
+Đã full-page sẵn nên chỉ bổ sung phần còn thiếu theo checklist skill:
+- 🐞 **Bug thật đã sửa:** `MInput` không có `inheritAttrs: false` → `autocomplete="username"`
+  rơi vào `div` bọc ngoài, KHÔNG tới `<input>`. Trình quản lý mật khẩu và autofill iOS/Android
+  không nhận diện được ô nhập. Nay `v-bind="$attrs"` đặt đúng lên `<input>`.
+- 🐞 **Bug thật đã sửa:** nút Đăng nhập vừa `type="submit"` vừa `@click="submit"` → một cú bấm
+  gọi `submit()` **hai lần** (2 request đăng nhập). Bỏ `@click`.
+- Font nhập liệu 16px trên màn cảm ứng (`MInput` + `MTextarea`, bọc `@media (pointer: coarse)`)
+  chống iOS Safari tự phóng to trang khi focus — `mobile-pwa.md` §5.
+- Thêm `inputmode="email"`, `autocapitalize="none"`, `autocorrect/spellcheck=off`,
+  `enterkeyhint`; đổi `h-full` → `min-h-dvh` + safe-area.
+
+### Sửa thêm ở tầng component MDS (bắt buộc để đạt chuẩn, không phải mở rộng phạm vi)
+- `MDrawer.vue`: thêm `position="bottom"` = **bottom sheet** (`mobile-pwa.md` §4.5 yêu cầu bộ
+  lọc dùng bottom sheet, bộ MDS chưa có component này). Bo góc trên, cao tối đa `85dvh`,
+  chừa safe-area, có `prefers-reduced-motion`. Hai cạnh `left`/`right` giữ nguyên hành vi cũ.
+- `MDropdownMenu.vue`: mục menu cao tối thiểu 48px trong `@media (pointer: coarse)` — menu
+  teleport ra `body` nên không chỉnh được từ view cha.
+- Vùng chạm 48px cho control trong màn mobile xử lý tại chỗ dùng, KHÔNG sửa `MButton` toàn
+  cục (ADR-060).
+
+### Kiểm thử trên trình duyệt thật (không chỉ đọc code)
+Chạy trên stack Docker thật `http://localhost:8180`, viewport 320x568 / 375x667 / 390x844:
+- **320px (khó nhất):** `document.scrollWidth === 320` — **không tràn ngang toàn trang**; rà
+  toàn bộ DOM không phần tử nào rộng hơn viewport ngoài các container cuộn ngang có chủ đích.
+- **Không nút nào ngắt dòng:** đo bằng `Range.getClientRects()` trên từng text node trong mọi
+  `button`/`a` ở cả màn danh sách và màn chi tiết → **0 nhãn xuống 2 dòng**.
+- **Touch target:** mọi control MỚI đều ≥48px. Còn lại dưới 48px chỉ là cụm icon của
+  `MHeaderBar` (32px) — xem "Để lại cho Giai đoạn B".
+- **Không sidebar cố định ở compact**, bottom nav hiển thị đúng theo quyền.
+- **Resize Compact ↔ Medium KHÔNG cần reload**: kéo 390 → 700 thấy sidebar + view desktop trở
+  lại trên CÙNG URL, kéo ngược lại về đúng view mobile.
+- **RBAC không bị phá vỡ** (2 tài khoản khác cấp):
+  - `tp1@` (Cấp 3): thấy nút "Thêm"; menu "⋯" trên thẻ phim và trên trang chi tiết có
+    **Copy link + Sửa thông tin + Xoá phim**.
+  - `xem@` (Cấp 1): **KHÔNG** có nút "Thêm", bottom nav chỉ còn "Kho phim", menu "⋯" chỉ có
+    **Copy link** — không có Sửa/Xoá ở cả thẻ phim lẫn trang chi tiết.
+- Bottom sheet lọc: chọn chuyên mục cha → `1–6 / 6 phim`, badge "1", chip bỏ lọc hoạt động,
+  kệ ngang tự ẩn khi đang lọc (đúng ADR-056).
+- Nút "Tải xuống" sticky đáy hiện đúng ở phim có tệp nội bộ, ẩn ở phim chỉ có link ngoài.
+
+### Test
+`216 unit BE + 106 tích hợp BE + 82 FE = 404` — tất cả PASS, không test cũ nào gãy.
+Mới thêm 13 test FE: `lib/responsiveView.spec.ts` (chọn view theo size class) và
+`features/films/useFilmListFilters.spec.ts` (lọc theo tên/hashtag/chuyên mục/phim mới, cộng
+dồn bộ lọc, không đột biến mảng gốc, `rangeText` biên).
+
+### Để lại cho Giai đoạn B (KHÔNG làm ở lượt này)
+1. **Thêm/Sửa phim dạng wizard** (`FilmUploadView`/`FilmForm`) — form dài nhất app, cần chia
+   bước + footer Lưu/Huỷ sticky + xử lý bàn phím ảo che field (`mobile-pwa.md` §4.2).
+2. **Popup → bottom sheet**: `FilmManageDialogs`, các `MDialog` xác nhận, `MSettingsDialog`.
+3. **Các màn còn lại chưa có bản mobile** (vẫn dùng bản desktop khi ở compact): Phim tôi quản
+   lý, Chuyên mục, Quản trị người dùng, Quản lý phòng ban, Báo cáo, Đổi mật khẩu.
+4. **Cụm icon `MHeaderBar` còn 32px** (yêu cầu 48px trên màn cảm ứng). Nới thẳng lên 48px sẽ
+   làm header tràn ngang ở 320px (9 chấm + logo + tìm kiếm + chuông + "Khác" + avatar) →
+   phải thiết kế lại cụm tiện ích compact trước, không phải sửa một dòng CSS.
+5. Đổi qua lại mốc 600px làm màn chi tiết fetch lại phim một lần (xem ADR-058, đánh đổi đã
+   chấp nhận).
 
 ## Nhật ký ĐỢT 2 — 10 việc (2026-08-07, Opus 5) — nhánh `phan-quyen-4-cap`
 

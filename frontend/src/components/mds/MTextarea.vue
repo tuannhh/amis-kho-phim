@@ -38,7 +38,7 @@ function onFocus(e) {
         :maxlength="maxlength ?? undefined"
         :placeholder="placeholder"
         :disabled="disabled"
-        class="w-full resize-y rounded-lg border bg-[var(--mds-bg)] px-3 py-[7px] text-[13px] leading-[18px] text-[var(--mds-text)] outline-none transition-colors placeholder:text-[var(--mds-text-placeholder)]"
+        class="mds-textarea-field w-full resize-y rounded-lg border bg-[var(--mds-bg)] px-3 py-[7px] text-[13px] leading-[18px] text-[var(--mds-text)] outline-none transition-colors placeholder:text-[var(--mds-text-placeholder)]"
         :class="[
           error ? 'border-[var(--mds-danger)]' : 'border-[var(--mds-border)]',
           disabled
@@ -70,3 +70,13 @@ function onFocus(e) {
     </p>
   </div>
 </template>
+
+<style scoped>
+/* GĐ8 — giống MInput: font nhập liệu tối thiểu 16px trên màn cảm ứng để iOS Safari không tự
+   phóng to trang khi focus (mobile-pwa.md §5). Máy tính giữ nguyên mật độ MDS 13px. */
+@media (pointer: coarse) {
+  .mds-textarea-field {
+    font-size: 16px;
+  }
+}
+</style>

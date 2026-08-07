@@ -14,6 +14,20 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'change', 'focus', 'blur', 'clear'])
 
+/**
+ * GĐ8 — chuyển attribute lạ (autocomplete, inputmode, enterkeyhint, name, maxlength, aria-*)
+ * xuống ĐÚNG thẻ <input> thay vì rơi vào div bọc ngoài.
+ *
+ * Trước đây `<MInput autocomplete="username">` ở màn đăng nhập đặt thuộc tính lên div — trình
+ * duyệt bỏ qua, nên trình quản lý mật khẩu và autofill của iOS/Android không nhận diện được ô
+ * nhập. mobile-pwa.md §5 yêu cầu "dùng `inputmode`, `autocomplete`, `enterkeyhint`... đúng
+ * dữ liệu", nên đây là điều kiện bắt buộc chứ không phải tinh chỉnh thêm.
+ *
+ * An toàn với các màn hiện có: không chỗ nào truyền `class` cho MInput (đã rà toàn bộ 20 chỗ
+ * dùng), nên không có style nào đang dựa vào việc class rơi xuống div bọc.
+ */
+defineOptions({ inheritAttrs: false })
+
 const inputRef = ref(null)
 // Toggle hiển thị mật khẩu (chỉ áp dụng khi type="password")
 const showPassword = ref(false)
@@ -86,12 +100,13 @@ function clear() {
 
       <input
         ref="inputRef"
+        v-bind="$attrs"
         :type="actualType"
         :value="modelValue"
         :placeholder="placeholder"
         :disabled="disabled"
         :readonly="readonly"
-        class="h-full w-full min-w-0 flex-1 bg-transparent text-[13px] leading-[18px] text-[var(--mds-text)] outline-none placeholder:text-[var(--mds-text-placeholder)]"
+        class="mds-input-field h-full w-full min-w-0 flex-1 bg-transparent text-[13px] leading-[18px] text-[var(--mds-text)] outline-none placeholder:text-[var(--mds-text-placeholder)]"
         :class="disabled ? 'cursor-not-allowed' : ''"
         @input="onInput"
         @change="onChange"
@@ -143,3 +158,16 @@ function clear() {
     </p>
   </div>
 </template>
+
+<style scoped>
+/* GĐ8 — mobile-pwa.md §5: "Text input trên compact touch dùng font nhập liệu tối thiểu 16px
+   để tránh iOS tự zoom". Safari iOS phóng to cả trang khi focus vào input có font < 16px, và
+   sau đó KHÔNG thu lại — người dùng bị kẹt ở trạng thái trang bị cắt ngang.
+   Chỉ áp dụng cho con trỏ thô (màn cảm ứng); chuột trên máy tính vẫn giữ mật độ MDS 13px.
+   Label/placeholder/helper text không đổi — quy tắc chỉ nói về FONT NHẬP LIỆU. */
+@media (pointer: coarse) {
+  .mds-input-field {
+    font-size: 16px;
+  }
+}
+</style>

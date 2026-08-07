@@ -25,11 +25,21 @@ const toast = useToast()
  *   dẫn đầy đủ), phần còn lại của app vẫn giữ nguyên no-referrer.
  * - gdrive/misadrive: không nhúng được ổn định → hiện nút mở link ngoài.
  */
-const props = defineProps<{
-  title: string
-  sources: FilmSource[]
-  links: Partial<Record<FilmSource, string>>
-}>()
+const props = withDefaults(
+  defineProps<{
+    title: string
+    sources: FilmSource[]
+    links: Partial<Record<FilmSource, string>>
+    /**
+     * GĐ8 — chế độ Compact (<600px): khung phát bỏ bo góc để full-bleed hết bề ngang màn
+     * hình, và hàng chọn nguồn chuyển thành CHIP CUỘN NGANG thay vì `flex-wrap`. Ở 320px một
+     * phim có 3-4 nguồn sẽ làm hàng nút xuống dòng lộn xộn — cuộn ngang trong đúng container
+     * này giữ mỗi nhóm nút trên một dòng (mobile-pwa.md §2: chỉ cho cuộn ngang có chủ đích).
+     */
+    compact?: boolean
+  }>(),
+  { compact: false },
+)
 
 /**
  * Thứ tự ưu tiên chọn nguồn phát mặc định. Một phim có thể có NHIỀU nguồn cùng lúc (vừa tệp
@@ -85,7 +95,10 @@ async function copyLink(url: string | undefined, label: string) {
 <template>
   <div class="flex flex-col gap-3">
     <!-- Vùng phát -->
-    <div class="relative aspect-video w-full overflow-hidden rounded-lg bg-black">
+    <div
+      class="relative aspect-video w-full overflow-hidden bg-black"
+      :class="compact ? '' : 'rounded-lg'"
+    >
       <!-- Chưa có nguồn phát nào (chưa tải file/chưa nhập link) -->
       <div
         v-if="!orderedSources.length"
@@ -132,14 +145,25 @@ async function copyLink(url: string | undefined, label: string) {
         <p class="text-[13px]" style="color: rgba(255,255,255,0.75)">
           Phim này lưu trên {{ SOURCE_LABEL[activeSource] }}, mở bằng liên kết ngoài
         </p>
-        <div class="flex items-center gap-2">
-          <a :href="links[activeSource]" target="_blank" rel="noopener noreferrer">
-            <MButton variant="secondary">
+        <!-- Compact: xếp DỌC, mỗi nút full-width một hàng — hai nút chữ cạnh nhau chắc chắn
+             ngắt dòng ở 320px (quy tắc chống ngắt dòng nút bấm, GĐ8). -->
+        <div class="flex w-full items-center gap-2 px-4" :class="compact ? 'flex-col' : 'justify-center'">
+          <a
+            :href="links[activeSource]"
+            target="_blank"
+            rel="noopener noreferrer"
+            :class="compact ? 'w-full' : ''"
+          >
+            <MButton variant="secondary" :class="compact ? 'w-full whitespace-nowrap' : ''">
               <template #icon><MIcon name="external-link" :size="16" /></template>
-              Mở trên {{ SOURCE_LABEL[activeSource] }}
+              {{ compact ? 'Mở liên kết' : `Mở trên ${SOURCE_LABEL[activeSource]}` }}
             </MButton>
           </a>
-          <MButton variant="secondary" @click="copyLink(links[activeSource], SOURCE_LABEL[activeSource])">
+          <MButton
+            variant="secondary"
+            :class="compact ? 'w-full whitespace-nowrap' : ''"
+            @click="copyLink(links[activeSource], SOURCE_LABEL[activeSource])"
+          >
             <template #icon><MIcon name="copy" :size="16" /></template>
             Copy link
           </MButton>
@@ -147,14 +171,20 @@ async function copyLink(url: string | undefined, label: string) {
       </div>
     </div>
 
-    <!-- Nút chọn nguồn — hiện đúng nguồn nào phim có -->
-    <div v-if="orderedSources.length > 1" class="flex flex-wrap items-center gap-2">
-      <span class="text-[12px]" style="color: var(--mds-text-secondary)">Xem từ:</span>
+    <!-- Nút chọn nguồn — hiện đúng nguồn nào phim có.
+         Compact: một hàng CHIP cuộn ngang, không wrap. -->
+    <div
+      v-if="orderedSources.length > 1"
+      class="flex items-center gap-2"
+      :class="compact ? 'overflow-x-auto whitespace-nowrap px-3' : 'flex-wrap'"
+    >
+      <span class="shrink-0 text-[12px]" style="color: var(--mds-text-secondary)">Xem từ:</span>
       <button
         v-for="s in orderedSources"
         :key="s"
         type="button"
-        class="rounded-md border px-2.5 py-1 text-[12px] font-medium transition"
+        class="shrink-0 whitespace-nowrap rounded-md border font-medium transition"
+        :class="compact ? 'min-h-12 px-4 text-[13px]' : 'px-2.5 py-1 text-[12px]'"
         :style="
           s === activeSource
             ? 'background: var(--mds-brand-50); border-color: var(--mds-brand-600); color: var(--mds-brand-600)'
@@ -167,14 +197,19 @@ async function copyLink(url: string | undefined, label: string) {
     </div>
 
     <!-- Nút mở nguồn ngoài song song (luôn hiện, kể cả khi đang xem nhúng) + copy link -->
-    <div v-if="orderedSources.length" class="flex flex-wrap items-center gap-3">
+    <div
+      v-if="orderedSources.length"
+      class="flex items-center gap-3"
+      :class="compact ? 'overflow-x-auto whitespace-nowrap px-3 pb-1' : 'flex-wrap'"
+    >
       <div
         v-for="s in orderedSources.filter((x) => x !== 'storage')"
         :key="'ext-' + s"
-        class="flex items-center gap-0.5"
+        class="flex shrink-0 items-center gap-0.5"
       >
         <a :href="links[s]" target="_blank" rel="noopener noreferrer">
-          <MButton variant="link" size="md">
+          <!-- Compact: vùng chạm 48px (mobile-pwa.md §5), glyph vẫn 12px -->
+          <MButton variant="link" size="md" :class="compact ? 'min-h-12' : ''">
             <template #icon><MIcon name="external-link" :size="12" /></template>
             {{ SOURCE_LABEL[s] }}
           </MButton>
@@ -182,7 +217,9 @@ async function copyLink(url: string | undefined, label: string) {
         <button
           type="button"
           :title="`Copy link ${SOURCE_LABEL[s]}`"
-          class="flex h-6 w-6 items-center justify-center rounded hover:bg-[var(--mds-bg-hover-soft)]"
+          class="flex items-center justify-center rounded hover:bg-[var(--mds-bg-hover-soft)]"
+          :class="compact ? 'h-12 w-12' : 'h-6 w-6'"
+          :aria-label="`Copy link ${SOURCE_LABEL[s]}`"
           style="color: var(--mds-icon-neutral)"
           @click="copyLink(links[s], SOURCE_LABEL[s])"
         >

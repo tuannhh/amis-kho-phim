@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import MIcon from '@/components/mds/MIcon.vue'
 import FilmCard from './FilmCard.vue'
+import FilmCardMobile from './FilmCardMobile.vue'
 import { publishedTime } from './filmTypes'
 import type { ApiFilm } from './filmsApi'
 import { flattenCategoryTree, type ApiCategoryNode } from '@/features/categories/categoriesApi'
@@ -17,10 +18,19 @@ import { flattenCategoryTree, type ApiCategoryNode } from '@/features/categories
  * Cuộn ngang nằm TRONG từng kệ (`overflow-x-auto` trên đúng một container), không để tràn
  * ngang cả trang — nguyên tắc bắt buộc từ GĐ6 (`mobile-pwa.md`).
  */
-const props = defineProps<{
-  films: ApiFilm[]
-  categories: ApiCategoryNode[]
-}>()
+const props = withDefaults(
+  defineProps<{
+    films: ApiFilm[]
+    categories: ApiCategoryNode[]
+    /**
+     * GĐ8 — Compact dùng thẻ phim bản mobile (thao tác trong menu "⋯" thay vì hiện khi rê
+     * chuột) và mật độ dày hơn. Cách gom phim thành kệ thì DÙNG CHUNG, không tách file
+     * riêng cho mobile: đó mới là phần logic dễ lệch nhau khi sửa.
+     */
+    mobile?: boolean
+  }>(),
+  { mobile: false },
+)
 
 const emit = defineEmits<{
   (e: 'open', film: ApiFilm): void
@@ -68,23 +78,26 @@ const shelves = computed<Shelf[]>(() => {
     <section
       v-for="shelf in shelves"
       :key="shelf.id"
-      class="rounded-lg bg-white p-4"
+      class="rounded-lg bg-white"
+      :class="mobile ? 'px-3 py-3' : 'p-4'"
       style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
     >
-      <div class="mb-3 flex items-center justify-between gap-3">
-        <h2 class="text-[14px] font-semibold" style="color: var(--mds-text-primary)">
+      <div class="mb-3 flex items-center justify-between gap-2">
+        <h2 class="min-w-0 truncate text-[14px] font-semibold" style="color: var(--mds-text-primary)">
           {{ shelf.name }}
           <span class="font-normal" style="color: var(--mds-text-secondary)">
             ({{ shelf.total }} phim)
           </span>
         </h2>
+        <!-- Mobile: nhãn rút gọn "Tất cả" + vùng chạm cao 48px, không để nút bị ngắt dòng -->
         <button
           type="button"
-          class="flex shrink-0 items-center gap-1 rounded px-1 text-[13px] font-medium hover:underline"
+          class="flex shrink-0 items-center gap-0.5 rounded px-1 text-[13px] font-medium hover:underline"
+          :class="mobile ? 'min-h-12' : ''"
           style="color: var(--mds-brand-600)"
           @click="emit('showAll', shelf.id)"
         >
-          Xem tất cả
+          <span class="whitespace-nowrap">{{ mobile ? 'Tất cả' : 'Xem tất cả' }}</span>
           <MIcon name="chevron-right" :size="14" />
         </button>
       </div>
@@ -92,15 +105,24 @@ const shelves = computed<Shelf[]>(() => {
       <!-- Cuộn ngang bị giới hạn trong đúng container này. `pb-1` chừa chỗ cho thanh cuộn để
            nó không đè lên viền thẻ phim. -->
       <div class="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1">
-        <FilmCard
-          v-for="film in shelf.films"
-          :key="film.id"
-          :film="film"
-          shelf
-          @open="emit('open', $event)"
-          @edit="emit('edit', $event)"
-          @delete="emit('delete', $event)"
-        />
+        <template v-for="film in shelf.films" :key="film.id">
+          <FilmCardMobile
+            v-if="mobile"
+            :film="film"
+            variant="shelf"
+            @open="emit('open', $event)"
+            @edit="emit('edit', $event)"
+            @delete="emit('delete', $event)"
+          />
+          <FilmCard
+            v-else
+            :film="film"
+            shelf
+            @open="emit('open', $event)"
+            @edit="emit('edit', $event)"
+            @delete="emit('delete', $event)"
+          />
+        </template>
       </div>
     </section>
   </div>

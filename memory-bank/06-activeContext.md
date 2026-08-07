@@ -5,7 +5,39 @@
 
 ## Tóm tắt nhanh (đọc 30 giây là hiểu hết)
 
-### ✅ VỪA XONG: ĐỢT 2 — 10 VIỆC (5, 6, 8, 9, 10, 11, 12, 13, 14, 15) (2026-08-07, Opus 5)
+### ✅ VỪA XONG: GĐ 8 — MOBILE-NATIVE UI, GIAI ĐOẠN A (2026-08-07, Opus 5)
+
+**CHỈ trên nhánh `phan-quyen-4-cap`.** Chi tiết + bằng chứng browser test ở `04-progress.md`
+mục "Nhật ký GĐ 8 — Giai đoạn A"; quyết định ở **ADR-058 → ADR-060**.
+**Test: 216 unit BE + 106 tích hợp BE + 82 FE = 404** (trước: 391) + 2 script đồng thời.
+
+Năm điều quan trọng nhất cần nhớ:
+
+- **Kiến trúc "1 route, 2 view" (ADR-058).** `films` và `film-detail` giữ NGUYÊN URL nhưng
+  render component khác nhau theo `isCompact` (<600px), qua `lib/responsiveView.ts` khai báo
+  ở `router/index.ts`. Bản mobile là màn DỰNG RIÊNG (`*MobileView.vue`), không phải bản
+  desktop co giãn bằng CSS. **Khi thêm route mobile mới, dùng `lazyResponsiveView`, đừng tạo
+  path riêng kiểu `/m/...`.**
+- **Logic nghiệp vụ KHÔNG được nhân đôi.** Lọc/phân trang Kho phim nằm ở
+  `features/films/useFilmListFilters.ts` — **cả hai view desktop và mobile đều dùng file
+  này**. Sửa quy tắc lọc thì sửa đúng một chỗ. Tương tự `CategoryShelves` (prop `mobile`) và
+  helper quyền `canManageFilm`.
+- **Trên mobile, mọi thao tác gom vào nút "⋯" luôn hiển thị** (ADR-059) — KHÔNG dùng hover để
+  lộ Sửa/Xoá như bản desktop, vì màn cảm ứng không có trạng thái hover. Nút Primary thì
+  full-width đứng riêng một hàng; không bao giờ dàn 2 nút chữ cạnh nhau ở 320px.
+- **Hai bug thật đã sửa ở màn Đăng nhập:** `MInput` thiếu `inheritAttrs:false` nên
+  `autocomplete` không tới được `<input>` (autofill/password manager không chạy), và nút Đăng
+  nhập vừa `type=submit` vừa `@click` nên gửi **2 request** mỗi lần bấm. Cả hai đã sửa tại
+  component/màn tương ứng.
+- ⛔ **GIAI ĐOẠN B CHƯA LÀM.** Thêm/Sửa phim dạng wizard + đổi popup sang bottom sheet + các
+  màn còn lại (Phim tôi quản lý, Chuyên mục, Quản trị, Báo cáo, Đổi mật khẩu) VẪN dùng bản
+  desktop khi xem ở compact. Cụm icon `MHeaderBar` còn 32px (chuẩn đòi 48px) — nới thẳng sẽ
+  tràn ngang ở 320px, phải thiết kế lại cụm tiện ích trước. Danh sách đầy đủ ở cuối nhật ký
+  GĐ 8 trong `04-progress.md`. **Đừng báo cáo các phần này là đã có.**
+
+---
+
+### ✅ TRƯỚC ĐÓ: ĐỢT 2 — 10 VIỆC (5, 6, 8, 9, 10, 11, 12, 13, 14, 15) (2026-08-07, Opus 5)
 
 **CHỈ trên nhánh `phan-quyen-4-cap`.** Chi tiết + bằng chứng ở `04-progress.md` mục
 "Nhật ký ĐỢT 2 — 10 việc"; quyết định ở **ADR-052 → ADR-057**.
@@ -88,9 +120,9 @@ GitHub rồi chốt một. `main` vẫn là bản trước RBAC.
 | Vai trò | viewer / employee / **dept_manager** / super_admin | viewer / employee / super_admin |
 | Cấp cao nhất | Cấp 3 chỉ phim **cùng phòng ban**; Cấp 4 mọi phim | Cấp 3 sửa **MỌI** phim, không xét phòng ban |
 | ADR | ADR-040 → 044 `[RBAC4]`, +051 | ADR-045 → 047 `[RBAC3]` |
-| Test | **216 + 106 + 69 = 391** (sau đợt 2 · 10 việc) | 163 + 80 + 47 = 290 |
+| Test | **216 + 106 + 82 = 404** (sau GĐ 8 Giai đoạn A) | 163 + 80 + 47 = 290 |
 
-> ⚠️ **Nhánh 4 cấp đang đi trước HAI đợt sửa** (đợt 5 việc + đợt 10 việc). ADR-050 (nháp gắn userId — lỗi bảo mật) và các
+> ⚠️ **Nhánh 4 cấp đang đi trước BA đợt** (đợt 5 việc + đợt 10 việc + GĐ 8 Giai đoạn A mobile). ADR-050 (nháp gắn userId — lỗi bảo mật) và các
 > sửa UI của việc 3/4a là chung cho cả hai mô hình RBAC, **cần port sang `phan-quyen-3-cap`**.
 > ADR-051 (chuyên mục theo tầng) phụ thuộc `FILM_WRITE_ROLES` nên khi port phải ánh xạ lại vai trò.
 

@@ -267,3 +267,17 @@ onBeforeUnmount(() => {
     </div>
   </Teleport>
 </template>
+
+<style>
+/* GĐ8 — vùng chạm trên thiết bị cảm ứng (mobile-pwa.md §5: tối thiểu 48x48px với coarse
+   pointer, glyph vẫn giữ 16px). Menu teleport ra body nên không thể chỉnh từ view cha bằng
+   `:deep`; đặt ngay tại component và giới hạn trong `@media (pointer: coarse)` để chuột trên
+   máy tính vẫn giữ đúng mật độ MDS 32px. `height: auto` là bắt buộc vì item đang đặt cứng
+   h-8 — chỉ min-height sẽ không thắng được. */
+@media (pointer: coarse) {
+  [role='menu'] > [role='menuitem'] {
+    height: auto;
+    min-height: 48px;
+  }
+}
+</style>

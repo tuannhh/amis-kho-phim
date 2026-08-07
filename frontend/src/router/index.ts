@@ -6,6 +6,7 @@ import {
   MANAGED_FILMS_ROLES,
   REPORT_ROLES,
 } from '@/features/auth/permissions'
+import { lazyResponsiveView } from '@/lib/responsiveView'
 
 /**
  * Router AMIS Kho phim.
@@ -33,7 +34,12 @@ const router = createRouter({
     {
       path: '/films',
       name: 'films',
-      component: () => import('@/features/films/FilmListView.vue'),
+      // GĐ8 — "1 route, 2 view" (ADR-058): cùng URL, đổi component theo window size class.
+      component: lazyResponsiveView(
+        () => import('@/features/films/FilmListView.vue'),
+        () => import('@/features/films/FilmListMobileView.vue'),
+        'FilmListResponsive',
+      ),
       meta: { title: 'Kho phim' },
     },
     {
@@ -46,7 +52,11 @@ const router = createRouter({
     {
       path: '/films/:slug',
       name: 'film-detail',
-      component: () => import('@/features/films/FilmDetailView.vue'),
+      component: lazyResponsiveView(
+        () => import('@/features/films/FilmDetailView.vue'),
+        () => import('@/features/films/FilmDetailMobileView.vue'),
+        'FilmDetailResponsive',
+      ),
       meta: { title: 'Chi tiết phim' },
     },
     {

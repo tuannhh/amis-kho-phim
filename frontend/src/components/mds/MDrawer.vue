@@ -7,11 +7,16 @@ const props = defineProps({
   title: { type: String, default: '' },
   // Chiều rộng panel — nhận số (px) hoặc chuỗi CSS
   width: { type: [String, Number], default: 480 },
-  // Cạnh trượt ra: 'right' (mặc định) | 'left'
+  // Cạnh trượt ra: 'right' (mặc định) | 'left' | 'bottom'
+  //
+  // 'bottom' = BOTTOM SHEET cho compact (mobile-pwa.md §4.5: "Form ngắn hoặc bộ lọc dùng
+  // bottom sheet"). Bổ sung ở GĐ8 vào chính MDrawer thay vì dựng component mới: cùng một
+  // hành vi overlay/Esc/khoá cuộn nền, chỉ khác cạnh trượt và cách tính kích thước
+  // (bottom sheet chiếm hết bề ngang, cao tối đa 85dvh rồi cuộn trong thân).
   position: {
     type: String,
     default: 'right',
-    validator: (v) => ['right', 'left'].includes(v),
+    validator: (v) => ['right', 'left', 'bottom'].includes(v),
   },
   // true (mặc định): có lớp phủ che nội dung, click phủ để đóng, khóa scroll nền.
   // false: KHÔNG che — đẩy nội dung trang sang một bên (padding body theo chiều rộng panel).
@@ -40,6 +45,8 @@ function onKeydown(e) {
 // để nội dung trang trượt sang, không bị che. Transition 200ms khớp với panel.
 let pushTimer = null
 function setPush(on) {
+  // Bottom sheet không "đẩy" nội dung sang bên nào — nó luôn phủ lên trên.
+  if (props.position === 'bottom') return
   const prop = props.position === 'right' ? 'paddingRight' : 'paddingLeft'
   document.body.style.transition = 'padding-left 0.2s ease, padding-right 0.2s ease'
   document.body.style[prop] = on ? widthStyle.value : ''
@@ -94,12 +101,22 @@ onBeforeUnmount(() => {
     </Transition>
 
     <!-- Panel trượt từ cạnh, transition 200ms -->
-    <Transition :name="position === 'right' ? 'mds-drawer-right' : 'mds-drawer-left'">
+    <Transition :name="`mds-drawer-${position}`">
       <section
         v-if="modelValue"
-        class="fixed bottom-0 top-0 z-[1001] flex max-w-[100vw] flex-col bg-[var(--mds-bg)] shadow-2xl"
-        :class="position === 'right' ? 'right-0' : 'left-0'"
-        :style="{ width: widthStyle }"
+        class="fixed z-[1001] flex max-w-[100vw] flex-col bg-[var(--mds-bg)] shadow-2xl"
+        :class="
+          position === 'bottom'
+            ? 'inset-x-0 bottom-0 max-h-[85dvh] rounded-t-2xl'
+            : position === 'right'
+              ? 'bottom-0 right-0 top-0'
+              : 'bottom-0 left-0 top-0'
+        "
+        :style="
+          position === 'bottom'
+            ? { paddingBottom: 'env(safe-area-inset-bottom)' }
+            : { width: widthStyle }
+        "
         role="dialog"
         :aria-modal="overlay"
         :aria-label="title"
@@ -149,7 +166,9 @@ onBeforeUnmount(() => {
 .mds-drawer-right-enter-active,
 .mds-drawer-right-leave-active,
 .mds-drawer-left-enter-active,
-.mds-drawer-left-leave-active {
+.mds-drawer-left-leave-active,
+.mds-drawer-bottom-enter-active,
+.mds-drawer-bottom-leave-active {
   transition: transform 0.2s ease;
 }
 .mds-drawer-right-enter-from,
@@ -159,5 +178,23 @@ onBeforeUnmount(() => {
 .mds-drawer-left-enter-from,
 .mds-drawer-left-leave-to {
   transform: translateX(-100%);
+}
+/* Bottom sheet: trượt lên từ mép dưới màn hình (GĐ8). */
+.mds-drawer-bottom-enter-from,
+.mds-drawer-bottom-leave-to {
+  transform: translateY(100%);
+}
+
+/* prefers-reduced-motion (mobile-pwa.md §5): tôn trọng cài đặt hệ thống — bỏ trượt, chỉ
+   hiện/ẩn, không được để animation cản thao tác. */
+@media (prefers-reduced-motion: reduce) {
+  .mds-drawer-right-enter-active,
+  .mds-drawer-right-leave-active,
+  .mds-drawer-left-enter-active,
+  .mds-drawer-left-leave-active,
+  .mds-drawer-bottom-enter-active,
+  .mds-drawer-bottom-leave-active {
+    transition: none;
+  }
 }
 </style>

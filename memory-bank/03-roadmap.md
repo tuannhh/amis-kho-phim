@@ -10,6 +10,9 @@ Cột "Model" là gợi ý model Claude Code nên dùng (KHÔNG dùng Fable 5).
 
 > **Trạng thái (2026-07-21):** ✅ GĐ 0, 0.5, 1, 2, 3, 4, 5 ĐÃ XONG & verify end-to-end.
 > Đang tới: **GĐ 6 — PWA & Mobile & MDS polish**.
+>
+> **Cập nhật (2026-08-07):** ✅ **GĐ 8 Giai đoạn A XONG** trên nhánh `phan-quyen-4-cap`
+> (Kho phim / Xem phim / Đăng nhập bản mobile-native). **Giai đoạn B chưa làm.**
 
 | GĐ | Tên | Kết quả bàn giao | Model gợi ý |
 |---|---|---|---|
@@ -22,6 +25,7 @@ Cột "Model" là gợi ý model Claude Code nên dùng (KHÔNG dùng Fable 5).
 | 5 ✅ | Nghiệp vụ nâng cao | Trùng tiêu đề → cảnh báo + update bản mới (versioning); tag "Phim mới"; hashtag; tìm theo tên/hashtag/chuyên mục; thông báo phim mới; **báo cáo Quản trị: theo giai đoạn ai upload bao nhiêu phim + gồm phim gì (lọc theo người upload/khoảng ngày, xuất CSV)** | **Sonnet 5** + **Opus 4.8** cho versioning |
 | 6 | PWA & Mobile & MDS polish | vite-plugin-pwa (installable, offline shell); responsive mobile; chuẩn hoá UI theo skill misa-design-system | **Sonnet 5** (dùng skill MDS) |
 | 6.1 | **GĐ 6.1 — AMIS Mobile Embed Readiness (scaffold, chờ DevOps)** | **SCAFFOLD/PLACEHOLDER — CHƯA phải tích hợp thật.** BE: `POST /auth/sso/amis-mobile` (xác minh HMAC tạm, tắt mặc định qua `AMIS_SSO_SHARED_SECRET` rỗng). FE: `lib/amisBridge.ts` (phát hiện `?embedded=1`, lấy token bridge, back cứng), `App.vue` ẩn header/sidebar khi nhúng, auth flow ưu tiên SSO bridge có fallback LoginView. Chờ đội AMIS Mobile cung cấp spec bridge/JWKS chính thức trước khi DevOps hoàn thiện. | **Sonnet 5** |
+| 8 | **GĐ 8 — Mobile-native UI (Giai đoạn A: Kho phim/Xem phim/Đăng nhập)** | Bộ màn hình mobile DỰNG RIÊNG (không phải responsive co giãn từ desktop): kiến trúc "1 route, 2 view" theo window size class (ADR-058); `FilmListMobileView` (card + bottom sheet lọc + kệ ngang), `FilmDetailMobileView` (top bar Back/tiêu đề/"⋯", player full-bleed, Tải xuống sticky đáy), màn Đăng nhập đạt checklist mobile. Dựng từ khung `ui/templates/mobile/` của skill MDS. **Giai đoạn B còn lại: Thêm/Sửa phim dạng wizard, popup → bottom sheet.** | **Opus 5** (+ skill MDS) |
 | 7 | Hardening & Handoff | security-review; test coverage; tài liệu API + quy trình nội bộ; hướng dẫn DevOps đưa lên AMIS (cắm OIDC, đổi storage) | **Opus 4.8** (review) + **Haiku 4.5** (docs/format) |
 
 ## Nguyên tắc chọn model (tổng quát)

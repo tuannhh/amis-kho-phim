@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import MButton from '@/components/mds/MButton.vue'
 import MSelect from '@/components/mds/MSelect.vue'
@@ -8,19 +8,13 @@ import MIcon from '@/components/mds/MIcon.vue'
 import MEmptyState from '@/components/mds/MEmptyState.vue'
 import MSpinner from '@/components/mds/MSpinner.vue'
 import { useFilmsStore } from './filmsStore'
-import { publishedTime } from './filmTypes'
 import { filmSearchQuery } from './searchState'
 import { useAuthStore } from '@/features/auth/authStore'
 import { canCreateFilm } from '@/features/auth/permissions'
 import FilmCard from './FilmCard.vue'
 import FilmManageDialogs from './FilmManageDialogs.vue'
 import CategoryShelves from './CategoryShelves.vue'
-import {
-  categoriesApi,
-  categoryIdsWithDescendants,
-  categoryOptions as buildCategoryOptions,
-  type ApiCategoryNode,
-} from '@/features/categories/categoriesApi'
+import { PAGE_SIZE_OPTIONS, useFilmListFilters } from './useFilmListFilters'
 import type { ApiFilm } from './filmsApi'
 
 /**
@@ -37,94 +31,32 @@ const router = useRouter()
 const store = useFilmsStore()
 const auth = useAuthStore()
 
-const categoriesTree = ref<ApiCategoryNode[]>([])
+// Toàn bộ quy tắc lọc/phân trang nằm ở composable DÙNG CHUNG với bản mobile (GĐ8) —
+// xem useFilmListFilters.ts. View này chỉ còn phần trình bày.
+const {
+  categoriesTree,
+  categoryFilter,
+  onlyNew,
+  pageSize,
+  page,
+  loadCategories,
+  categoryFilterOptions,
+  hasActiveFilter,
+  filtered,
+  totalPages,
+  paged,
+  rangeText,
+  prevPage,
+  nextPage,
+  clearSearch,
+} = useFilmListFilters(computed(() => store.films))
+
+const pageSizeOptions = PAGE_SIZE_OPTIONS
 
 onMounted(() => {
   store.load()
-  categoriesApi.tree().then((t) => (categoriesTree.value = t))
+  loadCategories()
 })
-
-// undefined = xem tất cả chuyên mục (MSelect không nhận null trong kiểu modelValue)
-const categoryFilter = ref<number | undefined>(undefined)
-const onlyNew = ref(false)
-
-const pageSizeOptions = [
-  { label: '20 / trang', value: 20 },
-  { label: '30 / trang', value: 30 },
-  { label: '50 / trang', value: 50 },
-]
-const pageSize = ref(20)
-const page = ref(1)
-
-/**
- * Lựa chọn chuyên mục cho dropdown: dựng từ CÂY chuyên mục thật (có `depth` để thụt lề), không
- * phải từ tên chuyên mục xuất hiện trong danh sách phim như trước. Nhờ vậy chuyên mục chưa có
- * phim nào vẫn hiện ra đúng vị trí trong cây, và quan hệ cha–con nhìn là thấy.
- */
-const categoryFilterOptions = computed(() => [
-  { label: 'Tất cả chuyên mục', value: undefined as number | undefined, depth: 0 },
-  ...buildCategoryOptions(categoriesTree.value),
-])
-
-/** Chọn chuyên mục cha = xem cả nhánh (khớp `idsWithDescendants` ở backend). */
-const selectedCategoryIds = computed(() =>
-  categoryFilter.value == null
-    ? null
-    : new Set(categoryIdsWithDescendants(categoriesTree.value, categoryFilter.value)),
-)
-
-const hasActiveFilter = computed(
-  () => categoryFilter.value != null || onlyNew.value || !!filmSearchQuery.value.trim(),
-)
-
-const filtered = computed(() => {
-  const q = filmSearchQuery.value.trim().toLowerCase()
-  const ids = selectedCategoryIds.value
-  return store.films
-    .filter((f) => {
-      if (onlyNew.value && !f.isNew) return false
-      if (ids && (f.categoryId == null || !ids.has(f.categoryId))) return false
-      if (!q) return true
-      const inTitle = f.title.toLowerCase().includes(q)
-      const inTags = f.hashtags.some((h) => h.toLowerCase().includes(q))
-      return inTitle || inTags
-    })
-    .slice()
-    .sort((a, b) => publishedTime(b.publishedAt) - publishedTime(a.publishedAt))
-})
-
-const totalPages = computed(() => Math.max(1, Math.ceil(filtered.value.length / pageSize.value)))
-
-const paged = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return filtered.value.slice(start, start + pageSize.value)
-})
-
-const rangeText = computed(() => {
-  const total = filtered.value.length
-  if (!total) return '0 phim'
-  const start = (page.value - 1) * pageSize.value + 1
-  const end = Math.min(page.value * pageSize.value, total)
-  return `${start}–${end} / ${total} phim`
-})
-
-watch([filtered, pageSize], () => {
-  if (page.value > totalPages.value) page.value = totalPages.value
-})
-watch([categoryFilter, onlyNew, filmSearchQuery, pageSize], () => {
-  page.value = 1
-})
-
-function prevPage() {
-  if (page.value > 1) page.value--
-}
-function nextPage() {
-  if (page.value < totalPages.value) page.value++
-}
-
-function clearSearch() {
-  filmSearchQuery.value = ''
-}
 
 function openFilm(film: ApiFilm) {
   router.push({ name: 'film-detail', params: { slug: film.slug } })

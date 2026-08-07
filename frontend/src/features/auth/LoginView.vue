@@ -42,9 +42,15 @@ async function submit() {
 </script>
 
 <template>
+  <!-- min-h-dvh (không phải h-full/100vh): thanh địa chỉ trình duyệt di động làm 100vh sai
+       chiều cao — mobile-pwa.md §6. -->
   <div
-    class="flex h-full items-center justify-center p-4"
-    style="background: var(--mds-bg-canvas, #ECEDEF)"
+    class="flex min-h-dvh items-center justify-center p-4"
+    style="
+      background: var(--mds-bg-canvas, #ecedef);
+      padding-top: max(16px, env(safe-area-inset-top));
+      padding-bottom: max(16px, env(safe-area-inset-bottom));
+    "
   >
     <div
       class="w-full max-w-[400px] rounded-lg bg-white p-8"
@@ -67,7 +73,20 @@ async function submit() {
           <label class="mb-1 block text-[13px] font-medium" style="color: var(--mds-text-primary)">
             Email
           </label>
-          <MInput v-model="email" type="email" placeholder="ten@misa.com.vn" autocomplete="username">
+          <!-- inputmode/autocapitalize/enterkeyhint theo mobile-pwa.md §5: bàn phím email,
+               không tự viết hoa chữ đầu, phím Enter hiện "Tiếp". Từ GĐ8 các thuộc tính này
+               mới thực sự tới được thẻ <input> (xem MInput: inheritAttrs=false). -->
+          <MInput
+            v-model="email"
+            type="email"
+            placeholder="ten@misa.com.vn"
+            autocomplete="username"
+            inputmode="email"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            enterkeyhint="next"
+          >
             <template #prefix><MIcon name="mail" :size="16" /></template>
           </MInput>
         </div>
@@ -76,14 +95,22 @@ async function submit() {
           <label class="mb-1 block text-[13px] font-medium" style="color: var(--mds-text-primary)">
             Mật khẩu
           </label>
-          <MInput v-model="password" type="password" placeholder="Nhập mật khẩu" autocomplete="current-password">
+          <MInput
+            v-model="password"
+            type="password"
+            placeholder="Nhập mật khẩu"
+            autocomplete="current-password"
+            enterkeyhint="go"
+          >
             <template #prefix><MIcon name="lock" :size="16" /></template>
           </MInput>
         </div>
 
         <p v-if="error" class="text-[13px]" style="color: var(--mds-danger, #F04438)">{{ error }}</p>
 
-        <MButton type="submit" variant="primary" class="w-full" :loading="submitting" @click="submit">
+        <!-- KHÔNG gắn thêm @click: nút đã là type="submit" trong form có @submit.prevent, gắn
+             cả hai làm submit() chạy HAI LẦN (hai request đăng nhập cho một cú bấm). -->
+        <MButton type="submit" variant="primary" class="w-full" :loading="submitting">
           Đăng nhập
         </MButton>
       </form>
