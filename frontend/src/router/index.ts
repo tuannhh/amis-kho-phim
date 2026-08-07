@@ -1,6 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore, type UserRole } from '@/features/auth/authStore'
-import { ADMIN_ROLES, FILM_WRITE_ROLES } from '@/features/auth/permissions'
+import {
+  ADMIN_ROLES,
+  FILM_WRITE_ROLES,
+  MANAGED_FILMS_ROLES,
+  REPORT_ROLES,
+} from '@/features/auth/permissions'
 
 /**
  * Router AMIS Kho phim.
@@ -30,6 +35,13 @@ const router = createRouter({
       name: 'films',
       component: () => import('@/features/films/FilmListView.vue'),
       meta: { title: 'Kho phim' },
+    },
+    {
+      path: '/my-films',
+      name: 'my-films',
+      component: () => import('@/features/films/ManagedFilmsView.vue'),
+      // Cấp 1 không quản lý phim nào → không có gì để hiện, chặn luôn ở route.
+      meta: { title: 'Phim tôi quản lý', roles: MANAGED_FILMS_ROLES },
     },
     {
       path: '/films/:slug',
@@ -68,7 +80,8 @@ const router = createRouter({
       path: '/admin/reports',
       name: 'admin-reports',
       component: () => import('@/features/reports/ReportsView.vue'),
-      meta: { title: 'Báo cáo quản trị', roles: ADMIN_ROLES },
+      // ADR-053: Cấp 3 vào được, backend tự giới hạn dữ liệu theo phòng ban của họ.
+      meta: { title: 'Báo cáo', roles: REPORT_ROLES },
     },
   ],
 })

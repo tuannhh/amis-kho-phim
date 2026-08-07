@@ -10,7 +10,7 @@ import MSpinner from '@/components/mds/MSpinner.vue'
 import VideoPlayer from '@/components/VideoPlayer.vue'
 import { useToast } from '@/components/mds/toast.js'
 import { filmsApi, filmSources, type ApiFilm } from './filmsApi'
-import { isFilmNew, categoryColorFor, formatVNDate } from './filmTypes'
+import { categoryColorFor, formatVNDate } from './filmTypes'
 import { useAuthStore } from '@/features/auth/authStore'
 import { canManageFilm } from '@/features/auth/permissions'
 
@@ -79,6 +79,21 @@ function goEdit() {
   if (film.value) router.push({ name: 'upload', query: { edit: film.value.slug } })
 }
 
+/**
+ * Đếm lượt tải (đợt 2 việc 8). Chạy SONG SONG với việc trình duyệt tải file: thẻ `<a download>`
+ * vẫn hoạt động bình thường, hàm này chỉ bắn thêm một request đếm và KHÔNG chặn/không
+ * `preventDefault`. Lỗi đếm tuyệt đối không được cản trở việc tải phim → nuốt lỗi, không toast.
+ */
+async function onDownload() {
+  if (!film.value) return
+  try {
+    const { downloadCount } = await filmsApi.recordDownload(film.value.id)
+    if (film.value) film.value.downloadCount = downloadCount
+  } catch {
+    // bỏ qua có chủ đích — xem giải thích ở trên
+  }
+}
+
 const deleteOpen = ref(false)
 const deleting = ref(false)
 async function confirmDelete() {
@@ -118,7 +133,9 @@ async function confirmDelete() {
         <h1 class="truncate text-[18px] font-semibold" style="color: var(--mds-text-primary)">
           {{ film.title }}
         </h1>
-        <MTag v-if="isFilmNew(film.publishedAt)" color="danger" size="sm">Phim mới</MTag>
+        <!-- Nhãn do BACKEND quyết định (ADR-052): phim cũ trùng tên đã bị bỏ nhãn từ server,
+             FE không tự suy từ publishedAt nữa vì trang này chỉ tải đúng một phim. -->
+        <MTag v-if="film.isNew" color="danger" size="sm">Phim mới</MTag>
       </div>
 
       <div v-if="canManage" class="flex items-center gap-2">
@@ -181,15 +198,24 @@ async function confirmDelete() {
               {{ formatVNDate(film.publishedAt) }}
             </span>
 
+            <span class="flex items-center gap-1">
+              <MIcon name="download" :size="12" />
+              {{ formatViews(film.downloadCount) }} lượt tải
+            </span>
+
+            <!-- Nút Tải xuống CHỈ hiện khi phim có bản lưu trữ nội bộ trên MinIO. Phim chỉ có
+                 link ngoài (YouTube/Vimeo/Drive) không hiện nút này — các nguồn đó đã có nút
+                 mở/tải riêng trong player theo từng nền tảng. -->
             <a
               v-if="film.links.storage"
               :href="film.links.storage"
               download
               class="ml-auto"
+              @click="onDownload"
             >
               <MButton variant="secondary" size="md">
                 <template #icon><MIcon name="download" :size="16" /></template>
-                Tải về
+                Tải xuống
               </MButton>
             </a>
           </div>
@@ -197,13 +223,15 @@ async function confirmDelete() {
       </div>
     </div>
 
-    <!-- Xác nhận xoá phim -->
-    <MDialog v-model="deleteOpen" title="Xoá phim" type="danger" :width="440">
+    <!-- Xác nhận xoá phim — lời văn theo communication.md §3: tiêu đề là câu hỏi ngắn, mô tả
+         nêu hệ quả, không dùng "Bạn có chắc…" và không lặp lại tiêu đề. Giống hệt popup ở
+         Kho phim để hai chỗ không nói hai kiểu. -->
+    <MDialog v-model="deleteOpen" title="Xoá vĩnh viễn phim này?" type="danger" :width="440">
       <p class="text-[13px]" style="color: var(--mds-text-primary)">
-        Bạn có chắc muốn xoá phim <strong>"{{ film.title }}"</strong>? Hành động này không thể hoàn tác.
+        <strong>"{{ film.title }}"</strong> sẽ bị gỡ khỏi kho phim. Hành động không thể hoàn tác.
       </p>
       <template #footer>
-        <MButton variant="secondary" :disabled="deleting" @click="deleteOpen = false">Hủy</MButton>
+        <MButton variant="secondary" :disabled="deleting" @click="deleteOpen = false">Huỷ</MButton>
         <MButton variant="danger" :loading="deleting" @click="confirmDelete">Xoá</MButton>
       </template>
     </MDialog>

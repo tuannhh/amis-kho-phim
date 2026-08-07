@@ -43,8 +43,20 @@ export const ROLE_COLOR: Record<UserRole, 'brand' | 'info' | 'warning' | 'neutra
 /** Vai trò được TẠO/SỬA/XOÁ phim (Cấp 2 trở lên) — khớp `FILM_WRITE_ROLES` của backend. */
 export const FILM_WRITE_ROLES: UserRole[] = ['employee', 'dept_manager', 'super_admin']
 
-/** Vai trò quản trị hệ thống (người dùng, phòng ban, chuyên mục, báo cáo) — chỉ Cấp 4. */
+/** Vai trò quản trị hệ thống (người dùng, phòng ban) — chỉ Cấp 4. */
 export const ADMIN_ROLES: UserRole[] = ['super_admin']
+
+/**
+ * Vai trò xem được BÁO CÁO (ADR-053) — Cấp 3 và Cấp 4.
+ *
+ * Tách khỏi `ADMIN_ROLES` có chủ đích: báo cáo không còn là quyền quản trị hệ thống nữa.
+ * Cấp 3 xem được nhưng CHỈ trong phòng ban của mình — phạm vi đó do backend ép, không phải
+ * do FE giấu bớt dữ liệu.
+ */
+export const REPORT_ROLES: UserRole[] = ['dept_manager', 'super_admin']
+
+/** Vai trò có màn "Phim tôi quản lý" — Cấp 2 trở lên (Cấp 1 không quản lý phim nào). */
+export const MANAGED_FILMS_ROLES: UserRole[] = ['employee', 'dept_manager', 'super_admin']
 
 export function isAtLeastLevel(role: UserRole | null, level: 1 | 2 | 3 | 4): boolean {
   return !!role && ROLE_LEVEL[role] >= level

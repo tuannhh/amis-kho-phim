@@ -9,7 +9,15 @@ import MIcon from './MIcon.vue'
  */
 const props = defineProps({
   modelValue: { type: [String, Number, Boolean, Object], default: null },
-  options: { type: Array, default: () => [] }, // [{ label, value, disabled? }]
+  /**
+   * [{ label, value, disabled?, depth? }]
+   *
+   * `depth` (0,1,2...) là mức THỤT LỀ dùng cho danh sách phân cấp kiểu cây chuyên mục:
+   * mục cha depth 0, mục con depth 1... Mục cha VẪN CHỌN ĐƯỢC (không biến thành tiêu đề nhóm
+   * disabled) vì nghiệp vụ cho phép lọc theo cả chuyên mục cha. Bỏ trống = danh sách phẳng,
+   * hành vi y như trước.
+   */
+  options: { type: Array, default: () => [] },
   placeholder: { type: String, default: 'Chọn giá trị' },
   disabled: { type: Boolean, default: false },
   error: { type: String, default: '' }, // có giá trị → viền danger + message đỏ dưới control
@@ -263,7 +271,20 @@ onBeforeUnmount(() => {
           @mouseenter="!opt.disabled && (activeIndex = i)"
           @click="selectOption(opt)"
         >
-          <span class="flex-1">{{ opt.label }}</span>
+          <!-- Thụt lề theo cấp + dấu "└" cho mục con, để nhìn là biết thuộc mục cha nào ngay
+               cả khi tên hai mục ở hai nhánh khác nhau lại giống nhau. -->
+          <span
+            class="flex flex-1 items-center gap-1"
+            :style="opt.depth ? { paddingLeft: `${opt.depth * 16}px` } : undefined"
+          >
+            <span
+              v-if="opt.depth"
+              aria-hidden="true"
+              class="text-[var(--mds-text-placeholder)]"
+              >└</span
+            >
+            <span>{{ opt.label }}</span>
+          </span>
           <MIcon
             v-if="opt.value === modelValue"
             name="check"

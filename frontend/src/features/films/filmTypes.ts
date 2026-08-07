@@ -45,17 +45,17 @@ export function thumbnailGradient(categoryId: number | null): [string, string] {
   return GRADIENTS[categoryId % GRADIENTS.length]
 }
 
-/** Số ngày phim được coi là "mới" kể từ ngày xuất bản/cập nhật (khớp NEW_FILM_TTL_DAYS ở .env). */
-export const NEW_FILM_TTL_DAYS = 14
-
-/** publishedAt là ISO date 'YYYY-MM-DD' từ backend. */
+/**
+ * publishedAt là ISO date 'YYYY-MM-DD' từ backend — dùng để SẮP XẾP "mới trước".
+ *
+ * ⚠️ ĐỪNG thêm lại một hàm `isFilmNew(publishedAt)` ở FE. Từ ADR-052, nhãn "Phim mới" không
+ * còn suy được từ mình ngày đăng: nó còn phụ thuộc phim có phải bản mới nhất trong nhóm TRÙNG
+ * TIÊU ĐỀ hay không — điều mà trang chi tiết (chỉ tải một phim) không thể biết. Backend tính
+ * sẵn và trả về `ApiFilm.isNew`; hằng số TTL nay chỉ còn ở backend + `.env`
+ * (`NEW_FILM_TTL_DAYS`), một nguồn duy nhất.
+ */
 export function publishedTime(publishedAt: string): number {
   return new Date(publishedAt).getTime()
-}
-
-export function isFilmNew(publishedAt: string): boolean {
-  const ageDays = (Date.now() - publishedTime(publishedAt)) / (1000 * 60 * 60 * 24)
-  return ageDays >= 0 && ageDays <= NEW_FILM_TTL_DAYS
 }
 
 export function formatVNDate(iso: string): string {
