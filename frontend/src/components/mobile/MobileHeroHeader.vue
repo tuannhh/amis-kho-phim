@@ -48,6 +48,11 @@ const emit = defineEmits<{ (e: 'notifications'): void }>()
         </p>
       </div>
 
+      <!-- Hành động chính của màn cấp một, đứng góc trên phải cạnh chuông (vd "Thêm chuyên
+           mục"). Để slot thay vì prop: mỗi màn cần một kiểu nút khác nhau, và ở đây chỉ có
+           ĐÚNG MỘT hành động — không phải chỗ dồn nhiều nút (mobile-pwa.md §4.3). -->
+      <slot name="actions" />
+
       <!-- Vùng chạm 48px (mobile-pwa.md §5); glyph giữ 20px, chỉ nới vùng bấm. -->
       <button
         v-if="showNotifications"

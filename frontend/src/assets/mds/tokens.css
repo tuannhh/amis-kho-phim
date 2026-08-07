@@ -142,6 +142,27 @@
   --mds-dt-row-height: 40px;
 }
 
+/* ── Mật độ CHẠM ở Compact (<600px), GĐ8-C ─────────────────
+   `mobile-pwa.md` §5: trên màn cảm ứng vùng chạm tối thiểu 48x48px (thoả cả iOS 44pt lẫn
+   Android 48dp). Ba mật độ ở trên đều là mật độ CHUỘT (28/32/36px) — dùng nguyên ở điện thoại
+   thì mọi nút và ô nhập của MDS đều dưới ngưỡng chạm. Chỉnh ở TẦNG TOKEN thay vì đi sửa chiều
+   cao trong từng component: MButton/MInput/MSelect đều đọc đúng hai biến này, nên một khối
+   media query xử lý hết, và không màn hình nào phải tự chế control cỡ khác.
+
+   Cùng độ đặc hiệu (0,1,1) với hai khối density ở trên nhưng đứng SAU → ở dưới 600px, chạm
+   luôn thắng lựa chọn mật độ của người dùng. Đây là chủ ý: mật độ là tuỳ chọn thị giác, còn
+   ngưỡng chạm là điều kiện bấm trúng. */
+/* 599.98px chứ không phải 599px: ngưỡng Compact ở JS là `innerWidth < 600`, còn zoom trình
+   duyệt/DPI lẻ cho ra bề rộng thập phân (vd 599.5px) — `max-width: 599px` sẽ trượt đúng dải đó
+   và làm CSS lệch pha với view mà router đã chọn. */
+@media (max-width: 599.98px) {
+  :root,
+  :root[data-density] {
+    --mds-btn-height: 44px;
+    --mds-input-height: 44px;
+  }
+}
+
 /* ── Hình nền + hiệu ứng kính ────────────────────────────────
    MSettingsDialog tab "Hình nền" set data-mds-wallpaper (id) +
    data-mds-glass="true" trên <html> khi chọn wallpaper khác "Không có"

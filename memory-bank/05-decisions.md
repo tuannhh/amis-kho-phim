@@ -15,6 +15,57 @@
 > — là bug bảo mật chung, cần port sang `phan-quyen-3-cap` ở đợt sau. **ADR-051 gắn `[RBAC4]`**
 > vì phụ thuộc `FILM_WRITE_ROLES` của mô hình 4 cấp.
 
+## ADR-065 — Mật độ CHẠM đặt ở TẦNG TOKEN, không sửa từng component [GĐ8-C]
+- **Bối cảnh:** Quét toàn dải viewport phát hiện màn "Thêm phim" ở Compact có hàng loạt vùng
+  chạm dưới chuẩn: MInput 34px, MSelect 36px, MButton 32px, nút Back 32px, chip gợi ý hashtag
+  21px. `mobile-pwa.md` §5 yêu cầu tối thiểu 48x48px trên màn cảm ứng.
+- **Quyết định:** Thêm một khối `@media (max-width: 599.98px)` trong `assets/mds/tokens.css`
+  đẩy `--mds-btn-height` và `--mds-input-height` lên 44px. MButton/MInput/MSelect đều đọc đúng
+  hai biến này nên một khối media query xử lý toàn bộ.
+- **Vì sao không sửa chiều cao trong từng component:** sẽ phải đụng 4-5 file MDS dùng chung và
+  mỗi màn hình mới sau này lại phải nhớ tự xử lý. MDS vốn đã có cơ chế mật độ (`data-density`
+  compact/medium/comfortable) — đây chỉ là thêm một nấc mật độ nữa, đúng cơ chế sẵn có.
+- **Cố ý cho chạm THẮNG lựa chọn mật độ của người dùng:** khối mới có cùng độ đặc hiệu (0,1,1)
+  với `:root[data-density=...]` nhưng đứng SAU nên thắng. Mật độ là tuỳ chọn thị giác; ngưỡng
+  chạm là điều kiện bấm trúng — dưới 600px thì điều kiện bấm trúng ưu tiên hơn.
+- **`599.98px` chứ không phải `599px`:** ngưỡng Compact ở JS là `innerWidth < 600`; zoom trình
+  duyệt/DPI lẻ cho bề rộng thập phân, `max-width: 599px` sẽ trượt dải 599.x và làm CSS lệch pha
+  với view mà router đã chọn.
+- **Ngoại lệ phải xử lý riêng** (không đọc token chiều cao): nút Back của `FilmUploadView`, nút
+  X đóng của `MDrawer`/`MDialog` (24px), chip gợi ý hashtag — đều dùng biến thể `sm:` để chỉ
+  phóng ở màn hẹp.
+
+## ADR-064 — Ở Medium ÉP sidebar về rail; master-detail xếp dọc theo CONTAINER query [GĐ8-C]
+- **Bối cảnh:** Sửa xong bản mobile của Chuyên mục thì phát hiện đúng lỗi đó vẫn còn ở
+  **600x960** (tablet dọc, Medium): sidebar 200px + cây 320px không còn chỗ cho cột chi tiết,
+  chữ lại vỡ từng ký tự. Người dùng chỉ chụp được ở điện thoại, nhưng nguyên nhân giống hệt.
+- **Quyết định A — shell:** `App.vue` ép `collapsed = true` khi `sizeClass === 'medium'`
+  (600-839px), người dùng không mở rộng lại được ở dải này. Theo `mobile-pwa.md` §3: "Medium ưu
+  tiên navigation rail 56px" + "Không cố giữ sidebar nếu phần nội dung chính còn quá hẹp".
+  Trạng thái người dùng tự chọn (`collapsedByUser`) vẫn giữ nguyên cho Expanded/Large.
+- **Quyết định B — CategoryView:** hai pane chỉ nằm cạnh nhau khi còn chỗ, dùng
+  `@container` + `@[720px]:flex-row`. Dưới ngưỡng đó xếp DỌC (cây trên, form dưới).
+- **Vì sao container query chứ không media query:** cái quyết định cột chi tiết còn bao nhiêu
+  pixel là bề rộng VÙNG NỘI DUNG, không phải bề rộng viewport — sidebar rail hay mở rộng làm
+  vùng này chênh nhau 150px trong khi viewport không đổi. Đo đúng thứ cần đo.
+
+## ADR-063 — Chuyên mục ở Compact: danh sách cây MỘT CỘT + bottom sheet, bỏ master-detail [GĐ8-C]
+- **Bối cảnh (bug thật, người dùng chụp màn hình):** `/categories` ở Compact vẫn render nguyên
+  `CategoryView.vue` — master-detail 2 cột với cây ghim cứng `w-[320px]`. Ở 390px cột chi tiết
+  chỉ còn vài chục pixel: chữ xuống dòng TỪNG KÝ TỰ trong một dải dọc sát mép phải, kèm thanh
+  cuộn riêng. Đây là màn cấp một duy nhất chưa có bản mobile sau GĐ8-A/B.
+- **Quyết định:** Thêm `CategoryMobileView.vue`, gắn vào route qua `lazyResponsiveView`
+  (ADR-058). Bố cục: danh sách cây MỘT CỘT (cha có chevron mở/thu, con thụt lề 16px/cấp, dòng
+  cao 56px), bấm một mục mở BOTTOM SHEET thêm/sửa (`MDrawer position="bottom"`,
+  `mobile-pwa.md` §4.5) thay cho panel chi tiết cố định bên cạnh. Nút "Thêm" giữ góc trên phải,
+  đưa vào slot `actions` mới của `MobileHeroHeader`.
+- **Không đụng RBAC:** dùng lại đúng ba helper `canCreateAnyCategory` / `isSystemAdmin` /
+  `canWriteCategory` — không có bản sao quy tắc riêng cho mobile. Đã kiểm thật cả hai vai:
+  Cấp 2 bị ép chọn cha (tạo được chuyên mục con, chặn tạo gốc kèm lời giải thích), Cấp 4 để
+  trống cha thì tạo chuyên mục lớn.
+- **Chevron là nút RIÊNG, tách khỏi vùng bấm mở form:** mở/thu nhánh và mở form sửa là hai ý
+  định khác nhau; gộp một vùng bấm thì không thu gọn được nhánh mà không mở nhầm form.
+
 ## ADR-062 — Bottom nav 4 mục + FAB; điểm đến dôi ra dồn vào màn "Tài khoản" [GĐ8-B]
 - **Quyết định:** Ở Compact, bottom nav chứa TỐI ĐA 4 mục điều hướng cộng một FAB tròn ở
   giữa. "Thêm phim" KHÔNG còn là một tab — nó là FAB (hành động, không phải điểm đến), chỉ

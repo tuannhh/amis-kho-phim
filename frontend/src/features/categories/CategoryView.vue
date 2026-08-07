@@ -198,10 +198,16 @@ async function confirmDelete() {
       </MButton>
     </header>
 
-    <div class="flex flex-1 gap-4 overflow-hidden p-4">
+    <!-- Hai pane cạnh nhau CHỈ khi còn đủ chỗ. `@container`: đo bề rộng VÙNG NỘI DUNG chứ
+         không đo viewport — sidebar rail hay mở rộng đổi bề ngang thật của vùng này tới
+         ~180px, mà viewport thì không đổi. Dưới 720px thì xếp DỌC (cây trên, form dưới) theo
+         `mobile-pwa.md` §3 "tablet dọc ưu tiên một pane". Trước đây cột cây ghim cứng 320px
+         nên ở tablet dọc cột form bị ép còn vài chục pixel và chữ xuống dòng từng ký tự. -->
+    <div class="@container flex flex-1 overflow-hidden p-4">
+      <div class="flex min-w-0 flex-1 flex-col gap-4 overflow-hidden @[720px]:flex-row">
       <!-- Cây chuyên mục -->
       <div
-        class="w-[320px] shrink-0 overflow-auto rounded-lg bg-white p-3"
+        class="max-h-[40%] shrink-0 overflow-auto rounded-lg bg-white p-3 @[720px]:max-h-none @[720px]:w-[320px]"
         style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
       >
         <div v-if="loading" class="flex items-center gap-2 p-3 text-[13px]" style="color: var(--mds-text-secondary)">
@@ -326,6 +332,7 @@ async function confirmDelete() {
           title="Chọn một chuyên mục để xem chi tiết"
           :description="canWrite ? 'Hoặc bấm \'Thêm chuyên mục\' để tạo mới' : 'Bạn chỉ có quyền xem danh sách chuyên mục'"
         />
+      </div>
       </div>
     </div>
 

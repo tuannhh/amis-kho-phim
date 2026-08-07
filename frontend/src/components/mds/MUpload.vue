@@ -117,7 +117,9 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="flex flex-col gap-2">
-    <div class="flex items-center gap-2 text-[var(--mds-text)]">
+    <!-- flex-wrap: khi KHÔNG bật `hintInside`, chuỗi định dạng + dung lượng đứng cùng hàng với
+         nhãn; ở màn hẹp (320-390px) hàng đó tràn và làm nhãn trông như một khối tách rời. -->
+    <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[var(--mds-text)]">
       <MIcon name="paperclip" :size="16" class="text-[var(--mds-icon-neutral)]" />
       <span class="font-medium">{{ label }}</span>
       <span v-if="!hintInside" class="text-[12px] text-[var(--mds-text-secondary)]">

@@ -190,7 +190,11 @@ async function confirmDelete() {
       </template>
     </MMobileTopBar>
 
-    <div class="min-h-0 flex-1 overflow-y-auto">
+    <!-- `flex flex-col` + `flex-1` ở khối nội dung (bên dưới): phim ít thông tin (không mô tả,
+         không hashtag) thì nội dung ngắn hơn màn hình, phần thừa của vùng cuộn để lộ nền xám
+         `--mds-bg-page` thành một khối chữ nhật xám trơn ở cuối trang — trông như một vùng UI
+         chưa dựng xong. Cho khối trắng giãn hết chiều cao còn lại để không bao giờ hở nền. -->
+    <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <!-- Player full-bleed. NỀN TRẮNG có chủ đích: `VideoPlayer` render khung phim (tự có nền
            đen) KÈM cụm "Xem từ:" và hàng link nguồn ngay dưới, đều là chữ xám/xanh theo token
            sáng. Đổ nền đen cho cả cụm sẽ làm hai hàng đó tụt tương phản — khung phim đã tự
@@ -199,7 +203,7 @@ async function confirmDelete() {
         <VideoPlayer compact :title="film.title" :sources="filmSources(film)" :links="film.links" />
       </div>
 
-      <div class="relative flex flex-col gap-3 bg-white px-4 pb-5 pt-1">
+      <div class="relative flex flex-1 flex-col gap-3 bg-white px-4 pb-5 pt-1">
         <h2 class="text-[18px] font-semibold leading-[25px]" style="color: var(--mds-text)">
           {{ film.title }}
         </h2>

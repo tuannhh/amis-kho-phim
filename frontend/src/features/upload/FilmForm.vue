@@ -587,7 +587,7 @@ defineExpose({ publish, cancel, submitting, isEditMode })
 
           <div class="flex flex-col gap-3 sm:flex-row sm:items-start">
             <div
-              class="aspect-video w-full max-w-[280px] shrink-0 overflow-hidden rounded-lg"
+              class="aspect-video w-full shrink-0 overflow-hidden rounded-lg sm:max-w-[280px]"
               style="background: var(--mds-bg-disabled); border: 1px solid var(--mds-border,#CED1D6)"
             >
               <img v-if="thumbnailUrl" :src="thumbnailUrl" class="h-full w-full object-cover" alt="Xem trước ảnh bìa" />
@@ -609,7 +609,9 @@ defineExpose({ publish, cancel, submitting, isEditMode })
                 :model-value="thumbnailMeta"
                 :disabled="submitting"
                 paste-image
-                formats="JPG/PNG/WebP, tỷ lệ 16:9"
+                full-width
+                hint-inside
+                formats="JPG/PNG/WebP · 16:9"
                 @select-files="onSelectThumbnail"
                 @remove="onRemoveThumbnail"
               />

@@ -31,7 +31,7 @@ const notifications = useNotificationsStore()
 
 // GĐ6 — PWA & Mobile: window size class (mobile-pwa.md §2), trạng thái mạng và
 // service worker cập nhật (mobile-pwa.md §7).
-const { isCompact } = useWindowSize()
+const { isCompact, sizeClass } = useWindowSize()
 const { isOnline } = useNetworkStatus()
 const { needRefresh, offlineReady, applyUpdate, dismissOfflineReady } = usePwaUpdate()
 
@@ -128,7 +128,23 @@ const activeKey = computed<string>(() => {
   if (name === 'film-detail') return 'films'
   return name || 'films'
 })
-const collapsed = ref(false)
+/**
+ * Sidebar thu gọn (rail 56px). Người dùng tự bấm "Thu gọn" ở Expanded/Large; riêng MEDIUM
+ * (600-839px) thì ÉP rail, không cho mở rộng.
+ *
+ * Vì sao ép (GĐ8-C): `mobile-pwa.md` §3 "Medium ưu tiên navigation rail rộng 56px" và "Không
+ * cố giữ sidebar nếu phần nội dung chính còn quá hẹp". Ở tablet dọc 600px, sidebar 240px ăn
+ * 40% bề ngang; màn Chuyên mục còn khoảng 180px cho cả cây lẫn form nên chữ vỡ vụn — đúng
+ * kiểu lỗi người dùng đã chụp ở điện thoại, chỉ khác độ rộng. Rail trả lại ~180px cho nội
+ * dung mà không mất điểm điều hướng nào.
+ */
+const collapsedByUser = ref(false)
+const collapsed = computed<boolean>({
+  get: () => sizeClass.value === 'medium' || collapsedByUser.value,
+  set: (v) => {
+    collapsedByUser.value = v
+  },
+})
 
 /* ── Bottom nav Compact (GĐ8-B) ───────────────────────────────────────────────
  * Bottom nav chỉ chứa TỐI ĐA 4 mục + FAB (mobile-pwa.md §3 cho phép <= 5 điểm đến cấp một;

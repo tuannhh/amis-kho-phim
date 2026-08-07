@@ -39,7 +39,7 @@ function goBack() {
     <header class="flex h-14 shrink-0 items-center gap-2 bg-white px-4">
       <button
         type="button"
-        class="flex h-8 w-8 items-center justify-center rounded-lg hover:opacity-80"
+        class="flex h-12 w-12 items-center justify-center rounded-lg hover:opacity-80 sm:h-8 sm:w-8"
         style="color: var(--mds-icon-neutral)"
         aria-label="Quay lại"
         @click="goBack"

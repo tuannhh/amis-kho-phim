@@ -143,7 +143,7 @@ const visibleExamples = computed(() => {
         v-for="tag in visibleExamples"
         :key="tag"
         type="button"
-        class="rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--mds-brand-600)]"
+        class="flex min-h-[44px] items-center rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--mds-brand-600)] sm:min-h-0"
         @click="addSuggestion(tag)"
       >
         <MTag color="neutral" size="sm">#{{ tag }}</MTag>

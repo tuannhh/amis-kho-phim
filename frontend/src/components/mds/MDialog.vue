@@ -109,7 +109,7 @@ onBeforeUnmount(() => {
             </h3>
             <button
               type="button"
-              class="-mr-1 -mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--mds-icon-neutral)] hover:bg-[var(--mds-bg-hover-soft)] hover:text-[var(--mds-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--mds-brand-600)]"
+              class="-mr-1 -mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded text-[var(--mds-icon-neutral)] sm:h-6 sm:w-6 hover:bg-[var(--mds-bg-hover-soft)] hover:text-[var(--mds-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--mds-brand-600)]"
               aria-label="Đóng"
               @click="onCancel"
             >

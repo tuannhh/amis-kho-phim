@@ -5,7 +5,35 @@
 
 ## Tóm tắt nhanh (đọc 30 giây là hiểu hết)
 
-### ✅ VỪA XONG: GĐ 8 — GIAI ĐOẠN B: DỰNG LẠI VỎ MOBILE (2026-08-07, Opus 5)
+### ✅ VỪA XONG: GĐ 8 — GIAI ĐOẠN C: SỬA 3 LỖI UI + QUÉT TOÀN DẢI VIEWPORT (2026-08-07, Opus 5)
+Người dùng test bản mobile trên điện thoại thật, xác nhận *"đẹp hơn đáng kể rồi"*, kèm 3 ảnh
+chụp lỗi. Cả 3 đã tái hiện được trên browser rồi mới sửa:
+1. **`/categories` vỡ layout ở Compact** → thêm `CategoryMobileView.vue` (cây một cột +
+   bottom sheet), gắn route qua `lazyResponsiveView`. **ADR-063**.
+2. **Khối xám trơn cuối trang Xem phim** → khối trắng không giãn hết chiều cao vùng cuộn, để
+   lộ nền trang. Sửa bằng `flex-1`. Không phải section rỗng.
+3. **Khung "Tải ảnh bìa" lệch** → thiếu `full-width` + `hint-inside` trên `MUpload`.
+
+Tự tìm thêm 2 lỗi thật khi quét toàn dải, đã sửa: **Medium 600x960 vỡ y hệt lỗi 1**
+(ép sidebar về rail + `@container` cho CategoryView — **ADR-064**) và **vùng chạm dưới chuẩn ở
+`/upload`** (mật độ chạm ở tầng token — **ADR-065**).
+
+Quét 11 viewport x 5 màn: không màn nào cuộn ngang, không vùng chạm nào <44px ở Compact.
+Ngưỡng 600px chuẩn (599 = mobile, 600/601 = desktop). Test 82 FE + 216 BE pass, build sạch.
+
+### 🔎 Tự đánh giá GĐ8-C (điểm còn chưa ổn — đọc trước khi hứa với người dùng)
+- **`/upload` vẫn là form desktop nhồi vào màn hẹp**, chỉ mới đạt chuẩn vùng chạm. Chưa có
+  `FilmUploadMobileView` dạng wizard/bottom sheet như GĐ8 Giai đoạn B (nghĩa cũ) dự kiến.
+- **`/my-films` và toàn bộ màn quản trị** (`/admin/*`) chưa có bản mobile — vẫn render bản
+  desktop ở Compact. Chưa ai báo lỗi vì bottom nav không dẫn thẳng tới đó, nhưng gõ URL thì vào
+  được và bố cục sẽ chật.
+- **Mật độ chạm ở tầng token là thay đổi diện rộng**: mọi MInput/MSelect/MButton dưới 600px đều
+  cao thêm 8-12px. Đã quét 5 màn chính không thấy vỡ, nhưng các màn CHƯA quét (quản trị, báo
+  cáo) có thể giãn ra ngoài dự kiến.
+- **Chỉ kiểm bằng Chrome trên macOS ở các bề rộng tương ứng**, không phải Safari iOS/Chrome
+  Android thật. `env(safe-area-inset-*)` và hành vi bàn phím ảo chưa được kiểm trên máy thật.
+
+### ✅ TRƯỚC ĐÓ: GĐ 8 — GIAI ĐOẠN B: DỰNG LẠI VỎ MOBILE (2026-08-07, Opus 5)
 
 **CHỈ trên nhánh `phan-quyen-4-cap`.** Chi tiết + bằng chứng browser test ở `04-progress.md`
 mục "Nhật ký GĐ 8 — Giai đoạn B"; quyết định ở **ADR-061, ADR-062**.

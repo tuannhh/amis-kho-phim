@@ -80,7 +80,13 @@ const router = createRouter({
     {
       path: '/categories',
       name: 'categories',
-      component: () => import('@/features/categories/CategoryView.vue'),
+      // GĐ8-C: master-detail 2 cột của bản desktop không có chỗ ở <600px (cột chi tiết bị ép
+      // còn vài pixel, chữ vỡ từng ký tự) → thêm bản mobile riêng theo ADR-058.
+      component: lazyResponsiveView(
+        () => import('@/features/categories/CategoryView.vue'),
+        () => import('@/features/categories/CategoryMobileView.vue'),
+        'CategoryResponsive',
+      ),
       // Cấp 1 (viewer) chỉ có đúng "Kho phim": không thấy menu Chuyên mục và cũng không vào
       // được bằng cách gõ thẳng URL (ẩn menu thôi thì chưa đủ).
       meta: { title: 'Chuyên mục', roles: FILM_WRITE_ROLES },

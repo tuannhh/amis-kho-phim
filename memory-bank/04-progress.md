@@ -4,7 +4,13 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
-- **Việc mới nhất: GĐ 8 — MOBILE-NATIVE UI, GIAI ĐOẠN B — DỰNG LẠI VỎ MOBILE
+- **Việc mới nhất: GĐ 8 — GIAI ĐOẠN C — SỬA 3 LỖI UI NGƯỜI DÙNG CHỤP + QUÉT TOÀN DẢI VIEWPORT
+  — ✅ XONG (2026-08-07, Opus 5), CHỈ trên nhánh `phan-quyen-4-cap`.** Nhật ký ở mục
+  "Nhật ký GĐ 8 — Giai đoạn C" ngay dưới; quyết định ở **ADR-063, ADR-064, ADR-065**.
+  **Tổng test: 216 unit BE + 106 tích hợp BE + 82 FE = 404** (không đổi — sửa lỗi trình bày).
+  Màn mới: **`CategoryMobileView.vue`** (Chuyên mục bản mobile) — trước đó `/categories` là màn
+  cấp một DUY NHẤT còn render bản desktop 2 cột ở Compact và vỡ layout.
+- **Việc trước đó: GĐ 8 — MOBILE-NATIVE UI, GIAI ĐOẠN B — DỰNG LẠI VỎ MOBILE
   — ✅ XONG (2026-08-07, Opus 5), CHỈ trên nhánh `phan-quyen-4-cap`.** Nhật ký đầy đủ ở mục
   "Nhật ký GĐ 8 — Giai đoạn B" ngay dưới; quyết định ở **ADR-061, ADR-062**.
   **Tổng test: 216 unit BE + 106 tích hợp BE + 82 FE = 404** (không đổi — đợt này là redesign
@@ -58,6 +64,78 @@
   đắn dữ liệu thật** mà unit test không thể thấy: race condition ở `recordView` (ADR-036) và
   phụ thuộc ngầm vào múi giờ Node↔MySQL (ADR-037). **Tổng 201 test tự động.**
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
+
+
+## Nhật ký GĐ 8 — Giai đoạn C (Sửa 3 lỗi UI người dùng chụp + quét toàn dải viewport) — 2026-08-07, Opus 5 — ✅ XONG (CHỈ nhánh `phan-quyen-4-cap`)
+
+**Bối cảnh:** Người dùng tự test bản mobile trên điện thoại thật, xác nhận *"đẹp hơn đáng kể
+rồi"* nhưng chụp lại **3 lỗi cụ thể** kèm khoanh đỏ, và yêu cầu tối ưu trên mọi kích thước màn
+hình (iPhone lẫn Android). Cả 3 lỗi đều đã **tái hiện được trên browser trước khi sửa** —
+không có lỗi nào sửa theo suy đoán.
+
+### Lỗi 1 — `/categories` VỠ LAYOUT ở Compact → thêm `CategoryMobileView.vue` (ADR-063)
+- **Tái hiện (390x844):** cây chuyên mục chiếm 320px, cột chi tiết bị ép còn vài chục pixel,
+  chữ "Chọn một chuyên mục để xem chi tiết" xuống dòng TỪNG KÝ TỰ trong dải dọc sát mép phải.
+  Nguyên nhân: route `/categories` chưa được đưa vào `lazyResponsiveView` ở GĐ8-A/B nên bản
+  desktop master-detail render nguyên xi.
+- **Sửa:** `features/categories/CategoryMobileView.vue` (mới) — hero header + nút "Thêm" góc
+  trên phải, danh sách cây một cột (chevron mở/thu riêng, con thụt lề 16px/cấp, dòng 56px),
+  bottom sheet thêm/sửa. Route đổi sang `lazyResponsiveView`. Thêm slot `actions` cho
+  `MobileHeroHeader`.
+- **Kiểm thật 2 vai:** Cấp 4 (`superadmin@`) để trống cha → tạo được chuyên mục lớn; Cấp 2
+  (`nv1@`) ô cha là bắt buộc, bấm Lưu khi bỏ trống → chặn kèm lời giải thích, chọn cha
+  "Phim Giới thiệu công ty" → **tạo thật thành công** "GĐ8C Kiểm thử Cấp 2" (cây 3→4 mục), rồi
+  **xoá thật** để dọn (4→3). Cấp 2 mở chuyên mục GỐC → không có nút Xoá/Lưu, hiện đúng câu
+  "Đây là chuyên mục lớn — chỉ Quản trị cao nhất được sửa hoặc xoá."
+
+### Lỗi 2 — Khối xám trơn cuối trang Xem phim
+- **Tái hiện:** phim không có mô tả → nội dung ngắn hơn màn hình, phần thừa của vùng cuộn để lộ
+  nền `--mds-bg-page` (#ecedef) thành một chữ nhật xám không nội dung. **Không phải** section
+  rỗng hay UI dở dang — chỉ là khối trắng không giãn hết chiều cao.
+- **Sửa (`FilmDetailMobileView.vue`):** vùng cuộn thành `flex flex-col`, khối nội dung trắng
+  thêm `flex-1` → luôn phủ kín phần còn lại. Đã chụp lại xác nhận khối xám biến mất.
+
+### Lỗi 3 — Khung "Tải ảnh bìa" lệch, không đồng nhất với "Tải phim lên"
+- **Nguyên nhân:** `MUpload` ảnh bìa thiếu `full-width` + `hint-inside` (khung video đã có từ
+  đợt 1). Chuỗi "JPG/PNG/WebP, tỷ lệ 16:9 · Dung lượng tối đa 15MB" đứng cùng hàng với nhãn,
+  ở màn hẹp thì tràn và quấn quanh nhãn trông như một nút bấm riêng.
+- **Sửa:** thêm `full-width hint-inside`, rút gọn `formats="JPG/PNG/WebP · 16:9"`; khung xem
+  trước bỏ `max-w-[280px]` ở màn hẹp (`sm:max-w-[280px]`) để rộng bằng dropzone; hàng nhãn của
+  `MUpload` thêm `flex-wrap` phòng các chỗ khác không bật `hintInside`. Hai khung giờ có bố cục
+  y hệt nhau.
+
+### Phát sinh khi quét toàn dải — 2 vấn đề THẬT tự tìm ra, đã sửa
+- **Medium 600x960 vỡ y hệt lỗi 1** (ADR-064): sidebar 200px + cây 320px → cột chi tiết lại bị
+  ép, chữ vỡ từng ký tự. Sửa: ép sidebar về rail ở Medium (`App.vue`), và CategoryView desktop
+  xếp dọc dưới 720px bề rộng VÙNG NỘI DUNG bằng `@container`.
+- **Vùng chạm dưới chuẩn ở `/upload`** (ADR-065): MInput 34px, MSelect 36px, MButton 32px, nút
+  Back 32px, chip hashtag 21px, nút X đóng của MDrawer/MDialog 24px. Sửa ở tầng token
+  (`--mds-btn-height`/`--mds-input-height` = 44px dưới 600px) + `sm:` cho các ngoại lệ.
+
+### Kết quả quét toàn dải viewport (đo tự động, không phải nhìn bằng mắt)
+Với mỗi viewport chạy qua đủ 5 màn (`/films`, chi tiết phim, `/upload`, `/categories`,
+`/account`) đo `documentElement.scrollWidth` và mọi phần tử tương tác:
+
+| Viewport | Cuộn ngang | Vùng chạm < 44px | Shell |
+|---|---|---|---|
+| 320x568 · 360x800 · 375x667 | không | không | mobile |
+| 390x844 · 393x852 · 412x915 · 412x892 · 428x926 | không | không | mobile |
+| **599x800** | không | không | **mobile** ✓ đúng ngưỡng |
+| **600x960** (tablet dọc, Medium) | không | — (mật độ chuột) | **desktop + rail 56px** ✓ |
+| **601x800** | không | — (mật độ chuột) | **desktop** ✓ |
+| 1280x800 | không | — | desktop sidebar 200px, 2 cột — không hồi quy |
+
+Ngưỡng 600px **không lệch**: 599 = mobile, 600/601 = desktop.
+
+**Test:** FE build sạch (`vue-tsc` qua), **82 FE + 216 unit BE pass**, không sửa test nào.
+
+**Còn chưa ổn (nói thẳng):** xem mục "Tự đánh giá GĐ8-C" ở `06-activeContext.md`.
+
+**File đụng vào:** `features/categories/CategoryMobileView.vue` (mới) ·
+`features/categories/CategoryView.vue` · `features/films/FilmDetailMobileView.vue` ·
+`features/upload/FilmForm.vue` · `features/upload/FilmUploadView.vue` · `components/mds/MUpload.vue` ·
+`components/mds/MDrawer.vue` · `components/mds/MDialog.vue` · `components/mobile/MobileHeroHeader.vue` ·
+`components/HashtagInput.vue` · `assets/mds/tokens.css` · `router/index.ts` · `App.vue`
 
 
 ## Nhật ký GĐ 8 — Giai đoạn B (Dựng lại VỎ mobile) — 2026-08-07, Opus 5 — ✅ XONG (CHỈ nhánh `phan-quyen-4-cap`)
