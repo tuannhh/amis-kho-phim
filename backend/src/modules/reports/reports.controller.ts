@@ -8,15 +8,16 @@ import { auditLog } from '../../common/audit/audit-log'
 import type { AuthUser } from '../../common/auth/auth-user'
 
 /**
- * Báo cáo Quản trị — chỉ Cấp 4 (`super_admin`), RBAC 4 cấp (ADR-040).
+ * Báo cáo phim — Cấp 4 (toàn công ty) và Cấp 3 (chỉ phòng ban của chính mình), ADR-053.
  *
- * Cố ý KHÔNG mở cho Cấp 3: đặc tả nghiệp vụ chỉ nói Cấp 4 "xem báo cáo toàn công ty", không
- * nhắc quyền báo cáo của Trưởng phòng. Báo cáo là xuất dữ liệu hàng loạt có PII (họ tên người
- * upload) nên giữ ở mức hạn chế nhất theo `02-security-baseline.md` §9 — mở rộng cho Cấp 3
- * (kèm lọc theo phòng ban) là việc cần yêu cầu nghiệp vụ rõ ràng, không tự suy diễn.
+ * Ghi chú lịch sử: trước đợt 2 endpoint này CHỈ mở cho Cấp 4, vì đặc tả khi đó không nhắc tới
+ * quyền báo cáo của Trưởng phòng và báo cáo có PII (họ tên người upload). Nay người dùng đã
+ * yêu cầu rõ ràng nên mở cho Cấp 3, kèm điều kiện bắt buộc: **phạm vi phòng ban do SERVER
+ * quyết định**, không có tham số nào của client đổi được (xem `resolveDepartmentScope`).
+ * Cấp 1 và Cấp 2 vẫn bị chặn ở guard.
  */
 @Controller('reports')
-@Roles('super_admin')
+@Roles('super_admin', 'dept_manager')
 export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 
@@ -26,7 +27,7 @@ export class ReportsController {
     @Query() query: ReportQueryDto,
     @Res() res: Response,
   ) {
-    const report = await this.reports.getReport(query)
+    const report = await this.reports.getReport(actor, query)
 
     if (query.format === 'csv') {
       // Xuất dữ liệu hàng loạt là sự kiện nhạy cảm — baseline §7 và §9 (PII) đều yêu cầu
@@ -35,7 +36,16 @@ export class ReportsController {
         action: 'report.export',
         actorId: actor.id,
         outcome: 'success',
-        detail: { rows: report.films.length, from: query.from, to: query.to, uploaderId: query.uploaderId },
+        detail: {
+          rows: report.films.length,
+          from: query.from,
+          to: query.to,
+          uploaderId: query.uploaderId,
+          categoryId: query.categoryId,
+          // Ghi phạm vi ĐÃ ĐƯỢC ÁP DỤNG (server quyết định), không ghi tham số client gửi —
+          // nhật ký kiểm toán phải phản ánh dữ liệu thật đã rời khỏi hệ thống.
+          departmentId: report.scope.departmentId,
+        },
       })
       const csv = this.reports.toCsv(report)
       res.setHeader('Content-Type', 'text/csv; charset=utf-8')

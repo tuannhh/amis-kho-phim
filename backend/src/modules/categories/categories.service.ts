@@ -51,6 +51,40 @@ export class CategoriesService {
     return roots
   }
 
+  /**
+   * `categoryId` + TOÀN BỘ chuyên mục con cháu của nó (đệ quy, không giới hạn một cấp).
+   *
+   * Dùng cho bộ lọc báo cáo và cho "kệ theo chuyên mục" ở Kho phim: chọn một chuyên mục CHA
+   * thì phải thấy cả phim nằm trong các chuyên mục CON — nếu chỉ so `category_id = :id` thì
+   * chọn cha sẽ ra rỗng trong khi mắt người dùng thấy rõ bên dưới có phim.
+   *
+   * Trả về mảng luôn chứa chính `categoryId`, kể cả khi chuyên mục đó không tồn tại — người
+   * gọi lọc theo `IN (...)` nên kết quả rỗng là đúng, không cần ném lỗi.
+   */
+  async idsWithDescendants(categoryId: number): Promise<number[]> {
+    const all = await this.repo.find({ select: { id: true, parentId: true } })
+    const childrenOf = new Map<number, number[]>()
+    for (const c of all) {
+      if (c.parentId == null) continue
+      const list = childrenOf.get(c.parentId) || []
+      list.push(c.id)
+      childrenOf.set(c.parentId, list)
+    }
+    const out: number[] = []
+    const stack = [categoryId]
+    // `seen` chống lặp vô hạn nếu dữ liệu lỡ có vòng cha-con (không nên có, nhưng một truy vấn
+    // báo cáo không được phép treo tiến trình vì dữ liệu bẩn).
+    const seen = new Set<number>()
+    while (stack.length) {
+      const id = stack.pop()!
+      if (seen.has(id)) continue
+      seen.add(id)
+      out.push(id)
+      for (const child of childrenOf.get(id) || []) stack.push(child)
+    }
+    return out
+  }
+
   private async uniqueSlug(base: string, excludeId?: number): Promise<string> {
     const root = slugify(base) || 'chuyen-muc'
     let candidate = root

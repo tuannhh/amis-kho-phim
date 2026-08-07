@@ -48,6 +48,12 @@ export class DepartmentsService {
     return rows.map((d) => this.toPublic(d, byId.get(d.id) ?? 0))
   }
 
+  /** Tên phòng ban (null nếu không có) — để báo cáo hiển thị "đang xem phòng nào". */
+  async nameOf(id: number): Promise<string | null> {
+    const d = await this.repo.findOne({ where: { id }, select: { name: true } })
+    return d?.name ?? null
+  }
+
   /** Kiểm tra id phòng ban do client gửi lên có thật — dùng chung khi gán cho tài khoản. */
   async exists(id: number): Promise<boolean> {
     return (await this.repo.count({ where: { id } })) > 0

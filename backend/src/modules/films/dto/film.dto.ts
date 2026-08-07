@@ -67,6 +67,21 @@ export class CreateUploadUrlDto {
 }
 
 /**
+ * Xin presigned PUT URL cho ẢNH BÌA (ADR-055). Cùng khuôn với `CreateUploadUrlDto` của video —
+ * `contentType`/`size` client khai ở đây CHỈ để từ chối sớm những trường hợp rõ ràng sai;
+ * chốt chặn thật là `assertValidThumbnail` đọc magic bytes của file đã nằm trên MinIO.
+ */
+export class CreateThumbnailUploadUrlDto {
+  @IsString()
+  @MaxLength(150)
+  contentType!: string
+
+  @IsInt()
+  @IsPositive()
+  size!: number
+}
+
+/**
  * Xác nhận tạo bản mới sau khi FE upload xong. Chỉ nhận storage_key/thumbnail_key
  * do server đã cấp (định dạng cố định); server head-check lại trong MinIO, không
  * tin size/duration client tự khai (lấy size thật từ MinIO).

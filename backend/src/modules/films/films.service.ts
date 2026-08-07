@@ -7,7 +7,12 @@ import { FilmLink, type ExternalFilmPlatform } from './entities/film-link.entity
 import { Hashtag } from './entities/hashtag.entity'
 import { FilmVersion } from './entities/film-version.entity'
 import { FilmView } from './entities/film-view.entity'
-import { UpsertFilmDto, ConfirmVersionDto, CreateUploadUrlDto } from './dto/film.dto'
+import {
+  UpsertFilmDto,
+  ConfirmVersionDto,
+  CreateUploadUrlDto,
+  CreateThumbnailUploadUrlDto,
+} from './dto/film.dto'
 import type { AuthUser } from '../../common/auth/auth-user'
 import { slugify } from '../../common/slugify'
 import { StorageService } from '../storage/storage.service'
@@ -37,11 +42,25 @@ export interface PublicFilm {
   departmentId: number | null
   uploaderRoleCode: RoleCode | null
   viewCount: number
+  downloadCount: number
   duration: string
   hashtags: string[]
   links: Partial<Record<FilmSourceKey, string>>
   thumbnailUrl: string | null
   publishedAt: string
+  /**
+   * Có được gắn nhãn "Phim mới" hay không. TÍNH Ở BACKEND, không để FE tự suy từ `publishedAt`.
+   *
+   * Hai điều kiện phải thoả ĐỒNG THỜI:
+   *  1. Còn trong hạn `NEW_FILM_TTL_DAYS` kể từ `publishedAt` (quy tắc cũ, giữ nguyên).
+   *  2. Là bản MỚI NHẤT trong nhóm phim TRÙNG TIÊU ĐỀ. Khi một phim mới trùng tên được đăng,
+   *     các phim cũ cùng tên mất nhãn NGAY, kể cả còn trong hạn (ADR-052).
+   *
+   * Vì sao tính ở BE chứ không ở FE: trang chi tiết chỉ tải đúng MỘT phim nên FE không có cách
+   * nào biết trong kho còn phim nào trùng tên mới hơn hay không. Tính ở FE sẽ đúng ở trang
+   * danh sách và SAI ở trang chi tiết — đúng loại lỗi khó phát hiện nhất.
+   */
+  isNew: boolean
 }
 
 const LINK_FIELDS: Array<{ field: keyof UpsertFilmDto; platform: ExternalFilmPlatform }> = [
@@ -70,7 +89,23 @@ export class FilmsService {
     return f.versions.reduce((a, b) => (b.versionNo > a.versionNo ? b : a))
   }
 
-  private toPublic(f: Film): PublicFilm {
+  /** Số ngày một phim được coi là "mới" kể từ `publishedAt` (khớp `NEW_FILM_TTL_DAYS` ở .env). */
+  private newFilmTtlDays(): number {
+    const raw = Number(process.env.NEW_FILM_TTL_DAYS)
+    return Number.isFinite(raw) && raw > 0 ? raw : 14
+  }
+
+  /** Khoá gộp nhóm "trùng tiêu đề": bỏ khoảng trắng thừa, không phân biệt hoa/thường (ADR-052). */
+  private static titleKey(title: string): string {
+    return title.trim().toLowerCase()
+  }
+
+  private withinNewTtl(publishedAt: string): boolean {
+    const ageDays = (Date.now() - new Date(publishedAt).getTime()) / 86_400_000
+    return ageDays >= 0 && ageDays <= this.newFilmTtlDays()
+  }
+
+  private toPublic(f: Film, isLatestOfTitle = true): PublicFilm {
     const links: Partial<Record<FilmSourceKey, string>> = {}
     for (const l of f.links || []) links[l.platform] = l.url
 
@@ -90,25 +125,95 @@ export class FilmsService {
       departmentId: f.departmentId,
       uploaderRoleCode: f.uploader?.roleCode ?? null,
       viewCount: f.viewCount,
+      downloadCount: f.downloadCount,
       duration: current?.duration || f.duration,
       hashtags: (f.hashtags || []).map((h) => h.name),
       links,
       thumbnailUrl,
       publishedAt: f.publishedAt,
+      isNew: isLatestOfTitle && this.withinNewTtl(f.publishedAt),
     }
   }
 
   private relations = ['category', 'uploader', 'links', 'hashtags', 'versions']
 
+  /**
+   * Thứ tự chuẩn "mới trước": `published_at` giảm dần, phá hoà bằng `id` giảm dần.
+   * Cần phá hoà vì `published_at` là kiểu DATE (chỉ tới ngày) — hai phim trùng tên đăng
+   * cùng ngày sẽ bằng nhau, khi đó phim có `id` lớn hơn là phim tạo sau.
+   */
+  private static readonly NEWEST_FIRST = { publishedAt: 'DESC', id: 'DESC' } as const
+
   async list(): Promise<PublicFilm[]> {
-    const rows = await this.films.find({ relations: this.relations, order: { publishedAt: 'DESC', id: 'DESC' } })
-    return rows.map((f) => this.toPublic(f))
+    const rows = await this.films.find({ relations: this.relations, order: FilmsService.NEWEST_FIRST })
+    // Danh sách đã sắp "mới trước" nên phim ĐẦU TIÊN gặp trong mỗi nhóm tiêu đề chính là bản
+    // mới nhất của nhóm đó. Không tốn thêm truy vấn nào (ADR-052).
+    const seenTitles = new Set<string>()
+    return rows.map((f) => {
+      const key = FilmsService.titleKey(f.title)
+      const isLatest = !seenTitles.has(key)
+      seenTitles.add(key)
+      return this.toPublic(f, isLatest)
+    })
+  }
+
+  /**
+   * Danh sách "Phim tôi quản lý" (đợt 2 việc 6) — đúng tập phim mà `assertCanManage` cho phép
+   * người này sửa/xoá, không rộng hơn một phim nào.
+   *
+   *  - Cấp 1 `viewer`       → rỗng (không quản lý gì).
+   *  - Cấp 2 `employee`     → phim do chính mình tạo.
+   *  - Cấp 3 `dept_manager` → phim của mình + phim của Cấp 2 CÙNG phòng ban.
+   *  - Cấp 4 `super_admin`  → mọi phim.
+   *
+   * Lọc TRÊN KẾT QUẢ của `list()` chứ không thêm điều kiện vào câu SQL, có chủ đích: nhãn
+   * "Phim mới" phải tính trên TOÀN BỘ kho phim (ADR-052). Lọc trước rồi mới tính nhãn thì một
+   * phim cũ sẽ hiện "Phim mới" chỉ vì bản mới hơn cùng tên nằm ngoài phạm vi quản lý của người
+   * đang xem — sai lệch giữa hai màn hình cho cùng một phim. Kho phim nội bộ ở quy mô vài nghìn
+   * bản ghi nên chi phí lọc trong bộ nhớ không đáng kể; nếu sau này cần phân trang thật thì
+   * phải chuyển nhãn "Phim mới" sang cột được duy trì sẵn trước đã.
+   */
+  async listManaged(actor: AuthUser): Promise<PublicFilm[]> {
+    if (actor.roleCode === 'viewer') return []
+
+    const all = await this.list()
+    if (actor.roleCode === 'super_admin') return all
+
+    if (actor.roleCode === 'dept_manager') {
+      const actorDepartmentId = await this.users.getDepartmentId(actor.id)
+      return all.filter((f) => {
+        if (f.uploaderId === actor.id) return true
+        // `null` KHÔNG trùng `null` — Trưởng phòng chưa gán phòng ban không được vơ hết phim
+        // cũ có department_id NULL (11-coding-rules §3b).
+        if (actorDepartmentId == null || f.departmentId !== actorDepartmentId) return false
+        return f.uploaderRoleCode === 'employee'
+      })
+    }
+
+    return all.filter((f) => f.uploaderId === actor.id)
   }
 
   async getBySlug(slug: string): Promise<PublicFilm> {
     const f = await this.films.findOne({ where: { slug }, relations: this.relations })
     if (!f) throw new NotFoundException('Không tìm thấy phim')
-    return this.toPublic(f)
+    return this.toPublic(f, await this.isLatestOfTitle(f))
+  }
+
+  /**
+   * Phim này có phải bản mới nhất trong nhóm trùng tiêu đề không (dùng cho trang chi tiết, nơi
+   * chỉ tải đúng một phim). Một truy vấn lấy đúng 1 dòng, dựa vào index `idx_films_title`
+   * thêm ở migration `AddDownloadCountAndTitleIndex`.
+   *
+   * So sánh tiêu đề để nguyên cho MySQL xử lý: collation mặc định của cột là *_ci nên `=` đã
+   * KHÔNG phân biệt hoa/thường, đúng quy tắc gộp nhóm ở `titleKey`.
+   */
+  private async isLatestOfTitle(f: Film): Promise<boolean> {
+    const newest = await this.films.findOne({
+      where: { title: f.title.trim() },
+      order: FilmsService.NEWEST_FIRST,
+      select: { id: true },
+    })
+    return !newest || newest.id === f.id
   }
 
   private async findOrCreateHashtags(names: string[]): Promise<Hashtag[]> {
@@ -332,6 +437,31 @@ export class FilmsService {
     })
   }
 
+  // ─── Đợt 2 việc 8: Đếm lượt tải về ─────────────────────────────────────
+
+  /**
+   * Ghi nhận 1 lượt tải về. KHÁC HẲN `recordView`, cố ý đơn giản hơn nhiều (ADR-054):
+   *
+   *  - KHÔNG dedupe theo cửa sổ thời gian. Mở trang xem phim là hành động có thể lặp vô tình
+   *    (F5, quay lại trang) nên lượt xem phải chống trùng; còn bấm "Tải xuống" là chủ đích rõ
+   *    ràng — bấm hai lần nghĩa là tải hai lần, đó là con số nghiệp vụ muốn biết.
+   *  - KHÔNG cần giao dịch + khoá dòng. Bẫy race condition ở `recordView` sinh ra từ mẫu
+   *    "đọc để quyết định rồi mới ghi" (11-coding-rules §5b). Ở đây không có bước đọc quyết
+   *    định nào cả, chỉ một câu `UPDATE ... SET download_count = download_count + 1` — bản
+   *    thân câu đó đã atomic, gọi song song bao nhiêu lần cũng cộng đủ.
+   *
+   * Chống spam: dựa vào rate limit toàn cục sẵn có, không thêm hàng rào riêng. Kho phim là
+   * ứng dụng NỘI BỘ, mọi người gọi đều đã đăng nhập và định danh được; thổi phồng số lượt tải
+   * của chính mình không mang lại lợi ích gì. Nếu sau này số liệu bị nghi ngờ thì chuyển sang
+   * bảng `film_downloads` chi tiết (giống `film_views`) để truy được ai tải, thay vì chỉ đếm.
+   */
+  async recordDownload(actor: AuthUser, id: number): Promise<{ downloadCount: number }> {
+    const film = await this.films.findOne({ where: { id } })
+    if (!film) throw new NotFoundException('Không tìm thấy phim')
+    await this.films.increment({ id }, 'downloadCount', 1)
+    return { downloadCount: film.downloadCount + 1 }
+  }
+
   // ─── GĐ3: Storage (MinIO) ──────────────────────────────────────────────
 
   /** Lấy phim + kiểm quyền quản lý (dùng chung cho các thao tác storage). */
@@ -359,35 +489,71 @@ export class FilmsService {
     return this.storage.createVideoUploadUrl(dto.contentType)
   }
 
+  /** Ảnh bìa tối đa 15MB — bằng giới hạn cũ của multer, giữ nguyên để không đổi hành vi. */
+  private static readonly MAX_THUMBNAIL_BYTES = 15 * 1024 * 1024
+
   /**
-   * Upload ảnh bìa nhỏ qua backend (multipart). Validate MIME thật bằng magic
-   * bytes (image-size) + tỷ lệ 16:9 — không tin content-type client gửi. Trả
-   * thumbnail_key để FE gộp vào confirmVersion.
+   * Xin presigned PUT URL cho ẢNH BÌA (ADR-055) — thay cho `POST :id/thumbnail` cũ vốn nhận
+   * multipart và buffer cả file trong RAM Node. Backend nay không chạm byte ảnh nào; nó chỉ
+   * ký URL, còn việc kiểm ảnh thật (magic bytes + tỷ lệ 16:9) diễn ra ở `confirmVersion` sau
+   * khi file đã nằm trên MinIO — xem `assertValidThumbnail`.
    */
-  async saveThumbnail(actor: AuthUser, id: number, buffer: Buffer): Promise<{ thumbnailKey: string }> {
+  async createThumbnailUploadUrl(actor: AuthUser, id: number, dto: CreateThumbnailUploadUrlDto) {
     await this.findManageableFilm(actor, id)
-    if (!buffer?.length) throw new BadRequestException('Tệp ảnh rỗng')
+    if (!this.storage.isAllowedImageType(dto.contentType)) {
+      throw new BadRequestException('Ảnh bìa phải là JPG, PNG hoặc WebP')
+    }
+    if (dto.size > FilmsService.MAX_THUMBNAIL_BYTES) {
+      throw new BadRequestException('Ảnh bìa vượt giới hạn 15MB')
+    }
+    return this.storage.createThumbnailUploadUrl(dto.contentType)
+  }
+
+  /**
+   * Kiểm ảnh bìa ĐÃ nằm trên MinIO: đúng định dạng ảnh thật (magic bytes qua `image-size`,
+   * KHÔNG tin content-type client khai) + đúng tỷ lệ 16:9 + không vượt 15MB.
+   *
+   * Chỉ tải về 64KB ĐẦU của file — quá đủ cho `image-size` đọc header JPEG/PNG/WebP, và đó là
+   * lý do bỏ được luồng buffer toàn file trong RAM mà không hạ thấp mức kiểm tra nào.
+   * Ảnh không hợp lệ bị XOÁ khỏi MinIO ngay, không để lại rác (cùng cách xử lý video quá cỡ).
+   */
+  private async assertValidThumbnail(key: string): Promise<void> {
+    const stat = await this.storage.stat(key)
+    if (!stat) throw new BadRequestException('Không tìm thấy ảnh bìa đã upload trên storage')
+    if (stat.size > FilmsService.MAX_THUMBNAIL_BYTES) {
+      await this.storage.delete(key)
+      throw new BadRequestException('Ảnh bìa vượt giới hạn 15MB — đã huỷ')
+    }
+
+    const head = await this.storage.readHeadBytes(key)
+    if (!head?.length) {
+      await this.storage.delete(key)
+      throw new BadRequestException('Tệp ảnh rỗng')
+    }
 
     let dim: { width?: number; height?: number; type?: string }
     try {
-      dim = imageSize(buffer)
+      dim = imageSize(head)
     } catch {
+      await this.storage.delete(key)
       throw new BadRequestException('Tệp không phải ảnh hợp lệ')
     }
     const type = dim.type || ''
     if (!['jpg', 'jpeg', 'png', 'webp'].includes(type)) {
+      await this.storage.delete(key)
       throw new BadRequestException('Ảnh bìa phải là JPG, PNG hoặc WebP')
     }
     const w = dim.width || 0
     const h = dim.height || 0
-    if (!w || !h) throw new BadRequestException('Không đọc được kích thước ảnh')
+    if (!w || !h) {
+      await this.storage.delete(key)
+      throw new BadRequestException('Không đọc được kích thước ảnh')
+    }
     // Tỷ lệ 16:9 (dung sai ~5%)
-    if (Math.abs(w / h - 16 / 9) > 16 / 9 * 0.05) {
+    if (Math.abs(w / h - 16 / 9) > (16 / 9) * 0.05) {
+      await this.storage.delete(key)
       throw new BadRequestException(`Ảnh bìa phải tỷ lệ 16:9 (ảnh hiện tại ${w}×${h})`)
     }
-    const contentType = type === 'png' ? 'image/png' : type === 'webp' ? 'image/webp' : 'image/jpeg'
-    const thumbnailKey = await this.storage.putThumbnail(buffer, type, contentType)
-    return { thumbnailKey }
   }
 
   /**
@@ -430,8 +596,10 @@ export class FilmsService {
 
     let thumbnailKey = dto.thumbnailKey ?? last?.thumbnailKey ?? null
     if (dto.thumbnailKey) {
-      const stat = await this.storage.stat(dto.thumbnailKey)
-      if (!stat) throw new BadRequestException('Không tìm thấy ảnh bìa đã upload trên storage')
+      // Ảnh bìa nay upload thẳng lên MinIO bằng presigned PUT, nên ĐÂY là chốt kiểm duy nhất
+      // (trước kia kiểm ngay lúc nhận multipart). Không kiểm ở đây = nhận bừa mọi file client
+      // đẩy lên dưới cái tên ảnh bìa.
+      await this.assertValidThumbnail(dto.thumbnailKey)
       thumbnailKey = dto.thumbnailKey
     }
 

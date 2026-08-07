@@ -36,6 +36,13 @@ const props = defineProps({
    * trên cùng gọn, còn thông tin giới hạn nằm ngay chỗ người dùng thả tệp.
    */
   hintInside: { type: Boolean, default: false },
+  /**
+   * Danh sách định dạng chấp nhận, dạng chuỗi ngắn để hiển thị (vd "MP4/WebM/OGG/MOV/MKV").
+   * Hiện GHÉP CHUNG một dòng với chú thích dung lượng — cùng chỗ, cùng cỡ chữ, ngăn bằng "·".
+   * Mục đích: thông tin định dạng nằm NGAY trong/cạnh dropzone thay vì thành một đoạn văn
+   * riêng bên dưới khung, giữ form ngắn. Bỏ trống thì chỉ hiện chú thích dung lượng như cũ.
+   */
+  formats: { type: String, default: '' },
 })
 
 const emit = defineEmits(['select-files', 'oversized', 'remove', 'retry'])
@@ -114,7 +121,7 @@ onBeforeUnmount(() => {
       <MIcon name="paperclip" :size="16" class="text-[var(--mds-icon-neutral)]" />
       <span class="font-medium">{{ label }}</span>
       <span v-if="!hintInside" class="text-[12px] text-[var(--mds-text-secondary)]">
-        Dung lượng tối đa {{ maxSizeMB }}MB
+        <template v-if="formats">{{ formats }} · </template>Dung lượng tối đa {{ maxSizeMB }}MB
       </span>
     </div>
 
@@ -139,7 +146,7 @@ onBeforeUnmount(() => {
         <span v-if="pasteImage">&nbsp;• dán ảnh đã copy (Ctrl+V)</span>
       </span>
       <span v-if="hintInside" class="text-[12px] text-[var(--mds-text-placeholder)]">
-        Dung lượng tối đa {{ maxSizeMB }}MB
+        <template v-if="formats">{{ formats }} · </template>Dung lượng tối đa {{ maxSizeMB }}MB
       </span>
       <input
         ref="inputRef"

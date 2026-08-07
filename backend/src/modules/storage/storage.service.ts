@@ -35,11 +35,11 @@ const VIDEO_CONTENT_TYPES: Record<string, string> = {
   'video/quicktime': 'mov',
   'video/x-matroska': 'mkv',
 }
-const IMAGE_TYPE_EXT: Record<string, string> = {
-  jpg: 'jpg',
-  jpeg: 'jpg',
-  png: 'png',
-  webp: 'webp',
+/** Content-type ảnh bìa → phần mở rộng dùng cho key trên MinIO. */
+const IMAGE_CONTENT_TYPES: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
 }
 
 @Injectable()
@@ -106,14 +106,43 @@ export class StorageService implements OnModuleInit {
     return { storageKey, uploadUrl, expiresIn }
   }
 
-  /** Upload ảnh bìa nhỏ đi thẳng qua backend (multipart). type từ image-size, không tin client. */
-  async putThumbnail(buffer: Buffer, imageType: string, contentType: string): Promise<string> {
-    const ext = IMAGE_TYPE_EXT[imageType] || 'jpg'
-    const storageKey = `thumb-${randomUUID()}.${ext}`
-    await this.internal.send(
-      new PutObjectCommand({ Bucket: this.bucket, Key: storageKey, Body: buffer, ContentType: contentType }),
-    )
-    return storageKey
+  /** Content-type ảnh bìa được chấp nhận (bước sàng lọc đầu — kiểm thật bằng magic bytes sau). */
+  isAllowedImageType(contentType: string): boolean {
+    return !!IMAGE_CONTENT_TYPES[contentType]
+  }
+
+  /**
+   * Presigned PUT URL cho ẢNH BÌA — cùng cơ chế đã dùng cho video từ GĐ3 (ADR-055).
+   *
+   * Trước đây ảnh bìa đi qua backend bằng multipart và multer mặc định `memoryStorage`, tức
+   * TOÀN BỘ file nằm trong RAM của tiến trình Node cho tới khi xử lý xong. Mỗi ảnh tối đa
+   * 15MB nghe nhỏ, nhưng nhiều người đăng phim cùng lúc thì cộng dồn tuyến tính và không có
+   * hàng đợi nào chặn lại — đó là điểm nghẽn thật khi lên production, không phải lo xa.
+   * Nay backend KHÔNG nhận byte ảnh nào nữa; nó chỉ ký URL rồi kiểm lại file sau khi trình
+   * duyệt đã đẩy thẳng lên MinIO.
+   */
+  async createThumbnailUploadUrl(
+    contentType: string,
+    expiresIn = 600,
+  ): Promise<{ thumbnailKey: string; uploadUrl: string; expiresIn: number }> {
+    const ext = IMAGE_CONTENT_TYPES[contentType]
+    const thumbnailKey = `thumb-${randomUUID()}.${ext}`
+    const cmd = new PutObjectCommand({ Bucket: this.bucket, Key: thumbnailKey, ContentType: contentType })
+    const uploadUrl = await getSignedUrl(this.presigner, cmd, { expiresIn })
+    return { thumbnailKey, uploadUrl, expiresIn }
+  }
+
+  /**
+   * Đọc N byte ĐẦU của object (GET có Range) — đủ để `image-size` đọc magic bytes và kích
+   * thước ảnh mà KHÔNG kéo cả file về RAM. Đây là thứ cho phép bỏ luồng multipart mà vẫn giữ
+   * nguyên mức kiểm tra "không tin content-type client khai" (11-coding-rules §4).
+   */
+  async readHeadBytes(key: string, bytes = 64 * 1024): Promise<Buffer | null> {
+    const obj = await this.getObject(key, `bytes=0-${bytes - 1}`)
+    if (!obj) return null
+    const chunks: Buffer[] = []
+    for await (const chunk of obj.body) chunks.push(Buffer.from(chunk as Buffer))
+    return Buffer.concat(chunks)
   }
 
   /** HeadObject: kiểm tra key có thật + lấy kích thước thật (không tin size client khai). */

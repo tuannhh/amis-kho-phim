@@ -406,10 +406,11 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
         .send({ contentType: 'video/mp4', size: 1024 })
         .expect(403))
 
-    it('KHÔNG upload được ảnh bìa → 403', () =>
+    it('KHÔNG xin được presigned URL ảnh bìa → 403', () =>
       http()
-        .post(`/api/films/${filmOfEmpA1.id}/thumbnail`)
+        .post(`/api/films/${filmOfEmpA1.id}/thumbnail-url`)
         .set('Authorization', `Bearer ${viewerToken}`)
+        .send({ contentType: 'image/png', size: 1024 })
         .expect(403))
 
     it('KHÔNG tạo được version mới → 403', () =>
@@ -439,10 +440,18 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
       await http().get('/api/departments').set('Authorization', `Bearer ${empA1Token}`).expect(403)
     })
 
-    it('CẤP 3 KHÔNG xem được danh sách người dùng / báo cáo / phòng ban → 403', async () => {
+    it('CẤP 3 KHÔNG xem được danh sách người dùng / phòng ban → 403', async () => {
       await http().get('/api/users').set('Authorization', `Bearer ${mgrA1Token}`).expect(403)
-      await http().get('/api/reports/films').set('Authorization', `Bearer ${mgrA1Token}`).expect(403)
       await http().get('/api/departments').set('Authorization', `Bearer ${mgrA1Token}`).expect(403)
+    })
+
+    it('CẤP 3 nay XEM ĐƯỢC báo cáo (ADR-053) — nhưng bị khoá phạm vi phòng ban', async () => {
+      const r = await http()
+        .get('/api/reports/films')
+        .set('Authorization', `Bearer ${mgrA1Token}`)
+        .expect(200)
+      expect(r.body.scope.locked).toBe(true)
+      expect(r.body.scope.departmentId).toBe(deptAId)
     })
 
     it('CẤP 3 KHÔNG tạo được tài khoản → 403 (khác hẳn `admin` cũ)', () =>
@@ -965,6 +974,221 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
       expect(r.text.charCodeAt(0)).toBe(0xfeff)
       expect(r.text).toContain('"\'=cmd')
       expect(r.text).not.toMatch(/\n"=cmd/)
+    })
+  })
+
+
+  // ── ĐỢT 2 ────────────────────────────────────────────────────────────────
+
+  /**
+   * Việc 5 / ADR-053 — báo cáo theo phòng ban. Đây là ranh giới rò rỉ dữ liệu giữa hai phòng
+   * ban nên phải kiểm trên DB THẬT: unit test chỉ chứng minh service dựng đúng điều kiện
+   * `where`, còn ở đây chứng minh dữ liệu thật sự không vượt biên.
+   */
+  describe('[Đợt 2 · việc 5] Báo cáo có phạm vi phòng ban', () => {
+    let filmA: { id: number; slug: string }
+    let filmB: { id: number; slug: string }
+
+    beforeAll(async () => {
+      filmA = await createFilm(empA1Token, 'Báo cáo E2E phim phòng A')
+      filmB = await createFilm(empB1Token, 'Báo cáo E2E phim phòng B')
+    })
+
+    const report = async (token: string, qs = '') => {
+      const r = await http()
+        .get(`/api/reports/films${qs}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200)
+      return r.body as {
+        totals: { films: number }
+        scope: { departmentId: number | null; locked: boolean }
+        films: Array<{ id: number; departmentId: number | null }>
+      }
+    }
+
+    it('Trưởng phòng A chỉ thấy phim phòng A, KHÔNG thấy phim phòng B', async () => {
+      const body = await report(mgrA1Token)
+      const ids = body.films.map((f) => f.id)
+      expect(ids).toContain(filmA.id)
+      expect(ids).not.toContain(filmB.id)
+      expect(body.films.every((f) => f.departmentId === deptAId)).toBe(true)
+    })
+
+    it('Trưởng phòng B chỉ thấy phim phòng B', async () => {
+      const body = await report(mgrB1Token)
+      const ids = body.films.map((f) => f.id)
+      expect(ids).toContain(filmB.id)
+      expect(ids).not.toContain(filmA.id)
+    })
+
+    it('Trưởng phòng A cố gửi departmentId của phòng B → VẪN chỉ thấy phòng A', async () => {
+      const body = await report(mgrA1Token, `?departmentId=${deptBId}`)
+      expect(body.scope.departmentId).toBe(deptAId)
+      expect(body.films.map((f) => f.id)).not.toContain(filmB.id)
+    })
+
+    it('Cấp 4 thấy phim của CẢ HAI phòng ban', async () => {
+      const ids = (await report(superToken)).films.map((f) => f.id)
+      expect(ids).toEqual(expect.arrayContaining([filmA.id, filmB.id]))
+    })
+
+    it('Cấp 4 lọc theo một phòng ban cụ thể thì chỉ thấy phòng đó', async () => {
+      const body = await report(superToken, `?departmentId=${deptBId}`)
+      expect(body.films.map((f) => f.id)).toContain(filmB.id)
+      expect(body.films.map((f) => f.id)).not.toContain(filmA.id)
+    })
+
+    it('CSV của Trưởng phòng cũng bị giới hạn đúng phạm vi phòng ban', async () => {
+      const r = await http()
+        .get('/api/reports/films?format=csv')
+        .set('Authorization', `Bearer ${mgrA1Token}`)
+        .expect(200)
+      expect(r.text).toContain('Báo cáo E2E phim phòng A')
+      expect(r.text).not.toContain('Báo cáo E2E phim phòng B')
+      expect(r.text).toContain('"Lượt tải"')
+    })
+
+    it('Cấp 2 vẫn KHÔNG vào được báo cáo → 403', () =>
+      http().get('/api/reports/films').set('Authorization', `Bearer ${empA1Token}`).expect(403))
+  })
+
+  /** Việc 6 — `GET /films?scope=managed` phải khớp đúng ma trận quyền sửa/xoá. */
+  describe('[Đợt 2 · việc 6] Danh sách "Phim tôi quản lý"', () => {
+    const managedIds = async (token: string) => {
+      const r = await http()
+        .get('/api/films?scope=managed')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200)
+      return (r.body as Array<{ id: number }>).map((f) => f.id)
+    }
+
+    let mine: { id: number; slug: string }
+    let colleague: { id: number; slug: string }
+    let otherDept: { id: number; slug: string }
+
+    beforeAll(async () => {
+      mine = await createFilm(empA1Token, 'Managed E2E phim của tôi')
+      colleague = await createFilm(empA2Token, 'Managed E2E phim đồng nghiệp phòng A')
+      otherDept = await createFilm(empB1Token, 'Managed E2E phim phòng B')
+    })
+
+    it('Cấp 1 → rỗng', async () => {
+      expect(await managedIds(viewerToken)).toEqual([])
+    })
+
+    it('Cấp 2 chỉ thấy phim của chính mình', async () => {
+      const ids = await managedIds(empA1Token)
+      expect(ids).toContain(mine.id)
+      expect(ids).not.toContain(colleague.id)
+    })
+
+    it('Cấp 3 thấy phim của Cấp 2 cùng phòng, không thấy phòng khác', async () => {
+      const ids = await managedIds(mgrA1Token)
+      expect(ids).toEqual(expect.arrayContaining([mine.id, colleague.id]))
+      expect(ids).not.toContain(otherDept.id)
+    })
+
+    it('Cấp 4 thấy tất cả', async () => {
+      const ids = await managedIds(superToken)
+      expect(ids).toEqual(expect.arrayContaining([mine.id, colleague.id, otherDept.id]))
+    })
+
+    it('mọi phim trong danh sách đều THỰC SỰ sửa được (không rộng hơn quyền thật)', async () => {
+      for (const id of await managedIds(empA1Token)) {
+        await http()
+          .patch(`/api/films/${id}`)
+          .set('Authorization', `Bearer ${empA1Token}`)
+          .send({ title: `Managed E2E kiểm quyền ${id}`, categoryId })
+          .expect(200)
+      }
+    })
+  })
+
+  /** Việc 8 — đếm lượt tải, cố ý KHÔNG dedupe (khác lượt xem). */
+  describe('[Đợt 2 · việc 8] Đếm lượt tải về', () => {
+    let film: { id: number; slug: string }
+    beforeAll(async () => {
+      film = await createFilm(empA1Token, 'Download E2E phim đếm lượt tải')
+    })
+
+    it('bấm tải 3 lần liên tiếp → đếm đủ 3 (không bị dedupe như lượt xem)', async () => {
+      for (let i = 1; i <= 3; i++) {
+        const r = await http()
+          .post(`/api/films/${film.id}/download`)
+          .set('Authorization', `Bearer ${empA1Token}`)
+          .expect(201)
+        expect(r.body.downloadCount).toBe(i)
+      }
+    })
+
+    it('Cấp 1 (chỉ xem) VẪN tải được — tải không phải quyền ghi', () =>
+      http()
+        .post(`/api/films/${film.id}/download`)
+        .set('Authorization', `Bearer ${viewerToken}`)
+        .expect(201))
+
+    it('downloadCount trả về trong dữ liệu phim và trong báo cáo', async () => {
+      const detail = await http()
+        .get(`/api/films/${film.slug}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .expect(200)
+      expect(detail.body.downloadCount).toBe(4)
+
+      const rep = await http()
+        .get('/api/reports/films')
+        .set('Authorization', `Bearer ${superToken}`)
+        .expect(200)
+      const row = (rep.body.films as Array<{ id: number; downloadCount: number }>).find(
+        (f) => f.id === film.id,
+      )
+      expect(row?.downloadCount).toBe(4)
+    })
+
+    it('phim không tồn tại → 404', () =>
+      http()
+        .post('/api/films/999999/download')
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .expect(404))
+  })
+
+  /** Việc 9 / ADR-052 — trùng tiêu đề thì chỉ bản mới nhất giữ nhãn "Phim mới". */
+  describe('[Đợt 2 · việc 9] Nhãn "Phim mới" khi trùng tiêu đề', () => {
+    const TITLE = 'Trùng tên E2E kiểm nhãn phim mới'
+    let older: { id: number; slug: string }
+    let newer: { id: number; slug: string }
+
+    beforeAll(async () => {
+      older = await createFilm(empA1Token, TITLE)
+      // Tạo bằng ĐÚNG tiêu đề nhưng khác hoa/thường + có khoảng trắng thừa — phải vẫn được
+      // coi là trùng tên.
+      newer = await createFilm(empA1Token, `  ${TITLE.toUpperCase()}  `)
+    })
+
+    it('hai phim cùng tên có slug khác nhau (không ghi đè nhau)', () => {
+      expect(older.slug).not.toBe(newer.slug)
+    })
+
+    it('trong danh sách: phim mới nhất có nhãn, phim cũ MẤT nhãn', async () => {
+      const r = await http().get('/api/films').set('Authorization', `Bearer ${empA1Token}`).expect(200)
+      const rows = r.body as Array<{ id: number; isNew: boolean }>
+      expect(rows.find((f) => f.id === newer.id)!.isNew).toBe(true)
+      expect(rows.find((f) => f.id === older.id)!.isNew).toBe(false)
+    })
+
+    it('ở TRANG CHI TIẾT phim cũ cũng không có nhãn (không chỉ đúng ở danh sách)', async () => {
+      const r = await http()
+        .get(`/api/films/${older.slug}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .expect(200)
+      expect(r.body.isNew).toBe(false)
+    })
+
+    it('trang chi tiết của phim mới nhất thì CÓ nhãn', async () => {
+      const r = await http()
+        .get(`/api/films/${newer.slug}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .expect(200)
+      expect(r.body.isNew).toBe(true)
     })
   })
 

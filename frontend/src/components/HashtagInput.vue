@@ -24,13 +24,21 @@ const props = withDefaults(
   defineProps<{
     /** Danh sách hashtag đã chọn. */
     modelValue: string[]
-    /** Hashtag đã có sẵn trong hệ thống — dùng làm gợi ý bấm nhanh. */
-    suggestions?: string[]
+    /**
+     * VÍ DỤ MINH HOẠ cách gõ hashtag — danh sách TĨNH, cố ý KHÔNG lấy từ dữ liệu thật.
+     *
+     * Trước đây chỗ này đổ toàn bộ hashtag mọi người từng thêm trong kho phim vào. Sai về ý
+     * nghĩa: khu vực "Gợi ý:" nằm ngay dưới ô nhập là chỗ dạy người dùng ĐỊNH DẠNG (một chữ,
+     * nhiều chữ có khoảng trắng), không phải chỗ liệt kê kho hashtag — danh sách thật sẽ dài
+     * vô hạn theo thời gian và đẩy form dài ra. Nếu sau này cần autocomplete theo dữ liệu
+     * thật thì làm bằng dropdown lọc theo phần đang gõ, KHÔNG quay lại đổ hết vào đây.
+     */
+    examples?: string[]
     placeholder?: string
     disabled?: boolean
   }>(),
   {
-    suggestions: () => [],
+    examples: () => ['MISA', 'Agentic AI'],
     placeholder: 'Nhập hashtag, cách nhau bằng dấu phẩy. Ví dụ: MISA, Agentic AI',
     disabled: false,
   },
@@ -91,13 +99,14 @@ function addSuggestion(tag: string) {
   commit(tag)
 }
 
-/** Gợi ý = hashtag đã có trong hệ thống, chưa được chọn, khớp phần đang gõ. Tối đa 8. */
-const visibleSuggestions = computed(() => {
+/**
+ * Ví dụ hiển thị = danh sách tĩnh, bỏ đi cái nào người dùng đã chọn rồi (hiện lại một chip đã
+ * có trong danh sách chọn thì bấm vào không có tác dụng gì, chỉ gây nhiễu).
+ * KHÔNG lọc theo phần đang gõ: đây là ví dụ minh hoạ định dạng nên phải luôn nhìn thấy được.
+ */
+const visibleExamples = computed(() => {
   const chosen = new Set(props.modelValue.map((h) => h.toLowerCase()))
-  const q = draft.value.trim().toLowerCase()
-  return props.suggestions
-    .filter((h) => !chosen.has(h.toLowerCase()) && (!q || h.toLowerCase().includes(q)))
-    .slice(0, 8)
+  return props.examples.filter((h) => !chosen.has(h.toLowerCase()))
 })
 </script>
 
@@ -127,11 +136,11 @@ const visibleSuggestions = computed(() => {
       </MTag>
     </div>
 
-    <!-- Gợi ý từ hashtag đã có sẵn trong kho phim — bấm để thêm nhanh, không phải gõ lại -->
-    <div v-if="!disabled && visibleSuggestions.length" class="flex flex-wrap items-center gap-1.5">
+    <!-- Ví dụ TĨNH minh hoạ cách gõ (một chữ / nhiều chữ) — bấm vào cũng thêm được luôn -->
+    <div v-if="!disabled && visibleExamples.length" class="flex flex-wrap items-center gap-1.5">
       <span class="text-[12px]" style="color: var(--mds-text-secondary)">Gợi ý:</span>
       <button
-        v-for="tag in visibleSuggestions"
+        v-for="tag in visibleExamples"
         :key="tag"
         type="button"
         class="rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--mds-brand-600)]"

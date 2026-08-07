@@ -46,6 +46,27 @@ const DIRECTORY: Record<number, { roleCode: AuthUser['roleCode']; departmentId: 
 const OWNER_ID = EMP_A
 const OTHER_ID = EMP_A2
 
+/** Key ảnh bìa hợp lệ về ĐỊNH DẠNG (khớp regex DTO) — nội dung file mới là thứ được kiểm thật. */
+const THUMB_KEY = 'thumb-00000000-0000-0000-0000-000000000000.png'
+
+/**
+ * Dựng 33 byte đầu của một file PNG hợp lệ (chữ ký 8 byte + chunk IHDR mang width/height).
+ * `image-size` chỉ cần chừng này để đọc kích thước — đúng bản chất tối ưu của ADR-055: server
+ * chỉ tải 64KB đầu từ MinIO thay vì cả file. Dùng buffer thật thay vì mock `image-size` để
+ * test đo đúng hành vi thư viện, không đo mock của chính mình.
+ */
+function pngHeader(width: number, height: number): Buffer {
+  const buf = Buffer.alloc(33)
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(buf, 0)
+  buf.writeUInt32BE(13, 8)
+  buf.write('IHDR', 12, 'ascii')
+  buf.writeUInt32BE(width, 16)
+  buf.writeUInt32BE(height, 20)
+  buf.writeUInt8(8, 24) // bit depth
+  buf.writeUInt8(6, 25) // color type RGBA
+  return buf
+}
+
 const actor = (id: number, roleCode: AuthUser['roleCode']): AuthUser => ({
   id,
   email: `u${id}@misa.com.vn`,
@@ -77,7 +98,16 @@ interface Mocks {
     manager: { transaction: jest.Mock }
     txEntityManager: { findOne: jest.Mock; create: jest.Mock; save: jest.Mock; increment: jest.Mock }
   }
-  storage: { isAllowedVideoType: jest.Mock; isWithinLimit: jest.Mock; createVideoUploadUrl: jest.Mock; stat: jest.Mock; delete: jest.Mock; putThumbnail: jest.Mock }
+  storage: {
+    isAllowedVideoType: jest.Mock
+    isAllowedImageType: jest.Mock
+    isWithinLimit: jest.Mock
+    createVideoUploadUrl: jest.Mock
+    createThumbnailUploadUrl: jest.Mock
+    stat: jest.Mock
+    delete: jest.Mock
+    readHeadBytes: jest.Mock
+  }
   versions: { findOne: jest.Mock; save: jest.Mock; create: jest.Mock }
   users: { getDepartmentId: jest.Mock; getRoleAndDepartment: jest.Mock }
 }
@@ -128,7 +158,13 @@ function setup(film: Film | null = filmOwnedByOwner): Mocks {
     createVideoUploadUrl: jest.fn().mockResolvedValue({ storageKey: 'video-x.mp4', uploadUrl: 'http://x', expiresIn: 600 }),
     stat: jest.fn().mockResolvedValue({ size: 1024, contentType: 'video/mp4' }),
     delete: jest.fn().mockResolvedValue(undefined),
-    putThumbnail: jest.fn().mockResolvedValue('thumb-x.jpg'),
+    isAllowedImageType: jest.fn().mockReturnValue(true),
+    createThumbnailUploadUrl: jest
+      .fn()
+      .mockResolvedValue({ thumbnailKey: 'thumb-x.jpg', uploadUrl: 'http://x', expiresIn: 600 }),
+    // Mặc định: 64KB đầu đọc được nhưng KHÔNG phải ảnh thật → ca test nào cần ảnh hợp lệ
+    // phải tự nạp buffer PNG 16:9 (xem `png16x9`), giống hệt cách server gặp file thật.
+    readHeadBytes: jest.fn().mockResolvedValue(Buffer.from('day khong phai anh')),
   }
   const notifications = { notify: jest.fn() }
   // UsersService giả lập DANH BẠ THẬT trong DB. Quan trọng: `assertCanManage` phải đọc vai
@@ -279,12 +315,15 @@ describe('FilmsService — owner policy (assertCanManage)', () => {
     expect(storage.createVideoUploadUrl).not.toHaveBeenCalled()
   })
 
-  it('quyền được kiểm trước khi nhận ảnh bìa', async () => {
+  it('quyền được kiểm TRƯỚC khi cấp presigned URL cho ảnh bìa', async () => {
     const { service, storage } = setup()
     await expect(
-      service.saveThumbnail(actor(OTHER_ID, 'employee'), 1, Buffer.from('x')),
+      service.createThumbnailUploadUrl(actor(OTHER_ID, 'employee'), 1, {
+        contentType: 'image/png',
+        size: 1024,
+      } as never),
     ).rejects.toThrow(ForbiddenException)
-    expect(storage.putThumbnail).not.toHaveBeenCalled()
+    expect(storage.createThumbnailUploadUrl).not.toHaveBeenCalled()
   })
 
   it('quyền được kiểm trước khi xác nhận version mới', async () => {
@@ -334,16 +373,66 @@ describe('FilmsService — validate upload ở SERVER (không tin FE)', () => {
     ).rejects.toThrow(/Không tìm thấy file/)
   })
 
-  it('ảnh bìa không phải ảnh thật (magic bytes sai) → từ chối', async () => {
-    const { service } = setup()
+  it('từ chối content-type ảnh bìa không cho phép ngay khi xin URL', async () => {
+    const { service, storage } = setup()
+    storage.isAllowedImageType.mockReturnValue(false)
     await expect(
-      service.saveThumbnail(actor(OWNER_ID, 'employee'), 1, Buffer.from('day khong phai anh')),
+      service.createThumbnailUploadUrl(actor(OWNER_ID, 'employee'), 1, {
+        contentType: 'application/pdf',
+        size: 1024,
+      } as never),
     ).rejects.toThrow(BadRequestException)
+    expect(storage.createThumbnailUploadUrl).not.toHaveBeenCalled()
+  })
+
+  // ── Ảnh bìa nay upload thẳng lên MinIO (ADR-055) nên MỌI kiểm tra dồn về confirmVersion.
+  // Đây là chốt chặn duy nhất còn lại — nhóm ca test dưới đây canh đúng chỗ đó.
+
+  it('ảnh bìa không phải ảnh thật (magic bytes sai) → từ chối VÀ xoá khỏi storage', async () => {
+    const { service, storage, versions } = setup()
+    storage.stat.mockResolvedValue({ size: 1024, contentType: 'image/png' })
+    await expect(
+      service.confirmVersion(actor(OWNER_ID, 'employee'), 1, { thumbnailKey: THUMB_KEY } as never),
+    ).rejects.toThrow(BadRequestException)
+    expect(storage.delete).toHaveBeenCalledWith(THUMB_KEY)
+    expect(versions.save).not.toHaveBeenCalled()
   })
 
   it('ảnh bìa rỗng → từ chối', async () => {
-    const { service } = setup()
-    await expect(service.saveThumbnail(actor(OWNER_ID, 'employee'), 1, Buffer.alloc(0))).rejects.toThrow(/rỗng/)
+    const { service, storage } = setup()
+    storage.stat.mockResolvedValue({ size: 0, contentType: 'image/png' })
+    storage.readHeadBytes.mockResolvedValue(Buffer.alloc(0))
+    await expect(
+      service.confirmVersion(actor(OWNER_ID, 'employee'), 1, { thumbnailKey: THUMB_KEY } as never),
+    ).rejects.toThrow(/rỗng/)
+  })
+
+  it('ảnh bìa vượt 15MB (presigned PUT không ràng buộc size) → từ chối VÀ xoá', async () => {
+    const { service, storage } = setup()
+    storage.stat.mockResolvedValue({ size: 20 * 1024 * 1024, contentType: 'image/png' })
+    await expect(
+      service.confirmVersion(actor(OWNER_ID, 'employee'), 1, { thumbnailKey: THUMB_KEY } as never),
+    ).rejects.toThrow(/15MB/)
+    expect(storage.delete).toHaveBeenCalledWith(THUMB_KEY)
+  })
+
+  it('ảnh bìa đúng ảnh thật nhưng SAI tỷ lệ 16:9 → từ chối VÀ xoá', async () => {
+    const { service, storage } = setup()
+    storage.stat.mockResolvedValue({ size: 1024, contentType: 'image/png' })
+    storage.readHeadBytes.mockResolvedValue(pngHeader(400, 400)) // vuông, không phải 16:9
+    await expect(
+      service.confirmVersion(actor(OWNER_ID, 'employee'), 1, { thumbnailKey: THUMB_KEY } as never),
+    ).rejects.toThrow(/16:9/)
+    expect(storage.delete).toHaveBeenCalledWith(THUMB_KEY)
+  })
+
+  it('ảnh bìa PNG đúng 16:9 → chấp nhận, tạo version mới', async () => {
+    const { service, storage, versions } = setup()
+    storage.stat.mockResolvedValue({ size: 1024, contentType: 'image/png' })
+    storage.readHeadBytes.mockResolvedValue(pngHeader(1280, 720))
+    await service.confirmVersion(actor(OWNER_ID, 'employee'), 1, { thumbnailKey: THUMB_KEY } as never)
+    expect(storage.delete).not.toHaveBeenCalled()
+    expect(versions.save).toHaveBeenCalled()
   })
 })
 
@@ -415,5 +504,213 @@ describe('FilmsService.create — snapshot phòng ban của người tạo (ADR-
     const { service, films } = setupForCreate()
     await service.create(actor(SUPER, 'super_admin'), { title: 'Phim mới', categoryId: 1 } as never)
     expect(films.save.mock.calls[0][0].departmentId).toBeNull()
+  })
+})
+
+describe('FilmsService — nhãn "Phim mới" khi TRÙNG TIÊU ĐỀ (ADR-052, đợt 2 việc 9)', () => {
+  /** Ngày cách hôm nay `n` ngày, dạng 'YYYY-MM-DD' đúng như cột `published_at` (kiểu DATE). */
+  const daysAgo = (n: number): string =>
+    new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10)
+
+  /** Phim tối thiểu đủ để `toPublic` chạy — chỉ quan tâm tiêu đề + ngày đăng + id. */
+  const row = (id: number, title: string, publishedAt: string): Film =>
+    ({
+      id,
+      slug: `phim-${id}`,
+      title,
+      publishedAt,
+      uploaderId: EMP_A,
+      departmentId: DEPT_A,
+      viewCount: 0,
+      downloadCount: 0,
+      duration: '--:--',
+    } as Film)
+
+  /**
+   * `list()` tin vào thứ tự do SQL trả về ("mới trước"), nên test cũng phải nạp dữ liệu ĐÚNG
+   * thứ tự đó — nếu không, test sẽ nghiệm thu một hành vi mà production không có.
+   */
+  function listWith(rows: Film[]) {
+    const { service, films } = setup()
+    films.find.mockResolvedValue(rows)
+    return service.list()
+  }
+
+  it('hai phim TRÙNG TÊN: chỉ phim mới nhất giữ nhãn, phim cũ MẤT nhãn dù còn trong hạn', async () => {
+    const result = await listWith([
+      row(2, 'Giới thiệu MISA', daysAgo(1)), // đăng sau
+      row(1, 'Giới thiệu MISA', daysAgo(3)), // đăng trước, vẫn còn trong hạn 14 ngày
+    ])
+    expect(result.find((f) => f.id === 2)!.isNew).toBe(true)
+    expect(result.find((f) => f.id === 1)!.isNew).toBe(false)
+  })
+
+  it('so tiêu đề KHÔNG phân biệt hoa/thường và bỏ khoảng trắng thừa', async () => {
+    const result = await listWith([
+      row(2, '  giới thiệu MISA  ', daysAgo(1)),
+      row(1, 'Giới Thiệu Misa', daysAgo(3)),
+    ])
+    expect(result.find((f) => f.id === 1)!.isNew).toBe(false)
+  })
+
+  it('ba phim trùng tên: chỉ MỘT phim giữ nhãn, hai phim còn lại mất', async () => {
+    const result = await listWith([
+      row(3, 'Phim lặp', daysAgo(0)),
+      row(2, 'Phim lặp', daysAgo(1)),
+      row(1, 'Phim lặp', daysAgo(2)),
+    ])
+    expect(result.filter((f) => f.isNew).map((f) => f.id)).toEqual([3])
+  })
+
+  it('phim KHÔNG trùng tên vẫn theo quy tắc thời gian cũ (còn hạn → mới, quá hạn → cũ)', async () => {
+    const result = await listWith([
+      row(2, 'Phim A', daysAgo(2)),
+      row(1, 'Phim B', daysAgo(90)),
+    ])
+    expect(result.find((f) => f.id === 2)!.isNew).toBe(true)
+    expect(result.find((f) => f.id === 1)!.isNew).toBe(false)
+  })
+
+  it('phim mới nhất của nhóm nhưng ĐÃ QUÁ HẠN → vẫn không có nhãn (hai điều kiện phải cùng đúng)', async () => {
+    const result = await listWith([
+      row(2, 'Phim cũ', daysAgo(60)),
+      row(1, 'Phim cũ', daysAgo(90)),
+    ])
+    expect(result.every((f) => f.isNew === false)).toBe(true)
+  })
+
+  it('trang CHI TIẾT cũng đúng: phim cũ trùng tên mở riêng ra vẫn không có nhãn', async () => {
+    const older = row(1, 'Phim lặp', daysAgo(2))
+    const newer = row(2, 'Phim lặp', daysAgo(0))
+    const { service, films } = setup()
+    // findOne lần 1 = phim đang mở; lần 2 = phim mới nhất cùng tiêu đề (isLatestOfTitle)
+    films.findOne.mockResolvedValueOnce(older).mockResolvedValueOnce(newer)
+    const result = await service.getBySlug('phim-1')
+    expect(result.isNew).toBe(false)
+  })
+
+  it('trang CHI TIẾT của chính phim mới nhất → có nhãn', async () => {
+    const newer = row(2, 'Phim lặp', daysAgo(0))
+    const { service, films } = setup()
+    films.findOne.mockResolvedValueOnce(newer).mockResolvedValueOnce(newer)
+    const result = await service.getBySlug('phim-2')
+    expect(result.isNew).toBe(true)
+  })
+})
+
+describe('FilmsService — đếm lượt tải về (ADR-054, đợt 2 việc 8)', () => {
+  it('tăng download_count atomic bằng increment, không đọc-rồi-ghi', async () => {
+    const { service, films } = setup({ ...filmOwnedByOwner, downloadCount: 7 } as Film)
+    const result = await service.recordDownload(actor(OWNER_ID, 'employee'), 1)
+    expect(films.increment).toHaveBeenCalledWith({ id: 1 }, 'downloadCount', 1)
+    expect(result.downloadCount).toBe(8)
+  })
+
+  it('KHÔNG dedupe: gọi ba lần liên tiếp là ba lượt (khác hẳn recordView)', async () => {
+    const { service, films } = setup({ ...filmOwnedByOwner, downloadCount: 0 } as Film)
+    await service.recordDownload(actor(OWNER_ID, 'employee'), 1)
+    await service.recordDownload(actor(OWNER_ID, 'employee'), 1)
+    await service.recordDownload(actor(OWNER_ID, 'employee'), 1)
+    expect(films.increment).toHaveBeenCalledTimes(3)
+  })
+
+  it('Cấp 1 (viewer) VẪN tải được — tải phim không phải quyền ghi', async () => {
+    const { service, films } = setup({ ...filmOwnedByOwner, downloadCount: 0 } as Film)
+    await expect(service.recordDownload(actor(VIEWER, 'viewer'), 1)).resolves.toEqual({
+      downloadCount: 1,
+    })
+    expect(films.increment).toHaveBeenCalled()
+  })
+
+  it('phim không tồn tại → 404, không tăng đếm', async () => {
+    const { service, films } = setup(null)
+    await expect(service.recordDownload(actor(OWNER_ID, 'employee'), 404)).rejects.toThrow(
+      NotFoundException,
+    )
+    expect(films.increment).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Đợt 2 việc 6 — "Phim tôi quản lý". Yêu cầu quan trọng nhất: tập phim trả về phải TRÙNG KHỚP
+ * với tập phim `assertCanManage` cho phép sửa/xoá. Rộng hơn thì người dùng thấy phim rồi bấm
+ * Sửa nhận 403; hẹp hơn thì mất phim đáng lẽ quản được.
+ */
+describe('FilmsService.listManaged — phạm vi "Phim tôi quản lý" (đợt 2 việc 6)', () => {
+  const managedRow = (id: number, uploaderId: number, departmentId: number | null): Film =>
+    ({
+      id,
+      slug: `phim-${id}`,
+      title: `Phim ${id}`,
+      publishedAt: '2026-08-01',
+      uploaderId,
+      departmentId,
+      viewCount: 0,
+      downloadCount: 0,
+      duration: '--:--',
+      uploader: { fullName: 'X', roleCode: DIRECTORY[uploaderId]?.roleCode },
+    }) as never
+
+  /** Một kho phim đủ mọi tổ hợp người tạo × phòng ban để bắt lỗi lọc quá rộng. */
+  const ALL_FILMS = [
+    managedRow(1, EMP_A, DEPT_A), // Cấp 2 phòng A
+    managedRow(2, EMP_A2, DEPT_A), // Cấp 2 phòng A (người khác)
+    managedRow(3, EMP_B, DEPT_B), // Cấp 2 phòng B
+    managedRow(4, MGR_A, DEPT_A), // Cấp 3 phòng A
+    managedRow(5, MGR_A2, DEPT_A), // Cấp 3 phòng A (trưởng phòng khác)
+    managedRow(6, SUPER, null), // Cấp 4
+    managedRow(7, EMP_A, null), // phim cũ chưa có phòng ban
+  ]
+
+  function managed(actorId: number, roleCode: AuthUser['roleCode']) {
+    const { service, films } = setup()
+    films.find.mockResolvedValue(ALL_FILMS)
+    return service.listManaged(actor(actorId, roleCode)).then((r) => r.map((f) => f.id).sort())
+  }
+
+  it('Cấp 1 (viewer) → danh sách RỖNG', async () => {
+    expect(await managed(VIEWER, 'viewer')).toEqual([])
+  })
+
+  it('Cấp 2 → chỉ phim của chính mình, kể cả phim chưa có phòng ban', async () => {
+    expect(await managed(EMP_A, 'employee')).toEqual([1, 7])
+  })
+
+  it('Cấp 2 KHÔNG thấy phim của đồng nghiệp cùng phòng', async () => {
+    expect(await managed(EMP_A, 'employee')).not.toContain(2)
+  })
+
+  it('Cấp 3 → phim của mình + phim của Cấp 2 CÙNG phòng ban', async () => {
+    // 4 = của chính mình; 1 và 2 = của Cấp 2 phòng A. KHÔNG có 5 (Cấp 3 khác), 3 (phòng B),
+    // 6 (Cấp 4), 7 (department_id NULL).
+    expect(await managed(MGR_A, 'dept_manager')).toEqual([1, 2, 4])
+  })
+
+  it('Cấp 3 KHÔNG thấy phim phòng ban khác', async () => {
+    expect(await managed(MGR_A, 'dept_manager')).not.toContain(3)
+  })
+
+  it('Cấp 3 KHÔNG vơ hết phim cũ có department_id NULL', async () => {
+    expect(await managed(MGR_A, 'dept_manager')).not.toContain(7)
+  })
+
+  it('Cấp 4 → toàn bộ kho phim', async () => {
+    expect(await managed(SUPER, 'super_admin')).toEqual([1, 2, 3, 4, 5, 6, 7])
+  })
+
+  it('nhãn "Phim mới" tính trên TOÀN KHO, không tính lại trong phạm vi đã lọc', async () => {
+    // Hai phim trùng tên: một của Cấp 2 phòng A (thấy được), một của phòng B (không thấy) và
+    // mới hơn. Phim thấy được PHẢI mất nhãn dù bản mới hơn nằm ngoài danh sách này.
+    const today = new Date().toISOString().slice(0, 10)
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)
+    const mine = { ...managedRow(1, EMP_A, DEPT_A), title: 'Trùng tên', publishedAt: yesterday }
+    const theirs = { ...managedRow(2, EMP_B, DEPT_B), title: 'Trùng tên', publishedAt: today }
+
+    const { service, films } = setup()
+    films.find.mockResolvedValue([theirs, mine]) // đúng thứ tự "mới trước" như SQL trả về
+    const result = await service.listManaged(actor(EMP_A, 'employee'))
+
+    expect(result.map((f) => f.id)).toEqual([1])
+    expect(result[0].isNew).toBe(false)
   })
 })

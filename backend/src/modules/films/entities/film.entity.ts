@@ -64,6 +64,15 @@ export class Film {
   @Column({ name: 'view_count', type: 'int', default: 0 })
   viewCount!: number
 
+  /**
+   * Số lượt bấm nút "Tải xuống" (chỉ có ý nghĩa với phim có bản lưu trữ nội bộ trên MinIO —
+   * link ngoài YouTube/Drive tải thẳng ở nền tảng của họ, hệ thống này không đếm được).
+   * CỐ Ý KHÔNG dedupe như `view_count`: tải về là hành động chủ đích, người dùng bấm hai lần
+   * là thật sự tải hai lần (ADR-054).
+   */
+  @Column({ name: 'download_count', type: 'int', default: 0 })
+  downloadCount!: number
+
   @Column({ type: 'varchar', length: 20, default: '--:--' })
   duration!: string
 

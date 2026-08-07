@@ -8,14 +8,17 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
   Req,
-  UploadedFile,
-  UseInterceptors,
 } from '@nestjs/common'
-import { FileInterceptor } from '@nestjs/platform-express'
 import type { Request } from 'express'
 import { FilmsService } from './films.service'
-import { UpsertFilmDto, CreateUploadUrlDto, ConfirmVersionDto } from './dto/film.dto'
+import {
+  UpsertFilmDto,
+  CreateUploadUrlDto,
+  CreateThumbnailUploadUrlDto,
+  ConfirmVersionDto,
+} from './dto/film.dto'
 import { CurrentUser } from '../../common/auth/current-user.decorator'
 import type { AuthUser } from '../../common/auth/auth-user'
 import { Roles } from '../../common/auth/roles.decorator'
@@ -37,9 +40,17 @@ import { FILM_WRITE_ROLES } from '../users/entities/role.entity'
 export class FilmsController {
   constructor(private readonly films: FilmsService) {}
 
+  /**
+   * Danh sách phim. `?scope=managed` trả về đúng tập phim người gọi có quyền sửa/xoá — dùng
+   * cho màn "Phim tôi quản lý" (việc 6).
+   *
+   * Thêm query param thay vì tạo endpoint mới `/films/managed`: đường dẫn đó sẽ đụng route
+   * `GET /films/:slug` ngay bên dưới (một phim có slug "managed" là bịa được), và hợp đồng
+   * `GET /films` hiện tại không đổi khi thiếu tham số.
+   */
   @Get()
-  list() {
-    return this.films.list()
+  list(@CurrentUser() actor: AuthUser, @Query('scope') scope?: string) {
+    return scope === 'managed' ? this.films.listManaged(actor) : this.films.list()
   }
 
   @Get(':slug')
@@ -83,6 +94,18 @@ export class FilmsController {
     return this.films.recordView(actor, id, sessionHash)
   }
 
+  // ─── Đợt 2 việc 8: Đếm lượt tải về ─────────────────────────────────────
+
+  /**
+   * Ghi nhận 1 lượt tải về. Quyền giống `:id/view` — ai đã đăng nhập cũng gọi được, KHÔNG gắn
+   * `@Roles`: người xem (Cấp 1) hoàn toàn có quyền tải phim, chỉ không có quyền sửa/xoá.
+   * Endpoint này CHỈ đếm; việc trả bytes vẫn là `/media/:key` có sẵn từ GĐ3.
+   */
+  @Post(':id/download')
+  recordDownload(@CurrentUser() actor: AuthUser, @Param('id', ParseIntPipe) id: number) {
+    return this.films.recordDownload(actor, id)
+  }
+
   // ─── GĐ3: Storage (MinIO) ──────────────────────────────────────────────
 
   /** Xin presigned PUT URL để upload thẳng file video lên MinIO. */
@@ -96,18 +119,22 @@ export class FilmsController {
     return this.films.createUploadUrl(actor, id, dto)
   }
 
-  /** Upload ảnh bìa (multipart, nhỏ) qua backend — validate 16:9 + MIME thật. */
-  @Post(':id/thumbnail')
+  /**
+   * Xin presigned PUT URL để upload ẢNH BÌA thẳng lên MinIO (ADR-055).
+   *
+   * THAY THẾ `POST :id/thumbnail` (multipart) cũ. Endpoint cũ đã bị GỠ BỎ chứ không giữ lại
+   * song song: nó dùng multer `memoryStorage`, tức vẫn còn nguyên đường buffer cả file trong
+   * RAM Node — để lại thì điểm nghẽn vẫn còn, chỉ là không ai gọi tới nữa cho tới khi có
+   * người gọi lại. Kiểm ảnh thật (16:9 + magic bytes) chuyển sang bước `POST :id/versions`.
+   */
+  @Post(':id/thumbnail-url')
   @Roles(...FILM_WRITE_ROLES)
-  @UseInterceptors(
-    FileInterceptor('file', { limits: { fileSize: 15 * 1024 * 1024 } }), // ảnh bìa <= 15MB
-  )
-  uploadThumbnail(
+  createThumbnailUploadUrl(
     @CurrentUser() actor: AuthUser,
     @Param('id', ParseIntPipe) id: number,
-    @UploadedFile() file: { buffer: Buffer } | undefined,
+    @Body() dto: CreateThumbnailUploadUrlDto,
   ) {
-    return this.films.saveThumbnail(actor, id, file?.buffer as Buffer)
+    return this.films.createThumbnailUploadUrl(actor, id, dto)
   }
 
   /** Xác nhận tạo bản mới (film_versions) sau khi upload file/ảnh xong. */

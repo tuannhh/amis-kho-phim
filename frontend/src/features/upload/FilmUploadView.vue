@@ -49,12 +49,6 @@ const isEditMode = computed(() => !!editingFilm.value)
 const categoryOptions = computed(() =>
   flattenCategoryTree(categoriesTree.value).map((c) => ({ label: c.name, value: c.id })),
 )
-// Hashtag đã có sẵn trong kho — đổ vào HashtagInput làm gợi ý bấm nhanh (tránh tạo trùng
-// kiểu "MISA" / "misa" do gõ tay mỗi lúc một khác).
-const hashtagSuggestions = computed(() =>
-  Array.from(new Set(store.films.flatMap((f) => f.hashtags))),
-)
-
 const form = reactive({
   title: '',
   // undefined (không phải null) — MSelect không nhận null trong kiểu modelValue
@@ -453,7 +447,7 @@ function onLeaveSaveDraft() {
               <label class="mb-1 block text-[13px] font-medium" style="color: var(--mds-text-primary)">
                 Hashtag
               </label>
-              <HashtagInput v-model="form.hashtags" :suggestions="hashtagSuggestions" />
+              <HashtagInput v-model="form.hashtags" />
             </div>
 
             <div class="sm:col-span-2">
@@ -470,8 +464,13 @@ function onLeaveSaveDraft() {
           class="mt-4 rounded-lg bg-white p-6"
           style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
         >
-          <h3 class="mb-4 text-[16px] font-semibold" style="color: var(--mds-text-primary)">
+          <h3 class="mb-4 flex flex-wrap items-baseline gap-x-2 text-[16px] font-semibold" style="color: var(--mds-text-primary)">
             Tệp phim &amp; liên kết ngoài
+            <!-- Quy tắc nghiệp vụ duy nhất còn phải nói ra (validate chặn theo đúng câu này) —
+                 phần mô tả định dạng đã chuyển vào trong dropzone qua prop `formats`. -->
+            <span class="text-[12px] font-normal" style="color: var(--mds-text-secondary)">
+              Cần ít nhất một nguồn, dùng được nhiều nguồn cùng lúc
+            </span>
           </h3>
 
           <div class="flex flex-col gap-5">
@@ -485,13 +484,10 @@ function onLeaveSaveDraft() {
                 :disabled="submitting"
                 full-width
                 hint-inside
+                formats="MP4/WebM/OGG/MOV/MKV"
                 @select-files="onSelectVideo"
                 @remove="onRemoveVideo"
               />
-              <p class="mt-2 text-[12px]" style="color: var(--mds-text-secondary)">
-                Dùng được cùng lúc nhiều nguồn: vừa tải tệp phim lên (MP4/WebM/OGG/MOV/MKV), vừa dán
-                link YouTube/Vimeo/Google Drive/MISA Drive ở bên dưới. Chỉ cần có ít nhất một nguồn.
-              </p>
             </div>
 
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -540,7 +536,10 @@ function onLeaveSaveDraft() {
               <img v-if="thumbnailUrl" :src="thumbnailUrl" class="h-full w-full object-cover" alt="Xem trước ảnh bìa" />
               <div v-else class="flex h-full w-full flex-col items-center justify-center gap-1" style="color: var(--mds-text-placeholder)">
                 <MIcon name="photo" :size="28" />
+                <!-- Gộp luôn lời giải thích "bỏ trống thì dùng ảnh mặc định" vào đây thay vì
+                     một đoạn văn riêng bên dưới khung tải lên. -->
                 <span class="text-[12px]">Chưa có ảnh bìa</span>
+                <span class="px-2 text-center text-[11px]">Bỏ trống: dùng ảnh mặc định theo chuyên mục</span>
               </div>
             </div>
 
@@ -553,13 +552,10 @@ function onLeaveSaveDraft() {
                 :model-value="thumbnailMeta"
                 :disabled="submitting"
                 paste-image
+                formats="JPG/PNG/WebP, tỷ lệ 16:9"
                 @select-files="onSelectThumbnail"
                 @remove="onRemoveThumbnail"
               />
-              <p class="mt-1 text-[12px]" style="color: var(--mds-text-secondary)">
-                JPG/PNG/WebP, bắt buộc tỷ lệ 16:9 (vd 1280×720, 1920×1080). Bỏ trống thì hệ thống tự
-                dùng ảnh mặc định theo chuyên mục.
-              </p>
             </div>
           </div>
         </div>
