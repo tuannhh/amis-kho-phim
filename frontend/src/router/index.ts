@@ -60,6 +60,17 @@ const router = createRouter({
       meta: { title: 'Chi tiết phim' },
     },
     {
+      // GĐ8-B (ADR-061) — màn "Tài khoản" CHỈ dành cho Compact: gom lại những thứ vốn nằm
+      // trong `MHeaderBar` (thông báo, đổi mật khẩu, đăng xuất) sau khi thanh đó bị ẩn ở
+      // Compact, cộng các điểm đến quản trị không lên được bottom nav. Mọi vai trò đều vào
+      // được — nội dung bên trong tự lọc theo quyền; view tự chuyển về Kho phim nếu cửa sổ
+      // rộng lên quá 600px.
+      path: '/account',
+      name: 'account',
+      component: () => import('@/features/account/AccountMobileView.vue'),
+      meta: { title: 'Tài khoản' },
+    },
+    {
       path: '/upload',
       name: 'upload',
       component: () => import('@/features/upload/FilmUploadView.vue'),

@@ -75,5 +75,12 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    // Chỉ có tác dụng khi `npm run dev` (không ảnh hưởng bản build): đẩy /api và /media sang
+    // stack Docker đang chạy (nginx ở cổng 8180) để dựng/soi giao diện với DỮ LIỆU THẬT mà
+    // không phải build lại image frontend mỗi lần sửa một dòng CSS.
+    proxy: {
+      '/api': { target: process.env.DEV_API_TARGET || 'http://localhost:8180', changeOrigin: true },
+      '/media': { target: process.env.DEV_API_TARGET || 'http://localhost:8180', changeOrigin: true },
+    },
   },
 })

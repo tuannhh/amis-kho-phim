@@ -169,7 +169,7 @@ async function confirmDelete() {
   <section
     v-else-if="film"
     class="flex h-full flex-col overflow-hidden"
-    style="background: var(--mds-bg-canvas, #ecedef)"
+    style="background: var(--mds-bg-page, #ecedef)"
   >
     <MMobileTopBar :title="film.title" :show-more="menuItems.length > 0" @back="goBack">
       <!-- Mọi hành động phụ nằm trong đúng một nút "⋯" — không có nút chữ nào trên header,
@@ -191,65 +191,80 @@ async function confirmDelete() {
     </MMobileTopBar>
 
     <div class="min-h-0 flex-1 overflow-y-auto">
-      <!-- Player full-bleed: sát hai mép màn hình, đúng cảm giác app xem phim -->
-      <div class="bg-white pb-3">
+      <!-- Player full-bleed. NỀN TRẮNG có chủ đích: `VideoPlayer` render khung phim (tự có nền
+           đen) KÈM cụm "Xem từ:" và hàng link nguồn ngay dưới, đều là chữ xám/xanh theo token
+           sáng. Đổ nền đen cho cả cụm sẽ làm hai hàng đó tụt tương phản — khung phim đã tự
+           đen rồi, không cần đen thêm ở ngoài. -->
+      <div class="bg-white pb-2">
         <VideoPlayer compact :title="film.title" :sources="filmSources(film)" :links="film.links" />
       </div>
 
-      <!-- Thông tin phim: xếp dọc gọn -->
-      <div class="flex flex-col gap-3 bg-white px-3 pb-4 pt-1">
-        <h2 class="text-[16px] font-semibold leading-[22px]" style="color: var(--mds-text-primary)">
+      <div class="relative flex flex-col gap-3 bg-white px-4 pb-5 pt-1">
+        <h2 class="text-[18px] font-semibold leading-[25px]" style="color: var(--mds-text)">
           {{ film.title }}
         </h2>
 
         <div class="flex flex-wrap items-center gap-1.5">
           <MTag v-if="film.isNew" color="danger" size="sm">Phim mới</MTag>
           <MTag v-if="film.categoryName" :color="categoryColorFor(film.categoryId)" size="sm">
-            {{ film.categoryName }}
+            <span class="block max-w-[200px] truncate" :title="film.categoryName">
+              {{ film.categoryName }}
+            </span>
           </MTag>
         </div>
 
-        <div v-if="film.hashtags.length" class="flex flex-wrap gap-1.5">
+        <div v-if="film.hashtags.length" class="flex flex-wrap gap-x-2 gap-y-1">
           <span
             v-for="tag in film.hashtags"
             :key="tag"
-            class="text-[12px]"
+            class="text-[12.5px] font-medium"
             style="color: var(--mds-brand-600)"
           >
             #{{ tag }}
           </span>
         </div>
 
+        <!-- Số liệu: 2 ô KPI bo tròn nền tint brand thay cho danh sách gạch đầu dòng — số
+             liệu là thứ người dùng liếc một cái là thấy, không phải thứ để đọc thành dòng. -->
+        <dl class="mt-0.5 grid grid-cols-2 gap-2.5">
+          <div class="rounded-2xl px-3 py-2.5" style="background: var(--mds-brand-50)">
+            <dt class="flex items-center gap-1.5 text-[11.5px]" style="color: var(--mds-text-secondary)">
+              <MIcon name="eye" :size="14" /> Lượt xem
+            </dt>
+            <dd class="mt-0.5 text-[17px] font-semibold tabular-nums" style="color: var(--mds-brand-700)">
+              {{ formatViews(film.viewCount) }}
+            </dd>
+          </div>
+          <div class="rounded-2xl px-3 py-2.5" style="background: var(--mds-brand-50)">
+            <dt class="flex items-center gap-1.5 text-[11.5px]" style="color: var(--mds-text-secondary)">
+              <MIcon name="download" :size="14" /> Lượt tải
+            </dt>
+            <dd class="mt-0.5 text-[17px] font-semibold tabular-nums" style="color: var(--mds-brand-700)">
+              {{ formatViews(film.downloadCount) }}
+            </dd>
+          </div>
+        </dl>
+
         <p
           v-if="film.description"
-          class="whitespace-pre-line text-[13px] leading-[19px]"
-          style="color: var(--mds-text-primary)"
+          class="whitespace-pre-line text-[13.5px] leading-[20px]"
+          style="color: var(--mds-text)"
         >
           {{ film.description }}
         </p>
 
-        <!-- Số liệu dạng danh sách dọc: ở 320px một hàng ngang 4 số liệu chắc chắn vỡ -->
+        <!-- Người đăng / ngày đăng: dòng phụ, tách bằng kẻ nhạt -->
         <dl
-          class="flex flex-col gap-2 border-t pt-3 text-[12px]"
+          class="flex flex-col gap-2 border-t pt-3 text-[12.5px]"
           style="border-color: var(--mds-border-light, #e9eaeb); color: var(--mds-text-secondary)"
         >
           <div class="flex items-center gap-2">
-            <MIcon name="eye" :size="14" />
-            <dt class="sr-only">Lượt xem</dt>
-            <dd>{{ formatViews(film.viewCount) }} lượt xem</dd>
-          </div>
-          <div class="flex items-center gap-2">
-            <MIcon name="download" :size="14" />
-            <dt class="sr-only">Lượt tải</dt>
-            <dd>{{ formatViews(film.downloadCount) }} lượt tải</dd>
-          </div>
-          <div class="flex items-center gap-2">
-            <MIcon name="user" :size="14" />
+            <MIcon name="user" :size="15" />
             <dt class="sr-only">Người đăng</dt>
             <dd class="min-w-0 truncate">{{ film.uploaderName }}</dd>
           </div>
           <div class="flex items-center gap-2">
-            <MIcon name="calendar" :size="14" />
+            <MIcon name="calendar" :size="15" />
             <dt class="sr-only">Ngày đăng</dt>
             <dd>{{ formatVNDate(film.publishedAt) }}</dd>
           </div>
@@ -259,15 +274,31 @@ async function confirmDelete() {
 
     <!-- Hành động chính: full-width, RIÊNG một hàng, không đứng cạnh nút nào khác.
          Chỉ hiện khi phim có bản lưu trữ nội bộ — giống điều kiện của bản desktop. -->
+    <!-- Nút bo tròn hoàn toàn (pill) cao 52px, nền chuyển sắc trong thang brand + bóng màu
+         brand: hành động chính phải "nổi khối" rõ trên màn cảm ứng, không phải một chữ nhật
+         phẳng cao 32px như mật độ desktop. Dùng <button> thẳng thay vì MButton vì MButton
+         ghim radius/chiều cao theo mật độ desktop. -->
     <footer
       v-if="film.links.storage"
-      class="shrink-0 border-t bg-white px-3 pt-3"
-      style="border-color: var(--mds-border-light, #e9eaeb); padding-bottom: max(12px, env(safe-area-inset-bottom))"
+      class="shrink-0 bg-white px-4 pt-3"
+      style="
+        box-shadow: 0 -6px 20px -8px rgba(16, 24, 40, 0.16);
+        padding-bottom: max(14px, env(safe-area-inset-bottom));
+      "
     >
-      <MButton variant="primary" class="min-h-12 w-full whitespace-nowrap" @click="onDownload">
-        <template #icon><MIcon name="download" :size="16" /></template>
+      <button
+        type="button"
+        class="flex w-full items-center justify-center gap-2 rounded-full text-[15px] font-semibold text-white transition-transform active:scale-[0.98]"
+        style="
+          min-height: 52px;
+          background: linear-gradient(160deg, var(--mds-brand-500) 0%, var(--mds-brand-600) 100%);
+          box-shadow: 0 6px 16px -4px color-mix(in srgb, var(--mds-brand-600) 50%, transparent);
+        "
+        @click="onDownload"
+      >
+        <MIcon name="download" :size="18" />
         Tải xuống
-      </MButton>
+      </button>
     </footer>
 
     <!-- Xác nhận xoá — cùng lời văn với bản desktop để hai chỗ không nói hai kiểu -->

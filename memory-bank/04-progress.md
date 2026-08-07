@@ -4,7 +4,16 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
-- **Việc mới nhất: GĐ 8 — MOBILE-NATIVE UI, GIAI ĐOẠN A (Kho phim / Xem phim / Đăng nhập)
+- **Việc mới nhất: GĐ 8 — MOBILE-NATIVE UI, GIAI ĐOẠN B — DỰNG LẠI VỎ MOBILE
+  — ✅ XONG (2026-08-07, Opus 5), CHỈ trên nhánh `phan-quyen-4-cap`.** Nhật ký đầy đủ ở mục
+  "Nhật ký GĐ 8 — Giai đoạn B" ngay dưới; quyết định ở **ADR-061, ADR-062**.
+  **Tổng test: 216 unit BE + 106 tích hợp BE + 82 FE = 404** (không đổi — đợt này là redesign
+  thị giác, không thêm quy tắc nghiệp vụ nào cần test mới).
+  **Việc lớn nhất: ở Compact ẩn HẲN header MDS** (ADR-061) và thay bằng vỏ mobile riêng
+  (hero header brand + bottom nav 4 mục + FAB + màn "Tài khoản" mới).
+  ⚠️ Phần "Giai đoạn B" theo nghĩa CŨ (Thêm/Sửa phim dạng wizard, popup → bottom sheet, các
+  màn quản trị) **VẪN CHƯA LÀM** — đợt này chỉ làm phần VỎ + thẩm mỹ.
+- **Việc trước đó: GĐ 8 — MOBILE-NATIVE UI, GIAI ĐOẠN A (Kho phim / Xem phim / Đăng nhập)
   — ✅ XONG (2026-08-07, Opus 5), CHỈ trên nhánh `phan-quyen-4-cap`.** Nhật ký đầy đủ ở mục
   "Nhật ký GĐ 8 — Giai đoạn A" ngay dưới; quyết định ở **ADR-058 → ADR-060**.
   **Tổng test: 216 unit BE + 106 tích hợp BE + 82 FE = 404** (trước đợt này 391; +13 test FE
@@ -50,6 +59,85 @@
   phụ thuộc ngầm vào múi giờ Node↔MySQL (ADR-037). **Tổng 201 test tự động.**
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
 
+
+## Nhật ký GĐ 8 — Giai đoạn B (Dựng lại VỎ mobile) — 2026-08-07, Opus 5 — ✅ XONG (CHỈ nhánh `phan-quyen-4-cap`)
+
+**Bối cảnh:** Người dùng xem ảnh chụp bản Giai đoạn A và **bác bỏ**: *"nhìn xấu, vẫn giống web
+thu nhỏ chứ chưa giống app native"*, kèm ảnh tham khảo các app AMIS Mobile (Chat, Chấm công,
+OneAI, Bảng tin). Hỏi lại thì có một thông tin **đổi hướng**: trên điện thoại người dùng
+**không bao giờ** mở Kho phim bằng link trình duyệt trần — họ luôn bấm icon Kho phim trong app
+AMIS Mobile. Tức mobile = luôn nhúng. Từ đó chốt ADR-061 (ẩn hẳn header MDS ở Compact).
+
+**Đợt này là REDESIGN THỊ GIÁC + đổi vỏ điều hướng, KHÔNG đụng RBAC/API/schema.** Không thêm
+test mới (không có quy tắc nghiệp vụ mới); 404 test cũ vẫn xanh.
+
+### 1. Ẩn header MDS ở Compact, dựng vỏ mobile riêng (ADR-061)
+- `App.vue`: `showMdsHeader = !isCompact` → `MHeaderBar` biến mất hoàn toàn dưới 600px.
+  Banner Global Inline (mất mạng / có bản mới) **vẫn giữ** ở Compact.
+- Nhánh "không chrome" của GĐ6.1 nay là `isChromeless = isEmbedded() && !isCompact` — nhúng ở
+  Compact KHÔNG còn ẩn sạch điều hướng nữa, vì app mẹ không điều hướng hộ bên trong Kho phim.
+- **File mới `components/mobile/MobileHeroHeader.vue`** — thanh đầu trang màn cấp một: gradient
+  giữa hai bậc brand (`--mds-brand-600` → `700`), bo góc dưới 24px, tiêu đề 22px, chuông thông
+  báo, có slot để nhét ô tìm kiếm/thẻ danh tính vào trong vùng brand.
+- **File mới `components/mobile/MobileBottomNav.vue`** — thanh dưới bo góc trên 20px, bóng hắt
+  lên, mục active có viên thuốc nền `--mds-brand-50` quanh icon, **FAB tròn 56px** nhô lên
+  giữa thanh.
+- **File mới `features/account/AccountMobileView.vue`** + route `/account` (ADR-062).
+
+### 2. Bù các chức năng của header đã ẩn
+- **Tìm kiếm:** ô pill nền trắng ngay trong hero header màn Kho phim, `font-size: 16px` (chống
+  iOS tự zoom), lọc ngay khi gõ, có nút xoá từ khoá.
+- **Thông báo:** chuông trên hero header + mục trong màn Tài khoản; cả hai mở đúng
+  `NotificationsPanel` full-screen sẵn có. `router-view` được gắn `@notifications` để màn con
+  phát ngược lên `App.vue`.
+- **Đổi mật khẩu / Đăng xuất / Quản trị:** màn Tài khoản.
+
+### 3. Nâng cấp thẩm mỹ (phần người dùng chê "xấu")
+- `FilmCardMobile`: bo góc 8px → **18px**; đổi `--mds-shadow-card` (0 0 2px, gần như phẳng)
+  sang bóng khuếch tán 2 lớp; padding 10px → 14px; tiêu đề 14→14.5px semibold; chân thẻ có kẻ
+  nhạt tách số liệu; **sửa lỗi thật**: tên chuyên mục dài tràn ra ngoài viên `MTag` (MTag cao
+  cố định 20px, chữ xuống dòng) → thêm `truncate` trong slot; bỏ tên người đăng ở thẻ kệ.
+- `CategoryShelves` (chỉ nhánh `mobile`): **bỏ hộp trắng bao ngoài** — trước đây là thẻ trắng
+  lồng trong hộp trắng, nhìn bẹt. Tiêu đề kệ đứng thẳng trên nền trang. Desktop giữ nguyên.
+- **Hàng ô chuyên mục** đầu trang Kho phim: lưới 4 cột, ô icon 52px bo 16px, nền tint pha
+  `color-mix` từ ĐÚNG token màu của chuyên mục đó (cùng tông với `MTag` chuyên mục trên thẻ
+  phim) — không có mã màu ngoài `tokens.css`. Icon lấy từ bộ Tabler đã đăng ký
+  (`categoryIconFor` trong `filmTypes.ts`). Có ô "Tất cả" đứng đầu; bấm lại ô đang chọn = bỏ lọc.
+- Nền vùng nội dung: gradient rất nhẹ `--mds-brand-50` → `--mds-bg-page` trong 200px đầu, để
+  chỗ tiếp giáp dưới hero header không cắt phựt từ xanh đậm sang xám.
+- `FilmDetailMobileView`: tiêu đề 16→18px; **2 ô KPI** (Lượt xem / Lượt tải) nền `brand-50` bo
+  16px thay cho danh sách gạch đầu dòng; nút "Tải xuống" thành **pill 52px** gradient brand
+  có bóng màu brand (thay `MButton` 32px vuông).
+- Phân trang: nút Prev/Next thành nút tròn nền `brand-50`.
+
+### 4. Vùng chạm & tràn ngang
+- Kiểm bằng script trên trang thật ở 320px: `scrollWidth === clientWidth === 320` (không tràn
+  ngang), và **không còn phần tử tương tác nào cao dưới 48px**.
+- Chip bộ lọc: viên thuốc vẫn cao 32px cho gọn mắt nhưng nút bao ngoài cao 48px.
+- Nhãn bottom nav rút gọn riêng cho mobile ("Phim tôi quản lý" → "Của tôi") vì ô nhãn chỉ
+  rộng ~63px ở 320px.
+
+### 5. Bằng chứng browser test (dev server 5180, dữ liệu thật qua proxy sang stack Docker 8180)
+- 375px và 320px: header MDS **đã biến mất hoàn toàn**; hero header + bottom nav + FAB đúng.
+- **RBAC 2 tài khoản khác cấp:** `xem@misa.com.vn` (Cấp 1) → đúng 2 tab (Kho phim, Tài khoản),
+  **không có FAB**, màn Tài khoản không có nhóm "Quản trị". `superadmin@misa.com.vn` (Cấp 4) →
+  4 tab + FAB, màn Tài khoản có đủ Báo cáo / Quản lý phòng ban / Quản trị người dùng.
+- Tìm kiếm từ vị trí mới: gõ "oneai" → còn 2 phim, badge bộ lọc = 1, chip từ khoá hiện đúng.
+- Thông báo mở được từ màn Tài khoản (panel full-screen).
+- **Medium/Expanded/Large không đổi:** ở 1280px header MDS + sidebar 7 mục + kệ hộp trắng +
+  thẻ desktop y hệt trước. Kéo 1280 → 375 đổi view ngay, không cần tải lại trang.
+
+### 6. Ghi chú kỹ thuật
+- `vite.config.ts`: thêm `server.proxy` cho `/api` và `/media` trỏ sang `http://localhost:8180`
+  (đổi được bằng biến môi trường `DEV_API_TARGET`). **Chỉ ảnh hưởng `npm run dev`**, không
+  ảnh hưởng bản build — để lần sau soi giao diện với dữ liệu thật không phải build lại image.
+- ⚠️ **Phát hiện lỗi token chưa sửa:** biến `--mds-text-primary` được dùng ở ~20 file nhưng
+  **chưa bao giờ được định nghĩa** (`tokens.css` chỉ có `--mds-text`). Mọi
+  `color: var(--mds-text-primary)` do đó là tham chiếu không hợp lệ → thừa kế từ `body`, mà
+  `style.css` đặt `body { color: var(--mds-text-primary, #1f2937) }` → **toàn app đang dùng
+  #1f2937 thay vì #10141B của MDS**. Code MỚI/SỬA ở đợt này đã dùng đúng `--mds-text`. Chưa
+  sửa toàn cục vì đó là thay đổi màu chữ trên MỌI màn desktop, nằm ngoài phạm vi "không đổi
+  hành vi Medium+" của đợt này.
 
 ## Nhật ký GĐ 8 — Giai đoạn A (Mobile-native UI) — 2026-08-07, Opus 5 — ✅ XONG (CHỈ nhánh `phan-quyen-4-cap`)
 

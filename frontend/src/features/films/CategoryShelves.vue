@@ -74,16 +74,23 @@ const shelves = computed<Shelf[]>(() => {
 </script>
 
 <template>
-  <div v-if="shelves.length" class="flex flex-col gap-4">
+  <div v-if="shelves.length" class="flex flex-col" :class="mobile ? 'gap-5' : 'gap-4'">
+    <!-- Mobile (GĐ8-B): kệ KHÔNG nằm trong hộp trắng. Thẻ phim đã là hộp trắng nổi khối, lồng
+         thêm một hộp trắng nữa chỉ tạo hai lớp trắng chồng nhau nhìn bẹt. Tiêu đề kệ đứng
+         thẳng trên nền trang, thẻ phim "trôi" bên dưới — đúng nhịp của app di động.
+         Desktop giữ NGUYÊN hộp trắng + shadow-card như cũ. -->
     <section
       v-for="shelf in shelves"
       :key="shelf.id"
-      class="rounded-lg bg-white"
-      :class="mobile ? 'px-3 py-3' : 'p-4'"
-      style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
+      :class="mobile ? '' : 'rounded-lg bg-white p-4'"
+      :style="mobile ? '' : 'box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))'"
     >
       <div class="mb-3 flex items-center justify-between gap-2">
-        <h2 class="min-w-0 truncate text-[14px] font-semibold" style="color: var(--mds-text-primary)">
+        <h2
+          class="min-w-0 truncate font-semibold"
+          :class="mobile ? 'text-[15px]' : 'text-[14px]'"
+          style="color: var(--mds-text)"
+        >
           {{ shelf.name }}
           <span class="font-normal" style="color: var(--mds-text-secondary)">
             ({{ shelf.total }} phim)
@@ -104,7 +111,10 @@ const shelves = computed<Shelf[]>(() => {
 
       <!-- Cuộn ngang bị giới hạn trong đúng container này. `pb-1` chừa chỗ cho thanh cuộn để
            nó không đè lên viền thẻ phim. -->
-      <div class="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1">
+      <div
+        class="flex gap-3 overflow-x-auto pb-2"
+        :class="mobile ? '-mx-4 px-4' : '-mx-1 px-1'"
+      >
         <template v-for="film in shelf.films" :key="film.id">
           <FilmCardMobile
             v-if="mobile"

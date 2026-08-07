@@ -15,6 +15,50 @@
 > — là bug bảo mật chung, cần port sang `phan-quyen-3-cap` ở đợt sau. **ADR-051 gắn `[RBAC4]`**
 > vì phụ thuộc `FILM_WRITE_ROLES` của mô hình 4 cấp.
 
+## ADR-062 — Bottom nav 4 mục + FAB; điểm đến dôi ra dồn vào màn "Tài khoản" [GĐ8-B]
+- **Quyết định:** Ở Compact, bottom nav chứa TỐI ĐA 4 mục điều hướng cộng một FAB tròn ở
+  giữa. "Thêm phim" KHÔNG còn là một tab — nó là FAB (hành động, không phải điểm đến), chỉ
+  hiện với người có `canCreateFilm`. Thứ tự mục: Kho phim → Phim tôi quản lý ("Của tôi") →
+  Chuyên mục → Tài khoản, lọc theo đúng `sidebarItems` (RBAC không viết lại). Các điểm đến
+  còn lại của Cấp 3/Cấp 4 (Báo cáo, Quản lý phòng ban, Quản trị người dùng) nằm trong nhóm
+  "Quản trị" của màn Tài khoản.
+- **Lý do:** `mobile-pwa.md` §3 cho phép bottom nav khi có tối đa 5 điểm đến cấp một. Sidebar
+  Cấp 4 có 7 mục — nhồi hết vào thanh dưới thì nhãn bị cắt cụt và vùng chạm co lại dưới
+  chuẩn. Đẩy nhóm quản trị (ít dùng trên điện thoại) vào màn Tài khoản giữ được cả hai.
+- **Ghi chú:** Màn CẤP HAI có nút Back riêng (`film-detail`, `upload`) thì ẩn hẳn bottom nav
+  để đè lên trên như app di động; các màn quản trị ở Compact vẫn là bản desktop KHÔNG có nút
+  back nên PHẢI giữ bottom nav làm lối thoát (xem `SECOND_LEVEL_ROUTES` trong `App.vue`).
+
+## ADR-061 — Ẩn hẳn header MDS ở Compact: ngoại lệ CÓ CHỦ ĐÍCH với header-bar.md [GĐ8-B]
+- **Quyết định:** Ở window size class **Compact (<600px)**, AMIS Kho phim **ẩn hoàn toàn
+  `MHeaderBar`** (thanh brand 9 chấm / tìm kiếm / chuông / avatar). Thay vào đó mỗi màn cấp
+  một tự dựng thanh đầu trang riêng (`components/mobile/MobileHeroHeader.vue`), màn cấp hai
+  dùng `MMobileTopBar` với nút Back. **Chỉ áp dụng cho Compact** — Medium/Expanded/Large giữ
+  NGUYÊN header MDS + sidebar như trước, không đổi một pixel.
+- **Lý do:** Quy chuẩn `references/patterns/header-bar.md` yêu cầu mọi web app MISA độc lập
+  phải có header MDS, và giả định người dùng mở app bằng **link trình duyệt**. Giả định đó
+  KHÔNG đúng với Kho phim trên điện thoại: người dùng xác nhận họ **không bao giờ** mở Kho
+  phim bằng link trần trên mobile, mà luôn bấm icon Kho phim trong app **AMIS Mobile** (y như
+  Chat / Chấm công / OneAI). Tức trên mobile Kho phim **luôn chạy nhúng**, và app mẹ đã có
+  chrome riêng của nó. Chồng thêm một thanh brand thứ hai bên trong không thêm chức năng nào
+  mà chỉ tạo đúng cảm giác "web thu nhỏ" mà người dùng đã bác bỏ ở Giai đoạn A.
+- **Coi `isCompact` ≈ "đang nhúng":** trước đây chỉ `isEmbedded()` (query `?embedded=1`) mới
+  ẩn chrome. Nay điều kiện ẩn header là `isCompact`, vì thực tế mọi ngữ cảnh Compact đều là
+  ngữ cảnh mobile/nhúng. `isEmbedded()` vẫn giữ nguyên tác dụng cho trường hợp nhúng ở kích
+  thước lớn hơn Compact (`isChromeless` trong `App.vue`).
+- **Chức năng của header đã bù ở đâu:**
+  | Chức năng cũ trong header | Bù ở đâu (Compact) |
+  |---|---|
+  | Ô tìm kiếm toàn cục | Ô tìm kiếm ngay trong `FilmListMobileView` (trong hero header) |
+  | Chuông thông báo | Chuông trên hero header màn Kho phim **và** mục "Thông báo" trong màn Tài khoản — cả hai mở đúng `NotificationsPanel` full-screen đã có |
+  | Avatar → Đổi mật khẩu / Đăng xuất | Màn "Tài khoản" (`/account`, tab cuối bottom nav) |
+  | Nút 9 chấm chuyển ứng dụng | **KHÔNG bù** — app mẹ AMIS Mobile đã có |
+  | Cụm AVA / Chat / Trợ giúp / Thiết lập | **KHÔNG bù** — vô nghĩa khi nhúng; Kho phim cũng chưa có tính năng thật đứng sau chúng |
+- **Đánh đổi / rủi ro:** nếu sau này Kho phim thực sự được phát hành như một web app mobile
+  ĐỘC LẬP (mở bằng link, không qua AMIS Mobile), người dùng sẽ mất nút chuyển ứng dụng và
+  cụm tiện ích chung. Khi đó phải xem lại ADR này chứ không vá thêm. Điều kiện kích hoạt việc
+  xem lại: có yêu cầu chia sẻ link Kho phim để mở trực tiếp trên điện thoại.
+
 ## ADR-060 — Vùng chạm 48px xử lý TẠI CHỖ DÙNG, không sửa MButton toàn cục [GĐ8]
 - **Quyết định:** Các control trong màn mobile được nâng lên vùng chạm 48px bằng class
   `min-h-12` đặt tại nơi dùng (`MButton class="min-h-12"`), KHÔNG thêm quy tắc

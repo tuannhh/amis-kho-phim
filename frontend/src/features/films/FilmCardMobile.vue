@@ -86,10 +86,13 @@ function formatViews(n: number) {
 </script>
 
 <template>
+  <!-- GĐ8-B: bo góc 18px + đổ bóng mềm khuếch tán thay cho `--mds-shadow-card` (2px, gần như
+       phẳng). Trên desktop card nằm sát nhau trong lưới nên viền mảnh là đủ; trên điện thoại
+       card là đối tượng chạm chính, cần nổi khối rõ để ngón tay "thấy" ranh giới thẻ. -->
   <article
-    class="relative flex flex-col overflow-hidden rounded-lg bg-white active:bg-[var(--mds-bg-hover-soft,#F2F4F7)]"
-    :class="variant === 'shelf' ? 'w-[168px] shrink-0' : 'w-full'"
-    style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0, 0, 0, 0.1))"
+    class="relative flex flex-col overflow-hidden bg-white transition-transform active:scale-[0.985]"
+    :class="variant === 'shelf' ? 'w-[172px] shrink-0' : 'w-full'"
+    style="border-radius: 18px; box-shadow: 0 4px 16px -4px rgba(16, 24, 40, 0.14), 0 1px 3px rgba(16, 24, 40, 0.05)"
     @click="emit('open', film)"
   >
     <!-- Ảnh bìa 16:9 full-bleed trong thẻ — bố cục quen thuộc của app xem phim trên điện thoại -->
@@ -107,7 +110,7 @@ function formatViews(n: number) {
         loading="lazy"
       />
       <span
-        class="absolute bottom-1.5 right-1.5 rounded px-1.5 py-0.5 text-[11px] font-medium text-white"
+        class="absolute bottom-2 right-2 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white backdrop-blur-sm"
         style="background: rgba(0, 0, 0, 0.55)"
       >
         {{ film.duration }}
@@ -134,47 +137,66 @@ function formatViews(n: number) {
       </div>
     </div>
 
-    <div class="flex flex-1 flex-col gap-1.5 p-2.5">
+    <div class="flex flex-1 flex-col gap-2 p-3.5">
       <h3
-        class="line-clamp-2 text-[14px] font-medium leading-[19px]"
-        style="color: var(--mds-text-primary)"
+        class="line-clamp-2 text-[14.5px] font-semibold leading-[20px]"
+        style="color: var(--mds-text)"
         :title="film.title"
       >
         {{ film.title }}
       </h3>
 
-      <div class="flex flex-wrap items-center gap-1">
+      <div class="flex flex-wrap items-center gap-1.5">
         <!-- Nhãn "Phim mới" do BACKEND quyết định (ADR-052) -->
         <MTag v-if="film.isNew" color="danger" size="sm">Phim mới</MTag>
+        <!-- MTag cao cố định 20px; tên chuyên mục dài (vd "Phim Giới thiệu công ty") sẽ xuống
+             dòng và TRÀN RA NGOÀI viên tag, rõ nhất ở thẻ kệ rộng 172px. Cắt bằng truncate
+             ngay trong slot thay vì sửa MTag toàn cục — desktop có chỗ rộng, không cần cắt. -->
         <MTag v-if="film.categoryName" :color="categoryColorFor(film.categoryId)" size="sm">
-          {{ film.categoryName }}
+          <span
+            class="block truncate"
+            :class="variant === 'shelf' ? 'max-w-[110px]' : 'max-w-[190px]'"
+            :title="film.categoryName"
+          >
+            {{ film.categoryName }}
+          </span>
         </MTag>
       </div>
 
-      <div v-if="film.hashtags.length" class="flex flex-wrap gap-1">
+      <div v-if="film.hashtags.length" class="flex flex-wrap gap-x-2 gap-y-1">
         <span
           v-for="tag in film.hashtags"
           :key="tag"
-          class="text-[12px]"
+          class="text-[12px] font-medium"
           style="color: var(--mds-brand-600)"
         >
           #{{ tag }}
         </span>
       </div>
 
-      <!-- Số liệu: xếp dọc thay vì một hàng ngang để 320px không bao giờ phải ngắt dòng xấu -->
-      <div class="mt-auto flex flex-wrap items-center gap-x-3 gap-y-0.5 pt-0.5 text-[12px]" style="color: var(--mds-text-secondary)">
+      <!-- Chân thẻ: một đường kẻ rất nhạt tách phần số liệu khỏi phần nội dung, cho thẻ có
+           nhịp đọc rõ thay vì một khối chữ đều nhau. -->
+      <div
+        class="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-2.5 text-[12px]"
+        style="border-color: var(--mds-border-light); color: var(--mds-text-secondary)"
+      >
         <span class="flex items-center gap-1">
-          <MIcon name="eye" :size="12" />
+          <MIcon name="eye" :size="13" />
           {{ formatViews(film.viewCount) }}
         </span>
         <span class="flex items-center gap-1">
-          <MIcon name="calendar" :size="12" />
+          <MIcon name="calendar" :size="13" />
           {{ formatVNDate(film.publishedAt) }}
         </span>
-      </div>
-      <div class="truncate text-[12px]" style="color: var(--mds-text-placeholder)">
-        {{ film.uploaderName }}
+        <!-- Người đăng chỉ hiện ở thẻ danh sách (full-width). Thẻ kệ rộng 172px đã kín chỗ với
+             lượt xem + ngày; nhồi thêm tên người đăng chỉ ra một chuỗi bị cắt cụt vô nghĩa. -->
+        <span
+          v-if="variant === 'list'"
+          class="ml-auto min-w-0 max-w-[50%] truncate"
+          style="color: var(--mds-text-placeholder)"
+        >
+          {{ film.uploaderName }}
+        </span>
       </div>
     </div>
   </article>

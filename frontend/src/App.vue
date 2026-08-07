@@ -7,6 +7,7 @@ import MSidebar from '@/components/mds/MSidebar.vue'
 import MToast from '@/components/mds/MToast.vue'
 import MIcon from '@/components/mds/MIcon.vue'
 import MGlobalInline from '@/components/mds/MGlobalInline.vue'
+import MobileBottomNav from '@/components/mobile/MobileBottomNav.vue'
 import { filmSearchQuery } from '@/features/films/searchState'
 import { useAuthStore } from '@/features/auth/authStore'
 import {
@@ -15,6 +16,7 @@ import {
   MANAGED_FILMS_ROLES,
   REPORT_ROLES,
   ROLE_LABEL,
+  canCreateFilm,
 } from '@/features/auth/permissions'
 import { useNotificationsStore } from '@/features/notifications/notificationsStore'
 import NotificationsPanel from '@/features/notifications/NotificationsPanel.vue'
@@ -54,6 +56,35 @@ const isBlank = computed(() => route.meta.blank === true)
 // sidebar/bottom-nav, chỉ render router-view full màn hình — tương tự cách isBlank xử lý
 // trang auth, nhưng áp dụng cho MỌI route khi đang nhúng.
 const isEmbeddedMode = isEmbedded()
+
+/**
+ * GĐ8-B (ADR-061) — Ở COMPACT, ẨN HẲN `MHeaderBar`.
+ *
+ * Đây là NGOẠI LỆ CÓ CHỦ ĐÍCH với quy chuẩn "web app độc lập phải có header MDS"
+ * (`references/patterns/header-bar.md`). Lý do: mô hình phân phối THẬT của Kho phim trên
+ * điện thoại không phải "mở bằng link trình duyệt trần" mà LUÔN là bấm icon Kho phim trong
+ * app AMIS Mobile — tức luôn nhúng, và app mẹ đã có chrome riêng. Dựng thêm một thanh brand
+ * nữa bên trong chỉ tạo cảm giác "web thu nhỏ" chứ không thêm chức năng nào.
+ *
+ * Không áp dụng cho Medium/Expanded/Large: ở các kích thước đó người dùng thực sự mở bằng
+ * trình duyệt, header MDS giữ NGUYÊN như trước.
+ *
+ * Những chức năng của header bị mất được bù ở đâu:
+ *   - Tìm kiếm  → ô tìm kiếm ngay trong `FilmListMobileView` (không còn dựa vào icon header).
+ *   - Thông báo → chuông trên hero header màn Kho phim + mục trong màn "Tài khoản".
+ *   - Avatar (đổi mật khẩu / đăng xuất) → màn "Tài khoản" (tab cuối bottom nav).
+ *   - Nút 9 chấm chuyển ứng dụng + cụm AVA/Chat/Trợ giúp → KHÔNG bù, vô nghĩa khi nhúng
+ *     trong AMIS Mobile (app mẹ đã có).
+ */
+const showMdsHeader = computed(() => !isCompact.value)
+
+/**
+ * Layout "không chrome" của GĐ6.1 chỉ còn dùng khi nhúng ở kích thước KHÔNG phải Compact
+ * (trường hợp hiếm: tablet/WebView rộng). Ở Compact, dù có nhúng hay không, ta vẫn dựng vỏ
+ * mobile riêng (hero header + bottom nav) vì đó mới là thứ người dùng cần để đi lại giữa các
+ * màn của Kho phim — app mẹ không điều hướng hộ bên trong Kho phim.
+ */
+const isChromeless = computed(() => isEmbeddedMode && !isCompact.value)
 
 // Nút back cứng của app mẹ (Android) gọi vào đây qua window.__khoPhimHandleNativeBack.
 // TODO(AMIS Mobile bridge thật): điểm nối window.AMISBridge?.closeWebview?.() bên dưới là
@@ -98,6 +129,68 @@ const activeKey = computed<string>(() => {
   return name || 'films'
 })
 const collapsed = ref(false)
+
+/* ── Bottom nav Compact (GĐ8-B) ───────────────────────────────────────────────
+ * Bottom nav chỉ chứa TỐI ĐA 4 mục + FAB (mobile-pwa.md §3 cho phép <= 5 điểm đến cấp một;
+ * FAB tính là một). Danh sách sidebar đầy đủ của Cấp 3/Cấp 4 dài hơn thế, nên:
+ *   - "Thêm phim" KHÔNG còn là một tab — nó trở thành FAB ở giữa thanh (hành động chính,
+ *     không phải một điểm đến ngang hàng), và chỉ hiện khi có quyền tạo phim.
+ *   - Các điểm đến ít dùng (Báo cáo, Quản lý phòng ban, Quản trị người dùng) chuyển vào màn
+ *     "Tài khoản" thay vì nhồi thêm tab — xem `AccountMobileView.vue`.
+ * Quy tắc quyền dùng lại nguyên `sidebarItems` phía trên, không viết lại điều kiện RBAC.
+ */
+const MOBILE_NAV_ORDER = ['films', 'my-films', 'categories'] as const
+
+/**
+ * Nhãn RÚT GỌN riêng cho bottom nav: ô nhãn chỉ rộng ~80px ở 375px, "Phim tôi quản lý" của
+ * sidebar desktop bị cắt thành "Phim tôi quả...". Nhãn đầy đủ vẫn giữ nguyên ở sidebar.
+ */
+const MOBILE_NAV_LABEL: Record<string, string> = {
+  'my-films': 'Của tôi',
+}
+
+const mobileNavItems = computed(() => {
+  const allowed = new Set(sidebarItems.value.map((it) => it.key))
+  const items = MOBILE_NAV_ORDER.filter((key) => allowed.has(key)).map(
+    (key) => allSidebarItems.find((it) => it.key === key)!,
+  )
+  // "Tài khoản" luôn là mục cuối và luôn có mặt với mọi vai trò.
+  return [...items, { key: 'account', label: 'Tài khoản', icon: 'user' }].map((it) => ({
+    key: it.key,
+    label: MOBILE_NAV_LABEL[it.key] ?? it.label,
+    icon: it.icon,
+  }))
+})
+
+/** FAB "Thêm phim" — cùng điều kiện quyền với nút Thêm của màn danh sách (Cấp 2 trở lên). */
+const showMobileFab = computed(() => canCreateFilm(auth.role))
+
+/**
+ * Màn CẤP HAI ở Compact: đẩy chồng lên trên bottom nav thay vì hiện song song, đúng cách app
+ * di động xử lý trang chi tiết. Điều kiện để có mặt trong danh sách này: màn đó PHẢI tự có
+ * nút Back (`MMobileTopBar`), nếu không người dùng sẽ mắc kẹt không còn đường đi.
+ * Thoả điều kiện: `film-detail` (MMobileTopBar) và `upload` (đã có thanh tiêu đề kèm nút back
+ * riêng). Với `upload` còn một lý do nữa: FAB "Thêm phim" hiện đè lên chính màn Thêm phim là
+ * vô nghĩa, và bottom nav che mất footer Huỷ/Xuất bản.
+ *
+ * KHÔNG đưa vào đây các màn quản trị (báo cáo, phòng ban, người dùng): chúng vẫn là bản
+ * desktop ở Compact, không có nút back nào, nên bottom nav là lối thoát duy nhất — GĐ8 Giai
+ * đoạn B sẽ dựng lại chúng rồi mới tính tiếp.
+ */
+const SECOND_LEVEL_ROUTES = new Set(['film-detail', 'upload'])
+const showBottomNav = computed(
+  () => isCompact.value && !SECOND_LEVEL_ROUTES.has(route.name as string),
+)
+
+/**
+ * Mục nào sáng ở bottom nav. Các route quản trị mở TỪ màn Tài khoản nên vẫn tô sáng "Tài
+ * khoản" — nếu không, người dùng đứng ở màn Báo cáo sẽ thấy cả thanh không mục nào sáng.
+ */
+const mobileActiveKey = computed(() => {
+  const key = activeKey.value
+  if (key === 'account' || key.startsWith('admin-')) return 'account'
+  return key
+})
 
 function onNavigate(key: string) {
   router.push({ name: key })
@@ -166,8 +259,9 @@ function offlineRetry() {
     <p class="text-[13px]" style="color: var(--mds-text-secondary)">Đang xác thực...</p>
   </div>
 
-  <!-- Layout embedded: full màn hình, không header/sidebar/bottom-nav (app mẹ tự có chrome) -->
-  <template v-else-if="isEmbeddedMode">
+  <!-- Layout embedded ở kích thước KHÔNG phải Compact: full màn hình, không header/sidebar/
+       bottom-nav (app mẹ tự có chrome). Ở Compact dùng vỏ mobile bên dưới — xem isChromeless. -->
+  <template v-else-if="isChromeless">
     <router-view />
     <MToast />
   </template>
@@ -175,11 +269,11 @@ function offlineRetry() {
   <!-- Layout auth: full-page -->
   <router-view v-else-if="isBlank" />
 
-  <!-- Layout app: header + sidebar -->
+  <!-- Layout app: header + sidebar (Medium+) · hero header từng màn + bottom nav (Compact) -->
   <div
     v-else
     class="flex flex-col"
-    style="background: var(--mds-bg-canvas, #ECEDEF); min-height: 100dvh; height: 100dvh"
+    style="background: var(--mds-bg-page, #ECEDEF); min-height: 100dvh; height: 100dvh"
   >
     <div ref="topBarEl" class="shrink-0" style="padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right)">
       <!-- Global Inline: mất mạng (mobile-pwa.md §7 "Offline") -->
@@ -199,7 +293,9 @@ function offlineRetry() {
            Thiết lập — bấm tạm thời chưa có hành động (chờ tính năng tương ứng). Riêng "Tính năng
            mới" (loa) ẩn hẳn vì Kho phim chưa có nội dung "tính năng mới" nào để hiển thị — đứng
            sát AVA mà không có nội dung thật gây rối mắt hơn là hữu ích. -->
+      <!-- ADR-061: ẩn hẳn ở Compact (vỏ mobile riêng thay thế), giữ NGUYÊN từ Medium trở lên. -->
       <MHeaderBar
+        v-if="showMdsHeader"
         variant="brand"
         app-name="AMIS Kho phim"
         company-name="MISA"
@@ -263,33 +359,23 @@ function offlineRetry() {
         v-model:collapsed="collapsed"
         @update:model-value="onNavigate"
       />
-      <main class="min-w-0 flex-1 overflow-hidden" :style="isCompact ? { paddingBottom: 'calc(56px + env(safe-area-inset-bottom))' } : {}">
-        <router-view />
+      <main class="min-w-0 flex-1 overflow-hidden" :style="showBottomNav ? { paddingBottom: 'calc(66px + env(safe-area-inset-bottom))' } : {}">
+        <!-- Ở Compact các màn cấp một tự dựng thanh đầu trang và tự phát `notifications`
+             (chuông nằm trên hero header của màn, không còn trên header MDS). -->
+        <router-view @notifications="toggleNotificationsPanel" />
       </main>
     </div>
 
-    <!-- Bottom navigation — Compact only. Icon MDS + nhãn theo đúng mục 3 "Điều hướng
-         và app shell": mỗi mục có icon + label, không dùng dãy icon không nhãn. -->
-    <nav
-      v-if="isCompact"
-      class="fixed inset-x-0 bottom-0 z-30 flex shrink-0 items-stretch border-t bg-white"
-      style="border-color: var(--mds-border-light, #E9EAEB); padding-bottom: env(safe-area-inset-bottom)"
-      aria-label="Điều hướng chính"
-    >
-      <button
-        v-for="item in sidebarItems"
-        :key="item.key"
-        type="button"
-        class="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px]"
-        style="min-height: 56px"
-        :class="activeKey === item.key ? 'font-semibold text-[var(--mds-brand-600)]' : 'text-[var(--mds-text-secondary)]'"
-        :aria-current="activeKey === item.key ? 'page' : undefined"
-        @click="onNavigate(item.key)"
-      >
-        <MIcon :name="item.icon" :size="20" />
-        <span class="max-w-full truncate px-1">{{ item.label }}</span>
-      </button>
-    </nav>
+    <!-- Bottom navigation — Compact only. 4 mục + FAB "Thêm phim" ở giữa (xem MobileBottomNav). -->
+    <MobileBottomNav
+      v-if="showBottomNav"
+      :items="mobileNavItems"
+      :active="mobileActiveKey"
+      :show-fab="showMobileFab"
+      fab-label="Thêm phim"
+      @select="onNavigate"
+      @fab="onNavigate('upload')"
+    />
 
     <MToast />
   </div>

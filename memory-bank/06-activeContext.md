@@ -5,7 +5,35 @@
 
 ## Tóm tắt nhanh (đọc 30 giây là hiểu hết)
 
-### ✅ VỪA XONG: GĐ 8 — MOBILE-NATIVE UI, GIAI ĐOẠN A (2026-08-07, Opus 5)
+### ✅ VỪA XONG: GĐ 8 — GIAI ĐOẠN B: DỰNG LẠI VỎ MOBILE (2026-08-07, Opus 5)
+
+**CHỈ trên nhánh `phan-quyen-4-cap`.** Chi tiết + bằng chứng browser test ở `04-progress.md`
+mục "Nhật ký GĐ 8 — Giai đoạn B"; quyết định ở **ADR-061, ADR-062**.
+**Test: 404 (216+106+82) — không đổi, đợt này là redesign thị giác.**
+
+Người dùng đã **bác bỏ bản Giai đoạn A** ("nhìn xấu, vẫn giống web thu nhỏ"). Năm điều quan
+trọng nhất cần nhớ:
+
+- **Ở Compact (<600px), header MDS `MHeaderBar` bị ẨN HOÀN TOÀN (ADR-061).** Đây là ngoại lệ
+  CÓ CHỦ ĐÍCH với `header-bar.md`, lý do: trên điện thoại Kho phim **luôn chạy nhúng trong app
+  AMIS Mobile**, không bao giờ mở bằng link trần. **Đừng "khôi phục" header cho đúng quy chuẩn
+  — đọc ADR-061 trước.** Medium/Expanded/Large giữ nguyên header MDS, không đổi một pixel.
+- **Vỏ mobile mới gồm 3 file trong `components/mobile/` + `features/account/`:**
+  `MobileHeroHeader.vue` (thanh brand bo góc dưới, có slot), `MobileBottomNav.vue` (4 mục +
+  FAB tròn giữa), `AccountMobileView.vue` (route `/account`, chỉ Compact — tự chuyển về
+  `/films` nếu cửa sổ rộng lên).
+- **"Thêm phim" KHÔNG còn là tab** — nó là FAB giữa bottom nav (ADR-062). Các điểm đến quản
+  trị của Cấp 3/Cấp 4 nằm trong nhóm "Quản trị" của màn Tài khoản, không nhồi vào thanh dưới.
+- **Màn cấp hai có nút Back riêng thì ẩn bottom nav** (`SECOND_LEVEL_ROUTES` trong `App.vue`:
+  hiện là `film-detail`, `upload`). **Đừng thêm màn quản trị vào set này** — chúng vẫn là bản
+  desktop không có nút back, bottom nav là lối thoát duy nhất.
+- ⚠️ **Lỗi token chưa sửa:** `--mds-text-primary` dùng ở ~20 file nhưng **chưa hề được định
+  nghĩa** → cả app đang hiển thị chữ #1f2937 thay vì #10141B của MDS. Code mới đã dùng đúng
+  `--mds-text`. Sửa toàn cục sẽ đổi màu chữ mọi màn desktop → để riêng một đợt.
+
+---
+
+### ✅ TRƯỚC ĐÓ: GĐ 8 — MOBILE-NATIVE UI, GIAI ĐOẠN A (2026-08-07, Opus 5)
 
 **CHỈ trên nhánh `phan-quyen-4-cap`.** Chi tiết + bằng chứng browser test ở `04-progress.md`
 mục "Nhật ký GĐ 8 — Giai đoạn A"; quyết định ở **ADR-058 → ADR-060**.
