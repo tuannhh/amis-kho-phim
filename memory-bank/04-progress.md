@@ -4,7 +4,13 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
-- **Việc mới nhất: ĐỢT 2 SỬA THEO TEST THỰC TẾ (5 việc: 1, 2, 3, 4a, 7) — ✅ XONG
+- **Việc mới nhất: ĐỢT 2 — 10 VIỆC (5, 6, 8, 9, 10, 11, 12, 13, 14, 15) — ✅ XONG 9/10,
+  hoãn có chủ đích 1 phần (2026-08-07, Opus 5), CHỈ trên nhánh `phan-quyen-4-cap`.**
+  Nhật ký đầy đủ ở mục "Nhật ký ĐỢT 2 — 10 việc" ngay dưới; quyết định ở **ADR-052 → ADR-057**.
+  **Tổng test: 216 unit BE + 106 tích hợp BE + 69 FE = 391** (trước đợt này 330) + 2 script
+  kiểm thử đồng thời. ⚠️ **Phần DUY NHẤT hoãn: multipart-resume cho video (việc 15 mục 3)** —
+  xem đề xuất cụ thể ở cuối nhật ký, KHÔNG được coi là đã làm.
+- **Việc trước đó: ĐỢT 2 SỬA THEO TEST THỰC TẾ (5 việc: 1, 2, 3, 4a, 7) — ✅ XONG
   (2026-08-06, Opus 5), CHỈ trên nhánh `phan-quyen-4-cap`.** Trong đó **3 bug thật đã sửa**
   (rò nháp giữa 2 tài khoản, quyền chuyên mục quá chặt, layout/nội dung khung tải phim),
   **1 đổi nghiệp vụ** (cho dùng nhiều nguồn cùng lúc + đổi ưu tiên phát) và **1 việc xác định
@@ -36,6 +42,168 @@
   đắn dữ liệu thật** mà unit test không thể thấy: race condition ở `recordView` (ADR-036) và
   phụ thuộc ngầm vào múi giờ Node↔MySQL (ADR-037). **Tổng 201 test tự động.**
 - Xem `06-activeContext.md` để biết chi tiết cần làm tiếp khi mở lại phiên.
+
+
+## Nhật ký ĐỢT 2 — 10 việc (2026-08-07, Opus 5) — nhánh `phan-quyen-4-cap`
+
+> Người dùng giao 10 việc theo thứ tự ưu tiên. **9 việc xong trọn vẹn, 1 phần hoãn có chủ
+> đích** (multipart-resume video — mục 3 của việc 15). Mọi việc đều đã kiểm trên trình duyệt
+> thật với đúng cấp tài khoản tương ứng.
+
+### Việc 11 — Gợi ý hashtag sai (✅)
+- `HashtagInput` bỏ prop `suggestions` (vốn nhận `store.films.flatMap(f => f.hashtags)`),
+  thay bằng prop `examples` mặc định `['MISA', 'Agentic AI']` — **ví dụ TĨNH**, không lọc theo
+  phần đang gõ (ví dụ minh hoạ định dạng thì phải luôn nhìn thấy), chỉ ẩn cái đã chọn rồi.
+- **Kiểm:** trình duyệt — form Thêm phim hiện đúng "Gợi ý: #MISA #Agentic AI"; ở phim đã có
+  hashtag #MISA thì chỉ còn "#Agentic AI".
+
+### Việc 12 — Gộp text định dạng vào trong khung dropzone (✅)
+- `MUpload` thêm prop `formats`, ghép cùng dòng với chú thích dung lượng sẵn có (đúng pattern
+  đang dùng, không bịa cách mới). Xoá 2 đoạn văn ngoài khung.
+- Khung phim: *"Kéo/thả tệp vào đây hoặc bấm vào đây / MP4/WebM/OGG/MOV/MKV · Dung lượng tối đa
+  2048MB"* (trong khung). Khung ảnh bìa: *"Tải ảnh bìa — JPG/PNG/WebP, tỷ lệ 16:9 · Dung lượng
+  tối đa 15MB"* (cạnh label). Quy tắc "cần ít nhất một nguồn" rút thành caption cạnh tiêu đề
+  khối; "bỏ trống dùng ảnh mặc định" gộp vào ô xem trước ảnh bìa.
+- **Kiểm:** trình duyệt — ảnh chụp form Thêm phim, form ngắn hơn 2 đoạn văn.
+
+### Việc 9 — Trùng tên phim: chỉ bản mới nhất giữ nhãn "Phim mới" (✅) — **ADR-052**
+- Tính năng MỚI (đã đọc lại: chưa từng có cơ chế nào xử lý trùng tên; luồng "trùng tiêu đề →
+  cập nhật bản mới" của GĐ5 là versioning cho CÙNG một phim, khác hẳn).
+- Thêm trường tính toán `PublicFilm.isNew` ở backend. **Không thêm cột trạng thái** — lý do và
+  các phương án đã loại ở ADR-052. `list()` tốn 0 truy vấn thêm; `getBySlug()` tốn 1 truy vấn
+  dựa index `idx_films_title` (migration `AddDownloadCountAndTitleIndex`).
+- **Kiểm trên hệ thống thật:** tạo phim `"  PHIM GIỚI THIỆU MISA  "` trùng với
+  `"Phim giới thiệu MISA"` (khác hoa/thường + khoảng trắng thừa, cùng ngày đăng) → phim cũ
+  `isNew` chuyển `true → false` ngay, phim mới `true`; phim khác tên giữ nguyên nhãn. Xoá phim
+  mới → phim cũ **nhận lại nhãn** (đúng thiết kế). Kiểm cả ở danh sách VÀ trang chi tiết.
+- 11 test mới (7 unit + 4 e2e).
+
+### Việc 10 — Sửa/Xoá bằng popup thay vì chuyển trang (✅)
+- Tách `FilmForm.vue` khỏi `FilmUploadView.vue` (view nay chỉ còn vỏ trang) → dùng lại được ở
+  CẢ trang `/upload?edit=` (giữ link cũ) LẪN trong dialog. Prop `embedded` quyết định khác
+  biệt duy nhất: lưu xong thì `emit('saved')` thay vì điều hướng, và KHÔNG đăng ký cảnh báo
+  rời trang (tránh chồng hai dialog — MDS cấm).
+- `FilmManageDialogs.vue` gom popup Sửa + popup xác nhận Xoá, dùng chung cho Kho phim và
+  Phim tôi quản lý. Xoá theo đúng `communication.md` §3: tiêu đề *"Xoá vĩnh viễn phim này?"*,
+  mô tả nêu hệ quả, nút [Huỷ] [Xoá(danger)].
+- **Sửa một lỗi UX tự phát hiện khi kiểm trên trình duyệt:** ban đầu nút Lưu của form nằm lọt
+  trong vùng cuộn của dialog còn dialog lại hiện nút "Đóng" mặc định. Đã chuyển Lưu/Huỷ lên
+  footer của DIALOG (prop `hideFooter` + `defineExpose`) — đúng quy tắc MDS "form Thêm/Sửa ghim
+  Lưu/Hủy ở cuối".
+- **Kiểm:** trình duyệt — mở popup Sửa từ thẻ phim, lưu thành công (toast + ngày đăng cập nhật
+  trong danh sách nền); mở popup Xoá, xoá thật, danh sách tự tải lại.
+
+### Việc 6 — Màn "Phim tôi quản lý" (✅) — **ADR-057**
+- BE: `GET /films?scope=managed` (query param, không tạo route mới vì `/films/managed` sẽ đụng
+  `GET /films/:slug`). Phạm vi TRÙNG KHỚP `assertCanManage`.
+- FE: `ManagedFilmsView.vue` + route `/my-films` + mục sidebar (icon `list`), Cấp 2 trở lên.
+  Có lọc chuyên mục, sắp xếp, và tổng số phim/lượt xem/lượt tải trên đầu.
+- **Kiểm trên trình duyệt:** `superadmin@` thấy 8 phim (toàn bộ); `tp1@` thấy đúng 5 phim, tất
+  cả do Cấp 2 phòng Truyền thông tạo, không lọt phim phòng khác hay phim của Cấp 4.
+- 8 test unit + 5 e2e; trong đó có ca "mọi phim trong danh sách đều THỰC SỰ sửa được" (chứng
+  minh danh sách không rộng hơn quyền thật).
+
+### Việc 13 — Filter chuyên mục hiện cả cha và con (✅)
+- `MSelect` thêm hỗ trợ `depth` (thụt lề + dấu `└`), áp dụng cho MỌI role. Chuyên mục cha VẪN
+  chọn được (không biến thành tiêu đề nhóm chết) — chọn cha = xem cả nhánh.
+- Dropdown nay dựng từ CÂY chuyên mục thật, lọc theo `categoryId` + con cháu, thay vì so khớp
+  chuỗi `categoryName` như trước (cách cũ còn bỏ sót chuyên mục chưa có phim).
+- **Kiểm:** trình duyệt — dropdown hiện `Phim Giới thiệu Sản phẩm KH Doanh nghiệp` rồi
+  `└ AMIS OneAI` thụt lề; chọn chuyên mục CHA ra đúng 2 phim vốn nằm trong chuyên mục CON.
+- 11 test FE mới cho `categoryOptions` / `categoryIdsWithDescendants` (cây 3 cấp).
+
+### Việc 14 — Kệ ngang theo chuyên mục ở Kho phim (✅) — **ADR-056**
+- `CategoryShelves.vue`: mỗi chuyên mục CHA một kệ (gồm phim của các chuyên mục con), tối đa
+  12 phim/kệ, có "Xem tất cả". Cuộn ngang nằm TRONG container của kệ, không tràn trang.
+- Chỉ hiện khi chưa lọc gì; chọn lọc → về lưới như cũ (lý do ở ADR-056).
+- Chỉ học Ý TƯỞNG bố cục; không lấy nội dung/thương hiệu của bên nào.
+- **Kiểm:** trình duyệt — 2 kệ ("Phim Giới thiệu công ty" 6 phim, "Phim Giới thiệu Sản phẩm KH
+  Doanh nghiệp" 2 phim); bấm "Xem tất cả" → kệ ẩn, lưới lọc đúng chuyên mục.
+
+### Việc 5 — Báo cáo theo phòng ban cho Cấp 3 + Cấp 4 (✅) — **ADR-053**
+- BE: `/reports` mở cho `dept_manager`; phạm vi ép cứng theo `department_id` đọc từ DB.
+  Thêm lọc chuyên mục (gồm con cháu), khoảng lượt xem, sắp xếp; trả 3 nhóm dữ liệu
+  (`totals` / `summary` / `films`). CSV giữ nguyên, thêm cột **Ngày đăng** và **Lượt tải**.
+- FE: `ReportsView` dựng lại theo 3 tab. Cấp 3 KHÔNG thấy ô chọn phòng ban; đầu trang ghi rõ
+  "Phạm vi: Phòng …".
+- **Kiểm trên trình duyệt + API:**
+  - `tp1@` → header "Phạm vi: Phòng Truyền thông", 5 phim / 14 lượt xem / 2 nhân viên (khớp
+    chính xác dữ liệu phòng 1 trong DB); tab "Theo nhân viên" ra nv1 4 phim/13 xem, nv2 1/1.
+  - `tp2@` → "Phạm vi: Phòng Kinh doanh", 0 phim (không thấy gì của phòng Truyền thông); sau
+    khi tạo 1 phim thì thấy đúng 1 phim của mình.
+  - `tp1@` gửi thẳng `?departmentId=2` → server vẫn trả phòng 1, 5 phim, KHÔNG có phim Kinh doanh.
+  - `superadmin@` thấy cả hai phòng; lọc `departmentId` thì chỉ thấy phòng đã chọn.
+  - CSV của Trưởng phòng cũng bị giới hạn đúng phạm vi (kiểm bằng e2e).
+- 12 test unit + 7 e2e.
+
+### Việc 8 — Nút Tải xuống + đếm lượt tải (✅) — **ADR-054**
+- Migration thêm `films.download_count`; `POST /films/:id/download` (không `@Roles` — Cấp 1
+  cũng tải được). Không dedupe, không khoá dòng (lý do ở ADR-054).
+- FE: nút "Tải xuống" CHỈ hiện khi `film.links.storage`; gọi API đếm song song, không chặn
+  việc tải file. Hiện thêm "N lượt tải" cạnh lượt xem. Nạp vào báo cáo việc 5.
+- **Kiểm trên trình duyệt:** phim có bản nội bộ → có nút, href `/media/<key>` kèm `download`;
+  phim chỉ có YouTube → **không có nút** (đúng yêu cầu tuyệt đối). Bấm 3 lần → `downloadCount`
+  = 3 (không bị dedupe), số hiện đúng trên giao diện và trong báo cáo.
+- 4 test unit + 4 e2e.
+
+### Việc 15 — Chịu tải nhiều người upload cùng lúc (✅ mục 1, 2, 5 · ⛔ hoãn mục 3)
+**Mục 1 — điểm nghẽn thật, đã vá (ADR-055).** Kiểm tra code xác nhận đúng nghi ngờ:
+`FileInterceptor('file', …)` không khai `storage` → multer dùng `memoryStorage`, buffer TOÀN
+BỘ ảnh trong RAM Node. Đã chọn **hướng (b)**: ảnh bìa chuyển sang presigned PUT thẳng lên
+MinIO, **gỡ hẳn endpoint multipart** (giữ lại thì điểm nghẽn vẫn còn). Kiểm ảnh 16:9 + magic
+bytes chuyển sang `confirmVersion`, chỉ đọc **64KB đầu** của object — không hạ thấp mức kiểm
+tra nào. Đã kiểm: ảnh sai tỷ lệ, file giả mạo ảnh, content-type sai đều bị TỪ CHỐI và object
+bị xoá khỏi MinIO (trả 404).
+
+**Mục 2 — video: xác nhận bằng đọc code, KHÔNG giả định.** `createUploadUrl` chỉ validate MIME
++ size rồi gọi `getSignedUrl`; backend không hề chạm byte video nào (FE `putToStorage` PUT
+thẳng lên MinIO). Kiến trúc đã đúng, không sửa gì.
+
+**Mục 5 — backtest tải đồng thời thật.** Script mới
+`test/concurrency/upload.concurrency.mjs` (`npm run test:concurrency:upload`), 30 request
+song song. **Số liệu đo được:**
+| Kịch bản | Thành công | p50 | p95 | max |
+|---|---|---|---|---|
+| Xin presigned URL **video** | 30/30 | 54ms | **84ms** | 85ms |
+| Xin presigned URL **ảnh bìa** | 30/30 | 53ms | **81ms** | 82ms |
+- Mỗi request nhận một key RIÊNG BIỆT (30 key khác nhau) — không đụng key.
+- `/api/health` ngay sau đợt tải: 200 trong **2ms** (không treo).
+- **RAM tiến trình backend: 50,7 MiB → 61,0 MiB** (đo bằng `docker stats`). Mức tăng ~10MiB là
+  heap JS bình thường, KHÔNG tỷ lệ với kích thước file — đúng như kỳ vọng khi không byte nào
+  đi qua Node. Để so sánh: với luồng cũ, 30 người upload ảnh 15MB cùng lúc sẽ là ~450MB nằm
+  trong RAM (đây là phép tính từ giới hạn cấu hình, không phải số đo — luồng cũ đã bị gỡ).
+- Chạy lại `npm run test:concurrency` (recordView) để chắc không hồi quy: vẫn ĐẠT.
+
+**Mục 3 — multipart-resume cho video: ⛔ CHƯA LÀM TRONG ĐỢT NÀY, nói rõ chứ không im lặng.**
+- **Hiện trạng thật cần biết:** presigned `PUT` đơn lẻ **KHÔNG resume được** theo từng byte.
+  Mất mạng / đóng trình duyệt / backend restart giữa chừng ⇒ **phải upload lại từ đầu**. Với
+  file tới 2GB đây là hạn chế đáng kể trên mạng không ổn định.
+- **Vì sao hoãn:** đây là hạng mục lớn (5 endpoint mới, uploader chia phần ở FE, lưu tiến
+  trình localStorage, dọn upload dở, CORS phải expose `ETag`, bộ test riêng). Làm vội trong
+  cùng đợt với 9 việc trên có rủi ro thật là để lại luồng upload nửa vời — mà upload là đường
+  đi của dữ liệu lớn, hỏng ở đây tốn kém hơn nhiều so với việc chờ thêm một đợt.
+- **Đề xuất cho đợt sau (đã khảo sát, sẵn sàng làm):**
+  1. BE: `POST /films/:id/multipart` (`CreateMultipartUploadCommand` → trả `uploadId` + `key`),
+     `POST /films/:id/multipart/:uploadId/part-url` (ký `UploadPartCommand` cho từng
+     `partNumber`), `GET /films/:id/multipart/:uploadId/parts` (`ListPartsCommand`),
+     `POST …/complete` (`CompleteMultipartUploadCommand`), `DELETE …` (`AbortMultipartUpload`).
+     `@aws-sdk/client-s3` đã có sẵn, MinIO tương thích S3 multipart.
+  2. FE: chia phần 8–16MB tuỳ kích thước; lưu `{uploadId, key, parts:[{n,ETag}]}` vào
+     localStorage theo khoá `userId + tên + size + lastModified` để nhận đúng phiên cũ khi
+     người dùng chọn LẠI ĐÚNG file đó; khi khớp thì gọi `ListParts` và chỉ upload phần còn thiếu.
+  3. MinIO CORS phải `ExposeHeaders: ["ETag"]`, nếu không FE không đọc được ETag từng phần.
+  4. Cần job dọn `AbortIncompleteMultipartUpload` (lifecycle rule) để phần dở không tính dung lượng.
+  5. Ảnh bìa (≤15MB) **không cần** multipart — upload lại từ đầu khi lỗi là chấp nhận được.
+
+### Tổng kết test đợt 2
+| Bộ | Trước | Sau |
+|---|---|---|
+| Unit BE (Jest) | 182 | **216** |
+| Tích hợp BE (MySQL thật) | 85 | **106** |
+| FE (Vitest) | 63 | **69** |
+| **Tổng** | **330** | **391** |
+- Thêm script `npm run test:concurrency:upload`; script `test:concurrency` cũ vẫn ĐẠT.
+- Build BE (`nest build`) và FE (`vue-tsc` + `vite build`) đều sạch.
 
 ## Nhật ký ĐỢT 2 SỬA THEO TEST THỰC TẾ (việc 1, 2, 3, 4a, 7) — 2026-08-06 — ✅ XONG (CHỈ nhánh `phan-quyen-4-cap`)
 

@@ -15,6 +15,122 @@
 > — là bug bảo mật chung, cần port sang `phan-quyen-3-cap` ở đợt sau. **ADR-051 gắn `[RBAC4]`**
 > vì phụ thuộc `FILM_WRITE_ROLES` của mô hình 4 cấp.
 
+## ADR-057 — Cấp 4 VẪN có mục "Phim tôi quản lý" (dù trùng nội dung Kho phim) [Đợt 2 · việc 6]
+- **Quyết định:** Mục sidebar "Phim tôi quản lý" (`/my-films`) hiện với Cấp 2 trở lên, gồm cả
+  Cấp 4 — với Cấp 4 nó liệt kê TOÀN BỘ kho phim, tức trùng dữ liệu với màn "Kho phim".
+- **Lý do:** Cân nhắc phương án ẩn với Cấp 4 cho gọn, nhưng bỏ đi thì bốn cấp có bốn chỗ thao
+  tác quản lý phim khác nhau — người hướng dẫn sử dụng phải giải thích "cấp 2/3 thì vào Phim
+  tôi quản lý, cấp 4 thì vào Kho phim". Giữ lại thì một câu mô tả dùng chung cho mọi cấp.
+  Hai màn KHÁC MỤC ĐÍCH dù Cấp 4 thấy cùng tập dữ liệu: "Kho phim" là màn DUYỆT (có kệ theo
+  chuyên mục, lọc trưng bày, phân trang), "Phim tôi quản lý" là màn THAO TÁC (danh sách gọn,
+  tổng lượt xem/tải ngay trên đầu, sửa/xoá nhanh).
+- **Đánh đổi:** thêm một mục sidebar cho Cấp 4 mà họ có thể không dùng. Chấp nhận được vì
+  sidebar hiện mới 7 mục, chưa tới ngưỡng phải gộp.
+- **Chốt an toàn:** phạm vi do BACKEND quyết định (`GET /films?scope=managed`), FE còn một lớp
+  nữa — thẻ phim nào `canManageFilm` trả false thì KHÔNG hiện nút Sửa/Xoá, chỉ xem.
+
+## ADR-056 — Kệ theo chuyên mục chỉ hiện khi CHƯA lọc gì [Đợt 2 · việc 14]
+- **Quyết định:** Trang Kho phim hiện "kệ ngang theo chuyên mục cha" ở TRÊN CÙNG, nhưng chỉ khi
+  người dùng chưa chọn chuyên mục, chưa bật "chỉ phim mới" và chưa gõ từ khoá tìm kiếm. Chọn
+  bất kỳ bộ lọc nào → kệ biến mất, chỉ còn lưới phim đã lọc như trước. Bấm "Xem tất cả" trên
+  một kệ = chọn đúng chuyên mục cha đó ở bộ lọc (không điều hướng sang route khác).
+- **Lý do:** Kệ là chế độ DUYỆT khi chưa biết mình muốn gì; lọc là chế độ TÌM khi đã biết. Để
+  cả hai cùng lúc thì màn hình có hai câu trả lời khác nhau cho cùng một câu hỏi "phim nào
+  đang được hiển thị", và người dùng phải cuộn qua vài kệ mới tới kết quả lọc của mình.
+  Dùng lại chính bộ lọc sẵn có cho "Xem tất cả" (thay vì tạo route `/categories/:id`) giữ
+  đúng một nguồn trạng thái, và người dùng bỏ lọc là quay lại kệ ngay.
+- **Đánh đổi:** không chia sẻ được link tới "trang của một chuyên mục" vì trạng thái lọc không
+  nằm trên URL. Đây là hạn chế có sẵn của bộ lọc hiện tại, không phải do việc này sinh ra;
+  nếu sau cần chia sẻ link thì đưa bộ lọc lên query param một lượt cho cả trang.
+- **Kỹ thuật:** mỗi kệ tối đa 12 phim, cuộn ngang nằm TRONG container của kệ (`overflow-x-auto`),
+  không để tràn ngang cả trang — nguyên tắc bắt buộc từ GĐ6 (`mobile-pwa.md`). Chuyên mục chưa
+  có phim nào thì không dựng kệ rỗng.
+
+## ADR-055 — Ảnh bìa chuyển sang presigned PUT; gỡ hẳn đường multipart buffer RAM [Đợt 2 · việc 15]
+- **Bối cảnh (đo được, không phải phỏng đoán):** `POST /films/:id/thumbnail` dùng
+  `FileInterceptor` KHÔNG khai báo `storage` → multer mặc định `memoryStorage`, tức TOÀN BỘ
+  file ảnh nằm trong RAM tiến trình Node cho tới khi xử lý xong. Giới hạn 15MB/ảnh, không có
+  hàng đợi nào chặn số request đồng thời → N người đăng phim cùng lúc là N × 15MB trong RAM.
+- **Quyết định:** Chọn hướng (b) của yêu cầu — bỏ hẳn luồng multipart, ảnh bìa nay xin
+  `POST /films/:id/thumbnail-url` rồi trình duyệt PUT thẳng lên MinIO, GIỐNG HỆT video từ GĐ3.
+  Backend không nhận byte ảnh nào nữa. **Endpoint cũ bị GỠ BỎ, không giữ song song** — để lại
+  thì điểm nghẽn vẫn còn nguyên, chỉ là tạm không ai gọi.
+- **Giữ nguyên mức kiểm tra, không đánh đổi bảo mật:** việc kiểm ảnh thật (magic bytes qua
+  `image-size`) + tỷ lệ 16:9 + giới hạn 15MB chuyển sang `confirmVersion`, đọc **64KB ĐẦU**
+  của object trên MinIO bằng GET có Range — đủ cho header JPEG/PNG/WebP mà không kéo cả file
+  về. Ảnh không hợp lệ bị XOÁ khỏi MinIO ngay (đã kiểm: file trả 404 sau khi bị từ chối).
+  `thumbnail_key` vẫn sinh 100% ở server, không nhận từ client.
+- **Đánh đổi:** có một khoảng thời gian ngắn object "chưa được kiểm" nằm trên MinIO (giữa PUT
+  và confirmVersion). Chấp nhận được: key là UUID server sinh, object chưa gắn vào phim nào,
+  và bị xoá ngay khi kiểm trượt. Rủi ro còn lại là object mồ côi nếu client bỏ ngang giữa
+  chừng — nên có job dọn định kỳ khi lên production (ghi nhận nợ kỹ thuật).
+- **Bằng chứng:** `npm run test:concurrency:upload` — 30 request song song, ảnh bìa p95 = 81ms,
+  video p95 = 84ms, 30/30 thành công, mỗi request một key riêng, RAM backend 50,7 → 61,0 MiB.
+
+## ADR-054 — Đếm lượt tải KHÔNG dedupe, không cần khoá dòng [Đợt 2 · việc 8]
+- **Quyết định:** Cột `films.download_count` + `POST /films/:id/download` chỉ chạy một câu
+  `increment()` (`SET download_count = download_count + 1`). KHÔNG dedupe theo cửa sổ thời
+  gian, KHÔNG giao dịch + khoá dòng, KHÔNG bảng chi tiết kiểu `film_views`.
+- **Lý do — vì sao khác hẳn `recordView` (ADR-023/036):** hai chỉ số trả lời hai câu hỏi khác
+  nhau. Mở trang xem phim là hành động có thể lặp VÔ TÌNH (F5, bấm back rồi vào lại) nên phải
+  chống trùng; bấm "Tải xuống" là chủ đích rõ ràng, bấm hai lần nghĩa là tải hai lần và đó
+  đúng là con số nghiệp vụ muốn biết. Race condition ở `recordView` sinh ra từ mẫu "đọc để
+  quyết định rồi mới ghi" — ở đây KHÔNG có bước đọc quyết định nào, một câu `UPDATE ... SET
+  x = x + 1` tự nó đã atomic dù gọi song song bao nhiêu lần.
+- **Chống spam:** dựa vào rate limit toàn cục sẵn có, không thêm hàng rào riêng. App NỘI BỘ,
+  mọi lời gọi đều đã đăng nhập và định danh được; tự thổi phồng lượt tải của chính mình không
+  đem lại lợi ích gì. Nếu sau này số liệu bị nghi ngờ thì nâng cấp thành bảng `film_downloads`
+  chi tiết (truy được AI tải, lúc nào) chứ không phải thêm dedupe.
+- **Quyền:** endpoint KHÔNG gắn `@Roles` — Cấp 1 (người xem) hoàn toàn có quyền tải phim, họ
+  chỉ không có quyền sửa/xoá. FE chỉ hiện nút khi phim có bản lưu trữ nội bộ
+  (`links.storage`); phim chỉ có link ngoài thì các nguồn đó đã có nút mở/tải riêng.
+
+## ADR-053 — Báo cáo mở cho Cấp 3, phạm vi phòng ban do SERVER ép [Đợt 2 · việc 5]
+- **Quyết định:** `/reports` nay cho cả `dept_manager` (trước chỉ `super_admin`). Phạm vi dữ
+  liệu KHÔNG do client quyết định: Cấp 3 luôn bị ép về `department_id` đọc từ DB, tham số
+  `departmentId` họ gửi lên bị BỎ QUA hoàn toàn; Cấp 4 xem toàn công ty và chọn lọc được từng
+  phòng. FE ẩn hẳn ô chọn phòng ban với Cấp 3 — nhưng đó chỉ là để giao diện không hứa điều
+  làm không được, chốt chặn thật nằm ở `resolveDepartmentScope` phía server.
+- **Lý do đảo lại quyết định cũ:** ADR trước để báo cáo ở mức hạn chế nhất vì đặc tả khi đó
+  không nhắc quyền báo cáo của Trưởng phòng và báo cáo có PII (họ tên người upload). Nay người
+  dùng yêu cầu tường minh, và rủi ro PII được khống chế bằng chính việc giới hạn phạm vi.
+- **Cấp 3 CHƯA gán phòng ban → báo cáo RỖNG, không truy vấn gì.** Cố ý không để `null` rơi vào
+  nhánh "không lọc phòng ban" — đó đúng chỗ một giá trị null bị hiểu nhầm sẽ rò toàn bộ dữ
+  liệu công ty (cùng loại bẫy đã ghi ở `11-coding-rules` §3b).
+- **Danh sách nhân viên để lọc lấy từ chính `summary` của báo cáo, KHÔNG gọi `/users`:**
+  `/users` chỉ Cấp 4 gọi được nên Cấp 3 sẽ có ô lọc rỗng; và không cần kéo cả danh bạ công ty
+  (có PII) về chỉ để đổ một dropdown.
+- **Ba nhóm dữ liệu trong MỘT lần gọi** (`totals` / `summary` / `films`) thay vì ba endpoint:
+  cả ba suy ra từ đúng một tập phim đã lọc, tách ra phải lặp lại y hệt bộ lọc ba lần và chắc
+  chắn sẽ lệch nhau sau vài lần sửa. FE chia 3 tab để hiển thị.
+
+## ADR-052 — Nhãn "Phim mới": tính ở BACKEND, chỉ bản mới nhất trong nhóm TRÙNG TIÊU ĐỀ [Đợt 2 · việc 9]
+- **Bối cảnh:** trước đây nhãn suy hoàn toàn từ thời gian (`isFilmNew(publishedAt)` ở FE, hạn
+  `NEW_FILM_TTL_DAYS`). Chưa hề có cơ chế nào xử lý phim trùng tên — đây là TÍNH NĂNG MỚI,
+  không phải sửa bug. (Cơ chế "trùng tiêu đề → hỏi cập nhật bản mới" của GĐ5 là luồng khác:
+  nó tạo `film_versions` cho CÙNG một phim, không sinh ra hai phim cùng tên.)
+- **Quyết định:** thêm trường TÍNH TOÁN `PublicFilm.isNew`, đúng khi thoả ĐỒNG THỜI: (1) còn
+  trong hạn `NEW_FILM_TTL_DAYS`, và (2) là bản mới nhất trong nhóm phim trùng tiêu đề.
+  So tiêu đề sau `trim()`, KHÔNG phân biệt hoa/thường. Thứ tự "mới nhất" = `published_at` giảm
+  dần, phá hoà bằng `id` giảm dần (bắt buộc phải phá hoà vì `published_at` chỉ tới NGÀY).
+- **KHÔNG thêm cột trạng thái, KHÔNG cập nhật hàng loạt khi tạo phim.** Đã cân nhắc phương án
+  "khi tạo phim trùng tên thì UPDATE các phim cũ set cờ": nó rẻ lúc đọc nhưng phải duy trì cờ
+  ở BỐN chỗ (tạo, đổi tên khi sửa, xoá phim, cập nhật bản mới) — quên một chỗ là dữ liệu sai
+  âm thầm, không ai phát hiện. Cách đang dùng không có trạng thái nào để lệch:
+  - `list()`: danh sách vốn đã sắp "mới trước" nên phim ĐẦU TIÊN gặp trong mỗi nhóm tiêu đề
+    chính là bản mới nhất → **0 truy vấn thêm**.
+  - `getBySlug()`: 1 truy vấn lấy đúng 1 dòng, dựa trên index `idx_films_title` mới thêm.
+- **Vì sao ở BE chứ không FE:** trang chi tiết chỉ tải ĐÚNG MỘT phim nên FE không thể biết kho
+  còn phim nào trùng tên mới hơn. Tính ở FE sẽ đúng ở danh sách và SAI ở trang chi tiết — đúng
+  loại lỗi khó phát hiện nhất. Đã GỠ `isFilmNew` khỏi FE để không còn hai nguồn sự thật.
+- **Hệ quả đã kiểm và chấp nhận:** xoá phim mới nhất thì phim cũ cùng tên **được nhận lại nhãn**
+  (đã kiểm trên trình duyệt). Đúng theo định nghĩa "bản mới nhất còn tồn tại", và là hệ quả tự
+  nhiên của việc không lưu trạng thái.
+- **Đánh đổi:** `list()` trả về TOÀN BỘ phim (không phân trang) nên cách này đúng và rẻ ở quy
+  mô hiện tại. **Nếu sau này thêm phân trang thật ở SQL thì phải chuyển sang window function
+  `ROW_NUMBER() OVER (PARTITION BY title ORDER BY published_at DESC, id DESC)`** — đã ghi lại
+  ở đây để người sau không phải phát hiện lại.
+
 ## ADR-051 — Quyền ghi chuyên mục phân theo TẦNG (gốc = Cấp 4, con = Cấp 2 trở lên) [RBAC4]
 - **Bối cảnh:** ADR-044 khoá mọi thao tác ghi chuyên mục ở Cấp 4. Người dùng thấy quá chặt: họ
   hình dung chuyên mục cha như "một album lớn", bên trong là các album nhỏ — việc mở một album

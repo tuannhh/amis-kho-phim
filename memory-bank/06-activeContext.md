@@ -5,7 +5,39 @@
 
 ## Tóm tắt nhanh (đọc 30 giây là hiểu hết)
 
-### ✅ VỪA XONG: ĐỢT 2 — 5 VIỆC (1, 2, 3, 4a, 7) TỪ TEST THỰC TẾ (2026-08-06, Opus 5)
+### ✅ VỪA XONG: ĐỢT 2 — 10 VIỆC (5, 6, 8, 9, 10, 11, 12, 13, 14, 15) (2026-08-07, Opus 5)
+
+**CHỈ trên nhánh `phan-quyen-4-cap`.** Chi tiết + bằng chứng ở `04-progress.md` mục
+"Nhật ký ĐỢT 2 — 10 việc"; quyết định ở **ADR-052 → ADR-057**.
+**Test: 216 unit BE + 106 tích hợp BE + 69 FE = 391** (trước: 330) + 2 script đồng thời.
+
+Năm điều quan trọng nhất cần nhớ:
+
+- ⛔ **CÒN NỢ MỘT PHẦN — multipart-resume cho video (việc 15 mục 3) CHƯA LÀM.** Presigned
+  `PUT` đơn lẻ **không resume được**: mất mạng/đóng trình duyệt giữa chừng là **upload lại từ
+  đầu** (file tới 2GB). Đây là hoãn CÓ CHỦ ĐÍCH, đã báo người dùng, có đề xuất 5 bước sẵn sàng
+  làm ở cuối nhật ký đợt 2. **Đừng báo cáo tính năng này là đã có.**
+- **Nhãn "Phim mới" nay do BACKEND tính (`ApiFilm.isNew`), KHÔNG suy từ `publishedAt` ở FE.**
+  `isFilmNew()` đã bị GỠ khỏi FE có chủ đích — **đừng thêm lại**. Nhãn phụ thuộc cả việc phim
+  có phải bản mới nhất trong nhóm TRÙNG TIÊU ĐỀ hay không, mà trang chi tiết chỉ tải một phim
+  nên FE không thể biết. Không có cột trạng thái nào để đồng bộ (ADR-052) — xoá phim mới nhất
+  thì phim cũ cùng tên **nhận lại nhãn**, đó là đúng thiết kế.
+- **Ảnh bìa nay upload bằng presigned PUT thẳng lên MinIO; `POST /films/:id/thumbnail`
+  (multipart) ĐÃ BỊ GỠ.** Nó dùng multer `memoryStorage` — buffer cả file trong RAM Node, đây
+  là điểm nghẽn thật khi nhiều người upload cùng lúc. Kiểm ảnh (16:9 + magic bytes) chuyển
+  sang `confirmVersion`, đọc 64KB đầu của object. **Đừng "khôi phục" endpoint cũ cho tiện.**
+- **Báo cáo `/reports` nay Cấp 3 vào được, nhưng phạm vi do SERVER ép theo `department_id` đọc
+  từ DB** — tham số `departmentId` client gửi lên bị BỎ QUA với Cấp 3 (ADR-053). Cấp 3 chưa
+  gán phòng ban → báo cáo RỖNG, **không được** rơi vào nhánh "không lọc".
+- **Ba component FE mới dùng chung, đừng chép lại:** `FilmCard.vue` (thẻ phim, dùng ở 3 nơi),
+  `FilmManageDialogs.vue` (popup Sửa + popup Xoá), `FilmForm.vue` (form Thêm/Sửa tách khỏi
+  `FilmUploadView.vue`, chạy được cả ở trang riêng lẫn trong dialog qua prop `embedded`).
+
+Màn/route mới: **"Phim tôi quản lý"** (`/my-films`, Cấp 2 trở lên) — `GET /films?scope=managed`.
+Endpoint mới: `POST /films/:id/download`, `POST /films/:id/thumbnail-url`.
+Migration mới: `AddDownloadCountAndTitleIndex` (cột `download_count` + index `idx_films_title`).
+
+### Việc trước đó: ĐỢT 2 ĐỢT ĐẦU — 5 VIỆC (1, 2, 3, 4a, 7) (2026-08-06, Opus 5)
 
 **CHỈ làm trên nhánh `phan-quyen-4-cap`** — người dùng yêu cầu sửa xong bên 4 cấp rồi mới port
 sang `phan-quyen-3-cap`. Việc **5, 6, 8 để đợt sau** (chưa đụng tới). Chi tiết + bằng chứng ở
@@ -56,9 +88,9 @@ GitHub rồi chốt một. `main` vẫn là bản trước RBAC.
 | Vai trò | viewer / employee / **dept_manager** / super_admin | viewer / employee / super_admin |
 | Cấp cao nhất | Cấp 3 chỉ phim **cùng phòng ban**; Cấp 4 mọi phim | Cấp 3 sửa **MỌI** phim, không xét phòng ban |
 | ADR | ADR-040 → 044 `[RBAC4]`, +051 | ADR-045 → 047 `[RBAC3]` |
-| Test | **182 + 85 + 63 = 330** (sau đợt 2) | 163 + 80 + 47 = 290 |
+| Test | **216 + 106 + 69 = 391** (sau đợt 2 · 10 việc) | 163 + 80 + 47 = 290 |
 
-> ⚠️ **Nhánh 4 cấp đang đi trước 1 đợt sửa.** ADR-050 (nháp gắn userId — lỗi bảo mật) và các
+> ⚠️ **Nhánh 4 cấp đang đi trước HAI đợt sửa** (đợt 5 việc + đợt 10 việc). ADR-050 (nháp gắn userId — lỗi bảo mật) và các
 > sửa UI của việc 3/4a là chung cho cả hai mô hình RBAC, **cần port sang `phan-quyen-3-cap`**.
 > ADR-051 (chuyên mục theo tầng) phụ thuộc `FILM_WRITE_ROLES` nên khi port phải ánh xạ lại vai trò.
 

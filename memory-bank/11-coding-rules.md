@@ -127,13 +127,37 @@ Ghi ở đây để người sau không "sửa" nhầm:
   khoản liên tiếp sẽ nhận `429` và trả về token RỖNG → mọi request sau đó ra `401` trông như
   lỗi phân quyền. Đã mất công một lần vì chuyện này — hãy giãn ~7s giữa các lần đăng nhập.
 
+## 5c. Bẫy mới từ ĐỢT 2 (2026-08-07)
+
+- **KHÔNG tự tính nhãn "Phim mới" ở FE.** Dùng `ApiFilm.isNew` do backend trả (ADR-052).
+  `isFilmNew(publishedAt)` đã bị gỡ khỏi FE có chủ đích — thêm lại là tạo nguồn sự thật thứ
+  hai và sẽ SAI ở trang chi tiết (trang đó chỉ tải một phim, không biết có phim nào trùng tên
+  mới hơn không).
+- **KHÔNG dựng lại endpoint upload nhận multipart cho file người dùng.** `multer` mặc định là
+  `memoryStorage` → buffer cả file trong RAM tiến trình Node. Mọi file người dùng đẩy lên đều
+  phải đi presigned PUT thẳng lên MinIO (ADR-055). Nếu cần kiểm nội dung file, đọc vài chục KB
+  đầu bằng GET có Range sau khi file đã nằm trên storage, đừng kéo cả file về.
+- **Thêm bộ đếm mới: cân nhắc có cần dedupe không, đừng sao chép mù `recordView`.**
+  `recordView` phức tạp (giao dịch + khoá dòng) vì nó "đọc để quyết định rồi mới ghi".
+  `recordDownload` chỉ có một câu `increment()` nên không cần gì thêm (ADR-054). Chép nguyên
+  khuôn khoá dòng vào chỗ không cần chỉ làm chậm và khó đọc.
+- **Mở một endpoint cho thêm vai trò ⇒ phải quyết định PHẠM VI DỮ LIỆU ở server, không phải ẩn
+  bớt ở FE.** Xem `ReportsService.resolveDepartmentScope`: tham số phạm vi client gửi lên bị
+  bỏ qua với Cấp 3. FE ẩn ô chọn phòng ban chỉ để giao diện không hứa điều làm không được.
+- **Cấp 3 chưa gán phòng ban → trả RỖNG, không được rơi vào nhánh "không lọc".** Cùng họ với
+  bẫy "`null` không trùng `null`" ở §3b, nhưng hậu quả nặng hơn: rò dữ liệu toàn công ty.
+- **Nút chính của form nhúng trong dialog phải nằm ở footer của DIALOG**, không để trong vùng
+  cuộn của form (dùng prop `hideFooter` + `defineExpose` của `FilmForm`). Đã vấp đúng lỗi này
+  khi kiểm trên trình duyệt: nút Lưu bị trôi khỏi tầm nhìn còn dialog lại hiện nút "Đóng" thừa.
+
 ## 6. Kiểm thử
 
 - **Chạy `npm test` ở CẢ backend lẫn frontend trước khi báo xong**, không chỉ phần vừa sửa.
 - **Bốn lệnh test, đừng quên hai lệnh sau:**
-  `cd backend && npm test` (174 unit) · `cd backend && npm run test:e2e` (82 tích hợp, cần
-  `docker compose up -d mysql`) · `cd frontend && npm test` (43) ·
-  `cd backend && npm run test:concurrency` (cần TOÀN BỘ stack chạy, mất ~2,5 phút).
+  `cd backend && npm test` (216 unit) · `cd backend && npm run test:e2e` (106 tích hợp, cần
+  `docker compose up -d mysql`) · `cd frontend && npm test` (69) ·
+  `cd backend && npm run test:concurrency` (cần TOÀN BỘ stack chạy, mất ~2,5 phút) ·
+  `cd backend && npm run test:concurrency:upload` (tải đồng thời luồng upload, ~10 giây).
 - **e2e dùng database RIÊNG `kho_phim_e2e`**, tự DROP+CREATE mỗi lần chạy. Có chốt an toàn
   chặn nếu ai đó trỏ nhầm vào `kho_phim` của dev.
 - **Ưu tiên theo rủi ro, không chạy đua tỷ lệ bao phủ**: guard, phân quyền, auth, SSO, chốt
