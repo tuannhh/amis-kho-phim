@@ -1250,6 +1250,13 @@ Tất cả đều thuộc loại đổi kiến trúc / phá vỡ hợp đồng A
   build lại Docker, verify bằng đăng nhập + bấm nút chuyên mục/switch "Chỉ hiển thị phim mới"
   thật trên trình duyệt (không chỉ đọc code) — xác nhận cả desktop và mobile view đều đúng.
   **Chưa port sang `phan-quyen-3-cap`.**
+- 2026-08-10 — [GĐ8-D tiếp, nhánh `phan-quyen-4-cap`] Người dùng chụp ảnh báo tiếp: thanh bộ
+  lọc (dropdown chuyên mục + switch "Chỉ hiển thị phim mới") bị đẩy xuống tít cuối trang do
+  nằm chung khối với kệ chuyên mục — nhiều kệ thì phải cuộn hết mới thấy. Tách thanh bộ lọc ra
+  card riêng, cố định ở ĐẦU khu vực nội dung (trước kệ chuyên mục); khối lưới+phân trang tách
+  card riêng, chỉ hiện khi có lọc, đặt SAU kệ (ADR-067). Chỉ áp cho `FilmListView.vue` (desktop)
+  — mobile không bị lỗi này vì bộ lọc vốn đã ở đầu màn hình từ GĐ8-B. Verify lại bằng trình
+  duyệt thật (bật/tắt switch, xem thanh lọc không còn di chuyển theo số lượng kệ).
 
 ## Việc tiếp theo (next actions)
 1. **GĐ 5 (Nghiệp vụ nâng cao)** — Sonnet 5 (+ Opus 4.8 cho phần versioning nếu cần đào sâu).

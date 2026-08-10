@@ -93,6 +93,48 @@ const manageDialogs = ref<InstanceType<typeof FilmManageDialogs> | null>(null)
 
     <div class="flex-1 overflow-auto p-4">
       <div class="flex flex-col gap-4">
+        <!-- Thanh bộ lọc LUÔN ở đầu trang — đây là cách duy nhất bật hasActiveFilter, để
+             xuống dưới cùng (như trước ADR-067) thì trang nhiều kệ chuyên mục sẽ đẩy nó mất
+             hút, phải cuộn hết mới thấy. -->
+        <div
+          class="flex flex-wrap items-center gap-3 rounded-lg bg-white p-4"
+          style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
+        >
+          <div class="w-full sm:w-[240px]">
+            <MSelect
+              v-model="categoryFilter"
+              :options="categoryFilterOptions"
+              placeholder="Tất cả chuyên mục"
+            />
+          </div>
+          <label
+            class="flex items-center gap-2 text-[13px]"
+            style="color: var(--mds-text-secondary)"
+          >
+            <MSwitch v-model="onlyNew" />
+            Chỉ hiển thị phim mới
+          </label>
+          <button
+            v-if="filmSearchQuery"
+            type="button"
+            class="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium"
+            style="background: var(--mds-brand-50); color: var(--mds-brand-700)"
+            title="Bỏ lọc theo từ khoá"
+            @click="clearSearch"
+          >
+            <MIcon name="search" :size="12" />
+            "{{ filmSearchQuery }}"
+            <MIcon name="x" :size="12" />
+          </button>
+          <span
+            class="ml-auto flex items-center gap-2 text-[13px]"
+            style="color: var(--mds-text-secondary)"
+          >
+            <MSpinner v-if="store.loading" :size="14" />
+            {{ rangeText }}
+          </span>
+        </div>
+
         <!-- Kệ ngang theo chuyên mục — chỉ khi CHƯA lọc gì (ADR-056) -->
         <CategoryShelves
           v-if="!hasActiveFilter && !store.loading"
@@ -104,58 +146,15 @@ const manageDialogs = ref<InstanceType<typeof FilmManageDialogs> | null>(null)
           @show-all="showAllOfCategory"
         />
 
+        <!-- Lưới đầy đủ + phân trang — chỉ khi có bộ lọc/tìm kiếm đang bật, tránh hiện trùng
+             phim với kệ chuyên mục ở trên (ADR-063). -->
         <div
+          v-if="hasActiveFilter"
           class="flex flex-col gap-4 rounded-lg bg-white p-4"
           style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
         >
-          <div class="flex flex-wrap items-center gap-3">
-            <div class="w-full sm:w-[240px]">
-              <MSelect
-                v-model="categoryFilter"
-                :options="categoryFilterOptions"
-                placeholder="Tất cả chuyên mục"
-              />
-            </div>
-            <label
-              class="flex items-center gap-2 text-[13px]"
-              style="color: var(--mds-text-secondary)"
-            >
-              <MSwitch v-model="onlyNew" />
-              Chỉ hiển thị phim mới
-            </label>
-            <button
-              v-if="filmSearchQuery"
-              type="button"
-              class="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium"
-              style="background: var(--mds-brand-50); color: var(--mds-brand-700)"
-              title="Bỏ lọc theo từ khoá"
-              @click="clearSearch"
-            >
-              <MIcon name="search" :size="12" />
-              "{{ filmSearchQuery }}"
-              <MIcon name="x" :size="12" />
-            </button>
-            <span
-              class="ml-auto flex items-center gap-2 text-[13px]"
-              style="color: var(--mds-text-secondary)"
-            >
-              <MSpinner v-if="store.loading" :size="14" />
-              {{ rangeText }}
-            </span>
-          </div>
-
-          <!-- Chưa lọc/tìm gì → phim đã hiện đủ ở các kệ chuyên mục phía trên rồi, ẩn danh
-               sách đầy đủ để tránh hiện trùng cùng phim 2 lần trên 1 màn (ADR-063). -->
-          <p
-            v-if="!hasActiveFilter && !store.loading"
-            class="py-6 text-center text-[13px]"
-            style="color: var(--mds-text-secondary)"
-          >
-            Chọn chuyên mục hoặc bật "Chỉ hiển thị phim mới" để xem danh sách đầy đủ tại đây.
-          </p>
-
           <div
-            v-else-if="paged.length"
+            v-if="paged.length"
             class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
           >
             <FilmCard
@@ -176,7 +175,7 @@ const manageDialogs = ref<InstanceType<typeof FilmManageDialogs> | null>(null)
           />
 
           <div
-            v-if="hasActiveFilter && filtered.length"
+            v-if="filtered.length"
             class="flex flex-wrap items-center justify-between gap-3 border-t pt-3"
             style="border-color: var(--mds-border-light,#E9EAEB)"
           >

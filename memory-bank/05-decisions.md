@@ -15,6 +15,19 @@
 > — là bug bảo mật chung, cần port sang `phan-quyen-3-cap` ở đợt sau. **ADR-051 gắn `[RBAC4]`**
 > vì phụ thuộc `FILM_WRITE_ROLES` của mô hình 4 cấp.
 
+## ADR-067 — Thanh bộ lọc chuyển lên ĐẦU trang, tách khỏi khối lưới/kệ [GĐ8-D]
+- **Bối cảnh:** Sau ADR-063 (ẩn lưới khi chưa lọc), thanh bộ lọc (dropdown chuyên mục + switch
+  "Chỉ hiển thị phim mới") vẫn nằm bên TRONG cùng khối trắng với kệ chuyên mục — khi có nhiều
+  kệ, thanh này bị đẩy xuống tít cuối trang, phải cuộn hết mới thấy để bật lọc. Người dùng
+  chụp ảnh phản hồi đúng chỗ này.
+- **Quyết định:** Tách thanh bộ lọc ra thành khối card riêng, đặt CỐ ĐỊNH ngay trên cùng khu
+  vực nội dung (trước cả kệ chuyên mục). Khối lưới đầy đủ + phân trang (chỉ hiện khi
+  `hasActiveFilter`) tách thành card riêng thứ hai, nằm SAU kệ chuyên mục. Bỏ luôn dòng gợi ý
+  "Chọn chuyên mục..." vì giờ thanh bộ lọc đã luôn thấy ngay, không cần giải thích nữa.
+- **Chỉ desktop (`FilmListView.vue`)** — bản mobile không bị lỗi này vì bộ lọc (ô tìm kiếm +
+  hàng ô chuyên mục + chip đang lọc) vốn đã nằm ở đầu màn hình theo thiết kế GĐ8-B.
+- **Chưa port sang `phan-quyen-3-cap`.**
+
 ## ADR-066 — `MButton` bỏ sót forward prop `type` → nút "Đăng nhập" không submit được [GĐ8-D]
 - **Bối cảnh:** Kiểm chứng lại fix Kho phim (ADR-063) cần đăng nhập trước — phát hiện KHÔNG
   bấm được nút "Đăng nhập" (không có request nào tới `/auth/login`, kể cả bấm chuột lẫn Enter).
