@@ -48,12 +48,13 @@ function half(side: 'left' | 'right') {
 
 <template>
   <nav
-    class="fixed inset-x-0 bottom-0 z-30 rounded-t-[20px] bg-white"
+    class="fixed inset-x-0 bottom-0 z-30 border-t bg-white"
     style="
-      box-shadow: 0 -6px 20px -6px rgba(16, 24, 40, 0.14);
-      padding-bottom: env(safe-area-inset-bottom);
-      padding-left: env(safe-area-inset-left);
-      padding-right: env(safe-area-inset-right);
+      border-color: var(--mds-border-light);
+      box-shadow: 0 -2px 6px rgba(16, 24, 40, 0.06);
+      padding-bottom: var(--mds-mobile-safe-bottom);
+      padding-left: var(--mds-mobile-safe-left);
+      padding-right: var(--mds-mobile-safe-right);
     "
     aria-label="Điều hướng chính"
   >
@@ -63,8 +64,8 @@ function half(side: 'left' | 'right') {
         v-for="item in half('left')"
         :key="item.key"
         type="button"
-        class="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-0.5 pb-1.5 pt-2"
-        style="min-height: 60px"
+        class="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 py-1"
+        style="min-height: var(--mds-mobile-bottom-nav-height)"
         :class="active === item.key ? 'text-[var(--mds-brand-600)]' : 'text-[var(--mds-text-secondary)]'"
         :aria-current="active === item.key ? 'page' : undefined"
         @click="emit('select', item.key)"
@@ -76,7 +77,7 @@ function half(side: 'left' | 'right') {
           <MIcon :name="item.icon" :size="20" />
         </span>
         <span
-          class="max-w-full truncate text-[10px] leading-[13px]"
+          class="max-w-full truncate text-[11px] leading-4"
           :class="active === item.key ? 'font-semibold' : ''"
         >
           {{ item.label }}
@@ -91,8 +92,8 @@ function half(side: 'left' | 'right') {
         v-for="item in half('right')"
         :key="item.key"
         type="button"
-        class="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-0.5 pb-1.5 pt-2"
-        style="min-height: 60px"
+        class="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 py-1"
+        style="min-height: var(--mds-mobile-bottom-nav-height)"
         :class="active === item.key ? 'text-[var(--mds-brand-600)]' : 'text-[var(--mds-text-secondary)]'"
         :aria-current="active === item.key ? 'page' : undefined"
         @click="emit('select', item.key)"
@@ -104,7 +105,7 @@ function half(side: 'left' | 'right') {
           <MIcon :name="item.icon" :size="20" />
         </span>
         <span
-          class="max-w-full truncate text-[10px] leading-[13px]"
+          class="max-w-full truncate text-[11px] leading-4"
           :class="active === item.key ? 'font-semibold' : ''"
         >
           {{ item.label }}
@@ -118,8 +119,8 @@ function half(side: 'left' | 'right') {
         class="absolute left-1/2 grid h-14 w-14 -translate-x-1/2 place-items-center rounded-full text-white active:scale-95"
         style="
           top: -22px;
-          background: linear-gradient(160deg, var(--mds-brand-500) 0%, var(--mds-brand-600) 100%);
-          box-shadow: 0 6px 16px -2px color-mix(in srgb, var(--mds-brand-600) 45%, transparent);
+          background: var(--mds-brand-600);
+          box-shadow: 0 4px 12px rgba(36, 95, 223, 0.3);
           transition: transform 120ms ease;
         "
         :aria-label="fabLabel"

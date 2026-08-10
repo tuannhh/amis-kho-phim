@@ -50,8 +50,10 @@ const props = withDefaults(
      * Khi bật, màn cha gọi `publish()` qua `defineExpose`.
      */
     hideFooter?: boolean
+    /** Trang native trong MISA AMIS: khoảng đệm và footer theo ngưỡng chạm mobile. */
+    mobile?: boolean
   }>(),
-  { editingSlug: '', embedded: false, hideFooter: false },
+  { editingSlug: '', embedded: false, hideFooter: false, mobile: false },
 )
 
 const emit = defineEmits<{
@@ -457,10 +459,13 @@ defineExpose({ publish, cancel, submitting, isEditMode })
 <template>
   <!-- `h-full` để ở chế độ trang form chiếm hết chiều cao; trong dialog thì cha giới hạn
        chiều cao nên phần thân vẫn tự cuộn được. -->
-  <div class="flex h-full min-h-0 flex-col overflow-hidden">
+  <div class="flex h-full min-h-0 flex-col overflow-hidden" :class="{ 'mds-mobile-app': mobile }">
     <!-- Body cuộn được -->
     <main class="min-h-0 flex-1 overflow-y-auto">
-      <div class="mx-auto w-full max-w-3xl" :class="embedded ? 'px-1 py-1' : 'px-4 py-6'">
+      <div
+        class="mx-auto w-full max-w-3xl"
+        :class="embedded ? 'px-1 py-1' : mobile ? 'px-4 py-4' : 'px-4 py-6'"
+      >
         <!-- Cảnh báo trùng tiêu đề -->
         <div
           v-if="duplicateFilm && !isEditMode"
@@ -478,7 +483,8 @@ defineExpose({ publish, cancel, submitting, isEditMode })
         </div>
 
         <div
-          class="rounded-lg bg-white p-6"
+          class="rounded-lg bg-white"
+          :class="mobile ? 'p-4' : 'p-6'"
           style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
         >
           <h3 class="mb-4 text-[16px] font-semibold" style="color: var(--mds-text-primary)">
@@ -518,7 +524,8 @@ defineExpose({ publish, cancel, submitting, isEditMode })
 
         <!-- Tệp & liên kết -->
         <div
-          class="mt-4 rounded-lg bg-white p-6"
+          class="mt-4 rounded-lg bg-white"
+          :class="mobile ? 'p-4' : 'p-6'"
           style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
         >
           <h3 class="mb-4 flex flex-wrap items-baseline gap-x-2 text-[16px] font-semibold" style="color: var(--mds-text-primary)">
@@ -578,7 +585,8 @@ defineExpose({ publish, cancel, submitting, isEditMode })
 
         <!-- Thumbnail 16:9 -->
         <div
-          class="mt-4 rounded-lg bg-white p-6"
+          class="mt-4 rounded-lg bg-white"
+          :class="mobile ? 'p-4' : 'p-6'"
           style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
         >
           <h3 class="mb-4 text-[16px] font-semibold" style="color: var(--mds-text-primary)">
@@ -626,8 +634,8 @@ defineExpose({ publish, cancel, submitting, isEditMode })
          iOS/Android che khi PWA chạy standalone. -->
     <footer
       v-if="!hideFooter"
-      class="flex shrink-0 items-center justify-between bg-white px-4 pt-3"
-      style="padding-bottom: max(12px, env(safe-area-inset-bottom))"
+      class="flex shrink-0 items-center justify-between border-t bg-white px-4 pt-3"
+      style="border-color: var(--mds-border-light); padding-bottom: max(12px, var(--mds-mobile-safe-bottom))"
     >
       <MButton variant="secondary" :disabled="submitting" @click="cancel">Hủy</MButton>
       <MButton variant="primary" :loading="submitting" @click="publish">

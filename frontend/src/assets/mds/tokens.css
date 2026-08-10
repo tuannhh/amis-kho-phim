@@ -126,6 +126,56 @@
   --mds-icon-lg: 24px;             /* kích thước mặc định */
   --mds-icon-xl: 32px;
   --mds-icon-touch-target: 40px;
+
+  /* ── Native mobile mini-app trong MISA AMIS ──────────────── */
+  --mds-mobile-touch-target: 48px;
+  --mds-mobile-topbar-height: 56px;
+  --mds-mobile-bottom-nav-height: 64px;
+  --mds-mobile-gutter: 16px;
+  --mds-mobile-safe-top: env(safe-area-inset-top, 0px);
+  --mds-mobile-safe-right: env(safe-area-inset-right, 0px);
+  --mds-mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --mds-mobile-safe-left: env(safe-area-inset-left, 0px);
+}
+
+/* Root của màn mini-app. Không kế thừa mật độ desktop và không để iOS phóng to khi focus. */
+.mds-mobile-app {
+  --mds-btn-height: var(--mds-mobile-touch-target);
+  --mds-input-height: var(--mds-mobile-touch-target);
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  overflow-x: hidden;
+  padding-right: var(--mds-mobile-safe-right);
+  padding-left: var(--mds-mobile-safe-left);
+  font-family: var(--mds-font-family);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+.mds-mobile-app *,
+.mds-mobile-app *::before,
+.mds-mobile-app *::after {
+  box-sizing: border-box;
+}
+
+.mds-mobile-app input,
+.mds-mobile-app textarea,
+.mds-mobile-app select {
+  font-size: 16px;
+}
+
+.mds-mobile-gutter-x {
+  padding-right: var(--mds-mobile-gutter);
+  padding-left: var(--mds-mobile-gutter);
+}
+
+/* Safari cũ và Android WebView cũ không hiểu flex gap. */
+@supports not (gap: 1px) {
+  .mds-mobile-row-gap-1 > * + * { margin-left: 4px; }
+  .mds-mobile-row-gap-2 > * + * { margin-left: 8px; }
+  .mds-mobile-row-gap-3 > * + * { margin-left: 12px; }
 }
 
 /* ── Density overrides ─────────────────────────────────────

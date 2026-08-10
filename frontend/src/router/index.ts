@@ -45,7 +45,11 @@ const router = createRouter({
     {
       path: '/my-films',
       name: 'my-films',
-      component: () => import('@/features/films/ManagedFilmsView.vue'),
+      component: lazyResponsiveView(
+        () => import('@/features/films/ManagedFilmsView.vue'),
+        () => import('@/features/films/ManagedFilmsMobileView.vue'),
+        'ManagedFilmsResponsive',
+      ),
       // Cấp 1 không quản lý phim nào → không có gì để hiện, chặn luôn ở route.
       meta: { title: 'Phim tôi quản lý', roles: MANAGED_FILMS_ROLES },
     },
@@ -73,7 +77,11 @@ const router = createRouter({
     {
       path: '/upload',
       name: 'upload',
-      component: () => import('@/features/upload/FilmUploadView.vue'),
+      component: lazyResponsiveView(
+        () => import('@/features/upload/FilmUploadView.vue'),
+        () => import('@/features/upload/FilmUploadMobileView.vue'),
+        'FilmUploadResponsive',
+      ),
       // Cấp 1 (viewer) không được vào màn tạo/sửa phim — backend cũng chặn ở @Roles.
       meta: { title: 'Thêm phim', roles: FILM_WRITE_ROLES },
     },
@@ -94,19 +102,31 @@ const router = createRouter({
     {
       path: '/admin/departments',
       name: 'admin-departments',
-      component: () => import('@/features/departments/DepartmentAdminView.vue'),
+      component: lazyResponsiveView(
+        () => import('@/features/departments/DepartmentAdminView.vue'),
+        () => import('@/features/departments/DepartmentAdminMobileView.vue'),
+        'DepartmentAdminResponsive',
+      ),
       meta: { title: 'Quản lý phòng ban', roles: ADMIN_ROLES },
     },
     {
       path: '/admin/users',
       name: 'admin-users',
-      component: () => import('@/features/admin/UserAdminView.vue'),
+      component: lazyResponsiveView(
+        () => import('@/features/admin/UserAdminView.vue'),
+        () => import('@/features/admin/UserAdminMobileView.vue'),
+        'UserAdminResponsive',
+      ),
       meta: { title: 'Quản trị người dùng', roles: ADMIN_ROLES },
     },
     {
       path: '/admin/reports',
       name: 'admin-reports',
-      component: () => import('@/features/reports/ReportsView.vue'),
+      component: lazyResponsiveView(
+        () => import('@/features/reports/ReportsView.vue'),
+        () => import('@/features/reports/ReportsMobileView.vue'),
+        'ReportsResponsive',
+      ),
       // ADR-053: Cấp 3 vào được, backend tự giới hạn dữ liệu theo phòng ban của họ.
       meta: { title: 'Báo cáo', roles: REPORT_ROLES },
     },

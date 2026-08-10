@@ -193,7 +193,14 @@ const showMobileFab = computed(() => canCreateFilm(auth.role))
  * desktop ở Compact, không có nút back nào, nên bottom nav là lối thoát duy nhất — GĐ8 Giai
  * đoạn B sẽ dựng lại chúng rồi mới tính tiếp.
  */
-const SECOND_LEVEL_ROUTES = new Set(['film-detail', 'upload'])
+const SECOND_LEVEL_ROUTES = new Set([
+  'film-detail',
+  'upload',
+  'my-films',
+  'admin-departments',
+  'admin-users',
+  'admin-reports',
+])
 const showBottomNav = computed(
   () => isCompact.value && !SECOND_LEVEL_ROUTES.has(route.name as string),
 )
@@ -288,7 +295,8 @@ function offlineRetry() {
   <!-- Layout app: header + sidebar (Medium+) · hero header từng màn + bottom nav (Compact) -->
   <div
     v-else
-    class="flex flex-col"
+  class="flex flex-col"
+  :class="{ 'mds-mobile-app': isCompact }"
     style="background: var(--mds-bg-page, #ECEDEF); min-height: 100dvh; height: 100dvh"
   >
     <div ref="topBarEl" class="shrink-0" style="padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right)">
@@ -375,7 +383,7 @@ function offlineRetry() {
         v-model:collapsed="collapsed"
         @update:model-value="onNavigate"
       />
-      <main class="min-w-0 flex-1 overflow-hidden" :style="showBottomNav ? { paddingBottom: 'calc(66px + env(safe-area-inset-bottom))' } : {}">
+      <main class="min-w-0 flex-1 overflow-hidden" :style="showBottomNav ? { paddingBottom: 'calc(var(--mds-mobile-bottom-nav-height) + var(--mds-mobile-safe-bottom))' } : {}">
         <!-- Ở Compact các màn cấp một tự dựng thanh đầu trang và tự phát `notifications`
              (chuông nằm trên hero header của màn, không còn trên header MDS). -->
         <router-view @notifications="toggleNotificationsPanel" />

@@ -25,9 +25,10 @@ const emit = defineEmits(['back', 'more'])
 
 <template>
   <header
-    class="flex h-12 shrink-0 items-center gap-2 border-b bg-white px-2"
-    style="border-color: var(--mds-border-light, #e9eaeb)"
+    class="shrink-0 border-b bg-white"
+    style="border-color: var(--mds-border-light, #e9eaeb); padding-top: var(--mds-mobile-safe-top)"
   >
+    <div class="mds-mobile-row-gap-1 flex h-[var(--mds-mobile-topbar-height)] min-w-0 items-center gap-1 px-2">
     <!-- Vùng chạm 48px theo mobile-pwa.md §5 (glyph vẫn giữ 24px, chỉ nới vùng bấm). -->
     <button
       type="button"
@@ -59,5 +60,6 @@ const emit = defineEmits(['back', 'more'])
         <MIcon name="dots-vertical" :size="20" />
       </button>
     </slot>
+    </div>
   </header>
 </template>
