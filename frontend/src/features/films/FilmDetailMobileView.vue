@@ -228,22 +228,29 @@ async function confirmDelete() {
           </span>
         </div>
 
-        <!-- Số liệu: 2 ô KPI bo tròn nền tint brand thay cho danh sách gạch đầu dòng — số
-             liệu là thứ người dùng liếc một cái là thấy, không phải thứ để đọc thành dòng. -->
+        <!-- Số liệu: 2 ô KPI bo tròn nền tint brand thay cho danh sách gạch đầu dòng — nhãn +
+             icon + số liệu nằm CHUNG 1 dòng mỗi ô (trước đó số liệu xuống dòng riêng bên dưới
+             nhãn, 2 dòng/ô nhìn lệch nhau khi 2 nhãn dài ngắn khác nhau). -->
         <dl class="mt-0.5 grid grid-cols-2 gap-2.5">
-          <div class="rounded-2xl px-3 py-2.5" style="background: var(--mds-brand-50)">
-            <dt class="flex items-center gap-1.5 text-[11.5px]" style="color: var(--mds-text-secondary)">
-              <MIcon name="eye" :size="14" /> Lượt xem
+          <div
+            class="flex items-center justify-between gap-1.5 rounded-2xl px-3 py-2.5"
+            style="background: var(--mds-brand-50)"
+          >
+            <dt class="flex min-w-0 items-center gap-1.5 text-[12px]" style="color: var(--mds-text-secondary)">
+              <MIcon name="eye" :size="14" /> <span class="truncate">Lượt xem</span>
             </dt>
-            <dd class="mt-0.5 text-[17px] font-semibold tabular-nums" style="color: var(--mds-brand-700)">
+            <dd class="shrink-0 text-[15px] font-semibold tabular-nums" style="color: var(--mds-brand-700)">
               {{ formatViews(film.viewCount) }}
             </dd>
           </div>
-          <div class="rounded-2xl px-3 py-2.5" style="background: var(--mds-brand-50)">
-            <dt class="flex items-center gap-1.5 text-[11.5px]" style="color: var(--mds-text-secondary)">
-              <MIcon name="download" :size="14" /> Lượt tải
+          <div
+            class="flex items-center justify-between gap-1.5 rounded-2xl px-3 py-2.5"
+            style="background: var(--mds-brand-50)"
+          >
+            <dt class="flex min-w-0 items-center gap-1.5 text-[12px]" style="color: var(--mds-text-secondary)">
+              <MIcon name="download" :size="14" /> <span class="truncate">Lượt tải</span>
             </dt>
-            <dd class="mt-0.5 text-[17px] font-semibold tabular-nums" style="color: var(--mds-brand-700)">
+            <dd class="shrink-0 text-[15px] font-semibold tabular-nums" style="color: var(--mds-brand-700)">
               {{ formatViews(film.downloadCount) }}
             </dd>
           </div>

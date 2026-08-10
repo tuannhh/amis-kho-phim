@@ -1257,6 +1257,16 @@ Tất cả đều thuộc loại đổi kiến trúc / phá vỡ hợp đồng A
   card riêng, chỉ hiện khi có lọc, đặt SAU kệ (ADR-067). Chỉ áp cho `FilmListView.vue` (desktop)
   — mobile không bị lỗi này vì bộ lọc vốn đã ở đầu màn hình từ GĐ8-B. Verify lại bằng trình
   duyệt thật (bật/tắt switch, xem thanh lọc không còn di chuyển theo số lượng kệ).
+- 2026-08-10 — [GĐ8-D tiếp nữa, nhánh `phan-quyen-4-cap`] Người dùng gửi ảnh chụp thật từ
+  iPhone (Chrome DevTools mô phỏng) + ảnh so sánh app AMIS Mobile/YouTube: (1) kệ chuyên mục
+  mobile đổi từ thẻ cuộn ngang → danh sách DỌC từng dòng kiểu YouTube (thumbnail trái + tên
+  phim/nhãn "Phim mới"/ngày đăng bên phải), mỗi kệ chỉ 3 phim mới nhất, thêm biến thể
+  `variant="row"` cho `FilmCardMobile.vue` (ADR-068); "Xem tất cả" GIỮ NGUYÊN hành vi cũ (hiện
+  lưới đầy đủ dùng đúng cấu trúc trang chủ khi có lọc). (2) Ô "Lượt xem"/"Lượt tải" ở trang Xem
+  phim gộp nhãn+số về 1 dòng thay vì 2 dòng xếp chồng (ADR-069). Build lại Docker, verify bằng
+  trình duyệt thật ở viewport 440×956 (iPhone 16 Pro Max theo tỉ lệ ảnh người dùng gửi): kệ
+  hiện đúng 3 dòng dọc, "Xem tất cả"/chip chuyên mục mở đúng lưới đầy đủ, ô KPI 1 dòng không
+  còn tràn. **Chưa port sang `phan-quyen-3-cap`.**
 
 ## Việc tiếp theo (next actions)
 1. **GĐ 5 (Nghiệp vụ nâng cao)** — Sonnet 5 (+ Opus 4.8 cho phần versioning nếu cần đào sâu).

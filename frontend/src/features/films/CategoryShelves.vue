@@ -40,8 +40,10 @@ const emit = defineEmits<{
   (e: 'showAll', categoryId: number): void
 }>()
 
-/** Số phim tối đa hiển thị trên một kệ; muốn xem hết thì bấm "Xem tất cả". */
-const MAX_PER_SHELF = 12
+/** Số phim tối đa hiển thị trên một kệ; muốn xem hết thì bấm "Xem tất cả".
+ *  Mobile ít hơn desktop (ADR-068): kệ mobile là danh sách DỌC theo hàng, 12 phim/kệ sẽ
+ *  đẩy các kệ sau xuống quá xa; 3 phim mới nhất là đủ "nếm thử" trước khi bấm "Xem tất cả". */
+const MAX_PER_SHELF = computed(() => (props.mobile ? 3 : 12))
 
 interface Shelf {
   id: number
@@ -66,7 +68,12 @@ const shelves = computed<Shelf[]>(() => {
       const films = ids
         .flatMap((id) => byCategory.get(id) || [])
         .sort((a, b) => publishedTime(b.publishedAt) - publishedTime(a.publishedAt))
-      return { id: parent.id, name: parent.name, films: films.slice(0, MAX_PER_SHELF), total: films.length }
+      return {
+        id: parent.id,
+        name: parent.name,
+        films: films.slice(0, MAX_PER_SHELF.value),
+        total: films.length,
+      }
     })
     // Chuyên mục chưa có phim nào thì không dựng kệ rỗng — một hàng trống không nói lên điều gì.
     .filter((s) => s.total > 0)
@@ -109,30 +116,33 @@ const shelves = computed<Shelf[]>(() => {
         </button>
       </div>
 
+      <!-- Mobile (ADR-068): danh sách DỌC từng dòng kiểu YouTube, không cuộn ngang nữa —
+           người dùng phản hồi kiểu thẻ cuộn ngang cũ "nhìn hơi xấu". Desktop giữ NGUYÊN hàng
+           cuộn ngang bằng thẻ `FilmCard` như trước. -->
+      <div v-if="mobile" class="flex flex-col divide-y" style="border-color: var(--mds-border-light, #e9eaeb)">
+        <FilmCardMobile
+          v-for="film in shelf.films"
+          :key="film.id"
+          :film="film"
+          variant="row"
+          @open="emit('open', $event)"
+          @edit="emit('edit', $event)"
+          @delete="emit('delete', $event)"
+        />
+      </div>
+
       <!-- Cuộn ngang bị giới hạn trong đúng container này. `pb-1` chừa chỗ cho thanh cuộn để
            nó không đè lên viền thẻ phim. -->
-      <div
-        class="flex gap-3 overflow-x-auto pb-2"
-        :class="mobile ? '-mx-4 px-4' : '-mx-1 px-1'"
-      >
-        <template v-for="film in shelf.films" :key="film.id">
-          <FilmCardMobile
-            v-if="mobile"
-            :film="film"
-            variant="shelf"
-            @open="emit('open', $event)"
-            @edit="emit('edit', $event)"
-            @delete="emit('delete', $event)"
-          />
-          <FilmCard
-            v-else
-            :film="film"
-            shelf
-            @open="emit('open', $event)"
-            @edit="emit('edit', $event)"
-            @delete="emit('delete', $event)"
-          />
-        </template>
+      <div v-else class="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2">
+        <FilmCard
+          v-for="film in shelf.films"
+          :key="film.id"
+          :film="film"
+          shelf
+          @open="emit('open', $event)"
+          @edit="emit('edit', $event)"
+          @delete="emit('delete', $event)"
+        />
       </div>
     </section>
   </div>

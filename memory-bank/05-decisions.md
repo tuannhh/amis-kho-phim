@@ -15,6 +15,34 @@
 > — là bug bảo mật chung, cần port sang `phan-quyen-3-cap` ở đợt sau. **ADR-051 gắn `[RBAC4]`**
 > vì phụ thuộc `FILM_WRITE_ROLES` của mô hình 4 cấp.
 
+## ADR-068 — Kệ mobile đổi từ thẻ cuộn ngang → danh sách dòng dọc kiểu YouTube [GĐ8-D]
+- **Bối cảnh:** Người dùng gửi ảnh so sánh với app AMIS Mobile thật và YouTube: kệ chuyên mục
+  bản mobile (thẻ ảnh lớn cuộn ngang, mượn ý tưởng Netflix từ đợt 2 việc 14) "nhìn hơi xấu" so
+  với danh sách DỌC từng dòng (thumbnail nhỏ bên trái, chữ bên phải) quen thuộc hơn trên di
+  động — đúng như trang chủ kênh YouTube.
+- **Quyết định:** Thêm biến thể `variant="row"` cho `FilmCardMobile.vue` — thumbnail 124px
+  16:9 bên trái, bên phải CHỈ 3 trường người dùng yêu cầu: tên phim (2 dòng), nhãn "Phim mới",
+  ngày đăng (KHÔNG nhồi hashtag/lượt xem/chuyên mục như biến thể `list` — đây là danh sách để
+  lướt nhanh, không phải thẻ chi tiết). Vẫn giữ nút "⋯" Sửa/Xoá bên phải, đặt tuyệt đối để
+  không kéo giãn chiều cao dòng. `CategoryShelves.vue` đổi `MAX_PER_SHELF` thành `computed`:
+  mobile = 3 phim mới nhất/kệ (danh sách dọc 12 dòng sẽ đẩy kệ sau quá xa), desktop giữ 12.
+  Container đổi từ `overflow-x-auto` (cuộn ngang) sang `flex-col divide-y` (danh sách dọc,
+  không cuộn riêng — cuộn theo trang).
+- **"Xem tất cả" GIỮ NGUYÊN hành vi cũ** (set `categoryFilter` → hiện lưới đầy đủ đúng cấu
+  trúc dùng ở trang chủ khi có lọc, tức thẻ `FilmCardMobile` biến thể `list` — xem ADR-063) —
+  người dùng xác nhận muốn giữ y hệt, chỉ đổi phần XEM TRƯỚC (3 phim/kệ) chứ không đổi phần
+  xem đầy đủ.
+- **Chỉ mobile.** Desktop (`FilmCard.vue` + hàng cuộn ngang trong `CategoryShelves.vue`) giữ
+  NGUYÊN — người dùng không phàn nàn về bản desktop. **Chưa port sang `phan-quyen-3-cap`.**
+
+## ADR-069 — Ô "Lượt xem"/"Lượt tải" gộp nhãn+số về 1 dòng [GĐ8-D]
+- **Bối cảnh:** Trang Xem phim mobile, 2 ô KPI xếp `dt` (icon+nhãn) và `dd` (số liệu) thành 2
+  dòng riêng trong cùng ô — người dùng phản hồi xuống dòng nhìn xấu.
+- **Quyết định:** Đổi layout mỗi ô sang `flex items-center justify-between` 1 dòng: icon+nhãn
+  bên trái, số liệu bên phải (căn phải, `shrink-0`) — giống mẫu chip số liệu phổ biến, không
+  cần 2 dòng vì cả nhãn lẫn số đều ngắn.
+- **Chỉ mobile** (`FilmDetailMobileView.vue`) — desktop không có ô KPI dạng này.
+
 ## ADR-067 — Thanh bộ lọc chuyển lên ĐẦU trang, tách khỏi khối lưới/kệ [GĐ8-D]
 - **Bối cảnh:** Sau ADR-063 (ẩn lưới khi chưa lọc), thanh bộ lọc (dropdown chuyên mục + switch
   "Chỉ hiển thị phim mới") vẫn nằm bên TRONG cùng khối trắng với kệ chuyên mục — khi có nhiều
