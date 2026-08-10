@@ -15,6 +15,38 @@
 > — là bug bảo mật chung, cần port sang `phan-quyen-3-cap` ở đợt sau. **ADR-051 gắn `[RBAC4]`**
 > vì phụ thuộc `FILM_WRITE_ROLES` của mô hình 4 cấp.
 
+## ADR-066 — `MButton` bỏ sót forward prop `type` → nút "Đăng nhập" không submit được [GĐ8-D]
+- **Bối cảnh:** Kiểm chứng lại fix Kho phim (ADR-063) cần đăng nhập trước — phát hiện KHÔNG
+  bấm được nút "Đăng nhập" (không có request nào tới `/auth/login`, kể cả bấm chuột lẫn Enter).
+  Root cause: `MButton.vue` hard-code `type="button"` trên `<button>` gốc và KHÔNG khai báo
+  prop `type`, nên `<MButton type="submit">` ở `LoginView.vue` chỉ rơi vào fallthrough attrs —
+  thực nghiệm xác nhận giá trị hard-code trong template thắng, nút luôn là `type="button"` bất
+  kể ngoài truyền gì. Bug này lộ ra ĐÚNG SAU khi một đợt trước gỡ `@click="submit"` dự phòng
+  trên nút này để tránh double-submit (dựa vào `type="submit"` tự nhiên submit form) — tức từ
+  lúc đó nút Đăng nhập đã hỏng hoàn toàn qua UI, chỉ chưa ai thử lại bằng click thật.
+- **Quyết định:** Thêm prop `type` (`'button' | 'submit' | 'reset'`, mặc định `'button'`) vào
+  `MButton.vue`, bind `:type="type"` thay vì hard-code — khai báo tường minh thay vì dựa vào
+  hành vi merge attribute không rõ ràng của Vue.
+- **Ảnh hưởng:** Sửa tại 1 file dùng chung → mọi nút `type="submit"` khác trong app (nếu có)
+  cũng được khắc phục theo, không cần rà từng chỗ gọi `MButton`.
+- **Chưa port sang `phan-quyen-3-cap`** — cùng nhóm với các bug UI chung khác đang chờ đợt port.
+
+## ADR-063 — Ẩn danh sách phẳng khi CHƯA lọc, tránh hiện trùng phim với kệ chuyên mục [GĐ8-D]
+- **Bối cảnh:** Người dùng chụp ảnh phản hồi: trang Kho phim hiện cùng lúc (1) các kệ ngang
+  theo chuyên mục và (2) lưới TOÀN BỘ phim + phân trang ngay bên dưới — phim đã có mặt ở kệ lại
+  xuất hiện thêm lần nữa trong lưới, gây cảm giác trùng lặp/rối mắt dù đúng theo thiết kế cũ
+  của ADR-056 (kệ để lướt nhanh, lưới để lọc/xem hết).
+- **Quyết định (người dùng chọn qua AskUserQuestion):** Theo mô hình YouTube — mặc định
+  (`!hasActiveFilter`) CHỈ hiện kệ chuyên mục; lưới đầy đủ + phân trang chỉ xuất hiện khi người
+  dùng chọn 1 chuyên mục, bật "Chỉ hiển thị phim mới", hoặc gõ từ khoá tìm kiếm. Thanh bộ lọc
+  (dropdown chuyên mục + switch) vẫn LUÔN hiển thị — đó chính là cách bật `hasActiveFilter`.
+  Chưa lọc gì thì thay lưới bằng 1 dòng gợi ý: *"Chọn chuyên mục hoặc bật 'Chỉ hiển thị phim
+  mới' để xem danh sách đầy đủ tại đây."*
+- **Áp dụng cả 2 view:** `FilmListView.vue` (desktop) và `FilmListMobileView.vue` (mobile) —
+  cùng bug, cùng `hasActiveFilter` từ `useFilmListFilters.ts` dùng chung, sửa đồng thời để
+  không lệch nhau như bài học cũ với `FilmCard`.
+- **Chưa port sang `phan-quyen-3-cap`.**
+
 ## ADR-065 — Mật độ CHẠM đặt ở TẦNG TOKEN, không sửa từng component [GĐ8-C]
 - **Bối cảnh:** Quét toàn dải viewport phát hiện màn "Thêm phim" ở Compact có hàng loạt vùng
   chạm dưới chuẩn: MInput 34px, MSelect 36px, MButton 32px, nút Back 32px, chip gợi ý hashtag

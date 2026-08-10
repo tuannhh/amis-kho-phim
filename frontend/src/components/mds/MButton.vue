@@ -21,6 +21,14 @@ const props = defineProps({
   },
   loading: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
+  // Không khai báo prop này thì `type="submit"` truyền từ ngoài vào KHÔNG thắng được
+  // `type="button"` gán cứng dưới template (đã tự kiểm chứng: nút Đăng nhập không submit
+  // được form bằng cả click lẫn Enter cho tới khi thêm prop này).
+  type: {
+    type: String,
+    default: 'button',
+    validator: (v) => ['button', 'submit', 'reset'].includes(v),
+  },
 })
 
 // Loading tự disable nút — chặn double-submit theo MDS
@@ -83,7 +91,7 @@ const variantClasses = computed(() => {
 
 <template>
   <button
-    type="button"
+    :type="type"
     :disabled="isDisabled"
     :aria-busy="loading || undefined"
     class="inline-flex select-none items-center justify-center gap-1.5 rounded-lg text-[13px] font-medium leading-[18px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--mds-brand-600)]"

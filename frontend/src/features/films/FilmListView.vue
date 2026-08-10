@@ -144,8 +144,18 @@ const manageDialogs = ref<InstanceType<typeof FilmManageDialogs> | null>(null)
             </span>
           </div>
 
+          <!-- Chưa lọc/tìm gì → phim đã hiện đủ ở các kệ chuyên mục phía trên rồi, ẩn danh
+               sách đầy đủ để tránh hiện trùng cùng phim 2 lần trên 1 màn (ADR-063). -->
+          <p
+            v-if="!hasActiveFilter && !store.loading"
+            class="py-6 text-center text-[13px]"
+            style="color: var(--mds-text-secondary)"
+          >
+            Chọn chuyên mục hoặc bật "Chỉ hiển thị phim mới" để xem danh sách đầy đủ tại đây.
+          </p>
+
           <div
-            v-if="paged.length"
+            v-else-if="paged.length"
             class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
           >
             <FilmCard
@@ -166,7 +176,7 @@ const manageDialogs = ref<InstanceType<typeof FilmManageDialogs> | null>(null)
           />
 
           <div
-            v-if="filtered.length"
+            v-if="hasActiveFilter && filtered.length"
             class="flex flex-wrap items-center justify-between gap-3 border-t pt-3"
             style="border-color: var(--mds-border-light,#E9EAEB)"
           >

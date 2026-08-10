@@ -1240,6 +1240,17 @@ Tất cả đều thuộc loại đổi kiến trúc / phá vỡ hợp đồng A
   5. Port `9000/8080` trùng tiến trình khác đang chạy trên máy → đổi `NGINX_PORT=8180`, `MINIO_API_PORT=9200`, `MINIO_CONSOLE_PORT=9201` (cả `.env` và `.env.example`).
   - Kết quả: `docker compose ps` cả 5 container `Up`/`healthy`; `curl localhost:8180/api/health` → 200; FE qua nginx (build production, không phải dev server) hiển thị đúng, 0 lỗi console.
 
+- 2026-08-10 — [GĐ8-D, nhánh `phan-quyen-4-cap`] Sửa 2 lỗi phát hiện khi kiểm chứng: (1) trang
+  Kho phim hiện trùng cùng phim 2 lần (kệ chuyên mục + lưới đầy đủ ngay dưới) khi chưa lọc gì —
+  ẩn lưới đầy đủ theo mô hình YouTube, chỉ hiện khi có bộ lọc/tìm kiếm đang bật (ADR-063), áp
+  cho cả `FilmListView.vue` và `FilmListMobileView.vue`; (2) trong lúc verify bằng đăng nhập
+  thật, phát hiện nút "Đăng nhập" KHÔNG submit được form (không có request nào tới
+  `/auth/login`) — `MButton.vue` hard-code `type="button"`, không forward prop `type` nên
+  `type="submit"` truyền từ `LoginView.vue` vô hiệu; thêm prop `type` tường minh (ADR-066). Đã
+  build lại Docker, verify bằng đăng nhập + bấm nút chuyên mục/switch "Chỉ hiển thị phim mới"
+  thật trên trình duyệt (không chỉ đọc code) — xác nhận cả desktop và mobile view đều đúng.
+  **Chưa port sang `phan-quyen-3-cap`.**
+
 ## Việc tiếp theo (next actions)
 1. **GĐ 5 (Nghiệp vụ nâng cao)** — Sonnet 5 (+ Opus 4.8 cho phần versioning nếu cần đào sâu).
    Còn thiếu theo 03-roadmap.md: thông báo phim mới (bảng `notifications`/`user_notifications`

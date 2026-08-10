@@ -366,8 +366,18 @@ function goNext() {
           @show-all="showAllOfCategory"
         />
 
+        <!-- Chưa lọc/tìm gì → phim đã hiện đủ ở kệ chuyên mục phía trên rồi, ẩn danh sách
+             đầy đủ để tránh hiện trùng cùng phim 2 lần trên 1 màn (ADR-063). -->
+        <p
+          v-if="!hasActiveFilter && !store.loading"
+          class="px-1 py-4 text-center text-[12.5px]"
+          style="color: var(--mds-text-secondary)"
+        >
+          Mở bộ lọc để xem danh sách đầy đủ tại đây.
+        </p>
+
         <!-- Danh sách phim dạng card, 1 cột (§4.1: xử lý từng bản ghi độc lập → card) -->
-        <div v-if="paged.length" class="flex flex-col gap-3">
+        <div v-else-if="paged.length" class="flex flex-col gap-3">
           <FilmCardMobile
             v-for="film in paged"
             :key="film.id"
@@ -394,7 +404,7 @@ function goNext() {
 
         <!-- Phân trang: Prev/Next theo MDS, mỗi nút là vùng chạm 48px, không dàn nút chữ -->
         <div
-          v-if="filtered.length"
+          v-if="hasActiveFilter && filtered.length"
           class="flex items-center justify-between gap-2 rounded-[18px] bg-white px-3 py-2.5"
           style="box-shadow: 0 4px 16px -4px rgba(16,24,40,0.12)"
         >
