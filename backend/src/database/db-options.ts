@@ -26,8 +26,12 @@ import { AddDownloadCountAndTitleIndex1722100000000 } from './migrations/1722100
  */
 export const dbOptions: DataSourceOptions = {
   type: 'mysql',
-  host: process.env.DB_HOST || 'mysql',
-  port: Number(process.env.DB_PORT || 3306),
+  // Cloud Run + Cloud SQL: nối qua Unix socket (/cloudsql/PROJECT:REGION:INSTANCE, tự mount
+  // khi deploy có --add-cloudsql-instances) thay vì host:port TCP. Đặt DB_SOCKET_PATH thì ưu
+  // tiên dùng — không đổi hành vi Docker Compose cục bộ (không set biến này).
+  ...(process.env.DB_SOCKET_PATH
+    ? { socketPath: process.env.DB_SOCKET_PATH }
+    : { host: process.env.DB_HOST || 'mysql', port: Number(process.env.DB_PORT || 3306) }),
   username: process.env.DB_USER || 'khophim',
   password: process.env.DB_PASSWORD || 'khophim',
   database: process.env.DB_NAME || 'kho_phim',

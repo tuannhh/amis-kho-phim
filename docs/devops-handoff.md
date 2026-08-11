@@ -9,6 +9,47 @@
 
 ---
 
+## 0a. Bản TEST đã triển khai trên Google Cloud Run (2026-08-10)
+
+**CHỈ để người dùng bấm thử qua trình duyệt — KHÔNG phải hạ tầng chính thức, không đại diện
+cho cách MISA sẽ triển khai thật.** Ghi lại đây để biết cấu hình nào đang chạy và dọn được khi
+xong việc test.
+
+- Project GCP: `prapplication-479309` (region `asia-southeast1`) — cùng project đang chạy các
+  app MISA khác (AMIS Event, MISA PR Workstation...).
+- **URL công khai duy nhất người test dùng:** `https://kho-phim-784559735000.asia-southeast1.run.app`
+  (service Cloud Run tên `kho-phim` — nginx reverse proxy, đóng đúng vai trò `nginx/nginx.conf`
+  cục bộ nhưng route sang 2 Cloud Run service khác bằng HTTPS + Host header thay vì DNS nội bộ
+  Docker; cấu hình ở `nginx-cloudrun/`, ADR-070).
+- **4 Cloud Run service**: `kho-phim` (proxy công khai), `kho-phim-backend`, `kho-phim-frontend`,
+  `kho-phim-minio`. **1 Cloud SQL**: `kho-phim-mysql` (MySQL 8.0, `db-f1-micro`, database `kho_phim`).
+- **Tài khoản test**: `superadmin@misa.com.vn`, mật khẩu sinh ngẫu nhiên lúc deploy — hỏi người
+  đã chạy lệnh deploy (không ghi mật khẩu thật vào file này, kể cả repo private).
+- **2 giới hạn CỐ Ý CHẤP NHẬN cho bản test, PHẢI đổi nếu lên thật:**
+  1. **MinIO KHÔNG có ổ đĩa bền** (`kho-phim-minio` chạy trên Cloud Run không gắn volume) —
+     nếu Cloud Run khởi động lại container (redeploy, hết instance rảnh lâu, sự cố hạ tầng),
+     **toàn bộ video/ảnh bìa đã tải lên sẽ MẤT**. Đã đặt `--min-instances=1` để giảm khả năng
+     này trong lúc test, nhưng không đảm bảo tuyệt đối. Nếu triển khai thật: MinIO cần ổ đĩa
+     thật (Compute Engine + persistent disk, hoặc GKE + PV) — KHÔNG chạy MinIO trên Cloud Run.
+  2. **`MINIO_API_CORS_ALLOW_ORIGIN=*`** (cho phép mọi origin gọi thẳng API MinIO để trình
+     duyệt upload qua presigned URL) — chấp nhận được cho test nội bộ ngắn hạn, KHÔNG dùng cấu
+     hình này ở môi trường thật (đổi về đúng domain FE).
+- Việc số 1 (`ALLOW_INSECURE_CONFIG`) **đã đúng** ở bản test này — biến này KHÔNG được đặt nên
+  backend đã tự kiểm tra và chấp nhận khởi động (không dùng secret mẫu).
+- 2 thay đổi code nhỏ, MANG TÍNH TƯƠNG THÍCH THÊM (không đổi hành vi Docker Compose cục bộ,
+  chỉ kích hoạt khi có biến môi trường mới) — xem ADR-070/071 trong `05-decisions.md`:
+  `DB_SOCKET_PATH` (nối MySQL qua Unix socket Cloud SQL) và `MINIO_ENDPOINT_URL` (ghi đè
+  endpoint MinIO bằng URL đầy đủ có scheme https, vì Cloud Run không có cổng tuỳ ý như Docker).
+- **Dọn dẹp khi hết nhu cầu test** (tiết kiệm chi phí Cloud SQL luôn chạy):
+  ```bash
+  gcloud run services delete kho-phim kho-phim-backend kho-phim-frontend kho-phim-minio \
+    --project=prapplication-479309 --region=asia-southeast1 --quiet
+  gcloud sql instances delete kho-phim-mysql --project=prapplication-479309 --quiet
+  gsutil rm -r gs://kho-phim-storage-prapplication-479309
+  ```
+
+---
+
 ## 0. Việc SỐ 1 — gỡ chốt an toàn dev
 
 `.env.example` có dòng:

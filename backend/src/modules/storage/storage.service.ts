@@ -55,7 +55,9 @@ export class StorageService implements OnModuleInit {
     const region = process.env.MINIO_REGION || 'us-east-1'
     const host = process.env.MINIO_ENDPOINT || 'minio'
     const port = Number(process.env.MINIO_PORT || 9000)
-    const internalEndpoint = `http://${host}:${port}`
+    // Cloud Run: MinIO chạy sau HTTPS (443, không lộ cổng tuỳ ý như Docker cục bộ) — cho phép
+    // ghi đè bằng URL đầy đủ có scheme thay vì luôn giả định http://host:port.
+    const internalEndpoint = process.env.MINIO_ENDPOINT_URL || `http://${host}:${port}`
     // Endpoint trình duyệt gọi được (ánh xạ cổng host) — mặc định khớp MINIO_API_PORT.
     const publicEndpoint = process.env.MINIO_PUBLIC_ENDPOINT || 'http://localhost:9200'
 

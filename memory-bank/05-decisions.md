@@ -15,6 +15,42 @@
 > — là bug bảo mật chung, cần port sang `phan-quyen-3-cap` ở đợt sau. **ADR-051 gắn `[RBAC4]`**
 > vì phụ thuộc `FILM_WRITE_ROLES` của mô hình 4 cấp.
 
+## ADR-071 — 2 biến môi trường TƯƠNG THÍCH THÊM cho triển khai Cloud Run (không đổi hành vi cục bộ)
+- **Bối cảnh:** Deploy bản test lên Google Cloud Run (xem `docs/devops-handoff.md` §0a). Hai
+  chỗ code giả định môi trường Docker Compose cục bộ, không chạy được nguyên trạng trên
+  Cloud Run: (1) `db-options.ts` nối MySQL qua TCP `host:port` — Cloud SQL trên Cloud Run
+  khuyến nghị nối qua Unix socket `/cloudsql/INSTANCE_CONNECTION_NAME` (tự mount khi deploy có
+  `--add-cloudsql-instances`), an toàn hơn TCP public IP; (2) `storage.service.ts` luôn tự ráp
+  `http://${host}:${port}` cho endpoint MinIO nội bộ — trên Cloud Run, MinIO chạy sau HTTPS
+  cổng 443 mặc định, không có cổng tuỳ ý như container Docker.
+- **Quyết định:** Thêm 2 biến môi trường TUỲ CHỌN, có fallback về hành vi cũ nếu KHÔNG đặt:
+  `DB_SOCKET_PATH` (đặt thì dùng `socketPath` thay vì `host`/`port`) và `MINIO_ENDPOINT_URL`
+  (đặt thì dùng thẳng làm endpoint nội bộ, bỏ qua `MINIO_ENDPOINT`/`MINIO_PORT`). Không sửa gì
+  ở `docker-compose.yml`/`.env.example` — 2 biến này không được đặt ở đó nên Docker cục bộ chạy
+  y hệt trước giờ.
+- **Không đổi `MINIO_PUBLIC_ENDPOINT`** — biến này vốn đã nhận URL đầy đủ có scheme ngay từ
+  đầu (`http://localhost:9200` mặc định), không cần thêm biến mới.
+
+## ADR-070 — Reverse proxy Cloud Run thay `nginx/nginx.conf` cục bộ bằng image riêng bake sẵn hostname
+- **Bối cảnh:** Bản Docker Compose cục bộ dùng 1 file `nginx/nginx.conf` gắn qua volume, trỏ
+  upstream tới `frontend`/`backend` bằng DNS nội bộ Docker (`server frontend:80`). Cloud Run
+  không có mạng nội bộ như vậy và không cho mount volume ngoài image — mỗi service là 1 URL
+  HTTPS công khai (hoặc nội bộ IAM) riêng biệt, phân biệt nhau bằng SNI/Host header trên cùng
+  hạ tầng frontend của Google, không phải bằng cổng/IP.
+- **Quyết định:** Thư mục mới `nginx-cloudrun/` — `Dockerfile` build từ `nginx:1.27-alpine`,
+  COPY thẳng 1 bản `nginx.conf` đã ĐIỀN SẴN hostname thật của 2 Cloud Run service kia (biết
+  được sau khi deploy backend/frontend, không cần envsubst runtime vì hostname cố định suốt
+  vòng đời service). Mỗi `location` set `Host` header đúng hostname đích + bật
+  `proxy_ssl_server_name`/`proxy_ssl_name` (bắt buộc để GFE — Google Front End — route đúng
+  service theo SNI) + `resolver 8.8.8.8` (DNS `*.run.app` không có trong resolver mặc định của
+  image nginx gốc). Giữ đúng 3 route như bản cục bộ: `/api/` + `/media/` → backend (thêm
+  `proxy_buffering off` + forward `Range`/`If-Range` cho `/media/` y hệt bản gốc, phục vụ
+  seek video), `/` → frontend.
+- **KHÔNG đụng `nginx/nginx.conf` gốc** — file đó vẫn phục vụ đúng mục đích Docker Compose cục
+  bộ, `nginx-cloudrun/` là bản riêng chỉ dùng khi deploy Cloud Run.
+- **Chỉ dùng cho bản TEST** — xem giới hạn đầy đủ ở `docs/devops-handoff.md` §0a (MinIO không
+  có ổ đĩa bền, CORS mở `*`).
+
 ## ADR-068 — Kệ mobile đổi từ thẻ cuộn ngang → danh sách dòng dọc kiểu YouTube [GĐ8-D]
 - **Bối cảnh:** Người dùng gửi ảnh so sánh với app AMIS Mobile thật và YouTube: kệ chuyên mục
   bản mobile (thẻ ảnh lớn cuộn ngang, mượn ý tưởng Netflix từ đợt 2 việc 14) "nhìn hơi xấu" so

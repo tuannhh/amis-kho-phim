@@ -1268,6 +1268,19 @@ Tất cả đều thuộc loại đổi kiến trúc / phá vỡ hợp đồng A
   hiện đúng 3 dòng dọc, "Xem tất cả"/chip chuyên mục mở đúng lưới đầy đủ, ô KPI 1 dòng không
   còn tràn. **Chưa port sang `phan-quyen-3-cap`.**
 
+- 2026-08-10 — [Triển khai TEST, nhánh `phan-quyen-4-cap`] Deploy lên Google Cloud Run theo yêu
+  cầu người dùng để bấm thử qua trình duyệt thật — KHÔNG phải hạ tầng chính thức. 4 Cloud Run
+  service (proxy công khai `kho-phim`, `kho-phim-backend`, `kho-phim-frontend`, `kho-phim-minio`)
+  + 1 Cloud SQL MySQL (`kho-phim-mysql`), cùng project GCP `prapplication-479309` đang chạy các
+  app MISA khác. 2 thay đổi code tương thích thêm (không đổi hành vi Docker cục bộ): nối MySQL
+  qua Unix socket Cloud SQL (`DB_SOCKET_PATH`) và ghi đè endpoint MinIO bằng URL đầy đủ
+  (`MINIO_ENDPOINT_URL`) — ADR-071. Thư mục mới `nginx-cloudrun/` build image proxy riêng bake
+  sẵn hostname 2 service kia — ADR-070. Verify end-to-end thật: build 3 image qua Cloud Build,
+  tạo DB + user Cloud SQL, đăng nhập qua API thật (không chỉ qua UI) xác nhận backend nối được
+  Cloud SQL, log backend xác nhận bucket MinIO tạo thành công lúc khởi động. Chi tiết đầy đủ +
+  2 giới hạn cố ý chấp nhận (MinIO không có ổ đĩa bền, CORS mở `*`) + lệnh dọn dẹp khi xong việc
+  test ở `docs/devops-handoff.md` §0a.
+
 ## Việc tiếp theo (next actions)
 1. **GĐ 5 (Nghiệp vụ nâng cao)** — Sonnet 5 (+ Opus 4.8 cho phần versioning nếu cần đào sâu).
    Còn thiếu theo 03-roadmap.md: thông báo phim mới (bảng `notifications`/`user_notifications`
