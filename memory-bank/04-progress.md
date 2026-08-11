@@ -4,6 +4,16 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
+- **2026-08-11 — Fix bug user báo trên bản Cloud Run + deploy lại `kho-phim-frontend`.**
+  User báo 2 lỗi: (1) không upload được file/ảnh bìa (cả mobile+desktop), (2) không tạo được
+  chuyên mục con trên mobile. Điều tra: (1) test lại TOÀN BỘ luồng thật qua trình duyệt (chọn
+  category, chọn file, bấm Xuất bản) trên chính bản Cloud Run đang chạy — presigned URL, PUT
+  lên MinIO, phát video qua `/media/` đều chạy đúng, KHÔNG tái hiện được lỗi; nghi nhiều khả
+  năng nhất là Service Worker/cache cũ ở máy user, chưa có bằng chứng lỗi code. (2) Xác nhận
+  đúng là bug thật — popover `MSelect` (z-[1000]) bị `MDrawer` (z-[1001]) đè lên trên mobile,
+  fix ở ADR-072, đã build lại + deploy revision `kho-phim-frontend-00002-5d6` và xác nhận trực
+  tiếp trên bản live (tạo được "chuyên mục con" lồng dưới chuyên mục cha). Dữ liệu phim/chuyên
+  mục test tạo ra trong lúc kiểm tra đã xoá sạch qua API sau khi xong.
 - **Việc mới nhất: GĐ 8 — GIAI ĐOẠN C — SỬA 3 LỖI UI NGƯỜI DÙNG CHỤP + QUÉT TOÀN DẢI VIEWPORT
   — ✅ XONG (2026-08-07, Opus 5), CHỈ trên nhánh `phan-quyen-4-cap`.** Nhật ký ở mục
   "Nhật ký GĐ 8 — Giai đoạn C" ngay dưới; quyết định ở **ADR-063, ADR-064, ADR-065**.

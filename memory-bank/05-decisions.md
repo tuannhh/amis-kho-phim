@@ -15,6 +15,22 @@
 > — là bug bảo mật chung, cần port sang `phan-quyen-3-cap` ở đợt sau. **ADR-051 gắn `[RBAC4]`**
 > vì phụ thuộc `FILM_WRITE_ROLES` của mô hình 4 cấp.
 
+## ADR-072 — MSelect popover z-index phải cao hơn MDrawer (bug chặn tạo chuyên mục con trên mobile)
+- **Bối cảnh:** Test bản Cloud Run, user báo "tạo được chuyên mục cha nhưng không tạo được
+  chuyên mục con trên mobile". `CategoryMobileView.vue` bọc form thêm/sửa trong `MDrawer`
+  (bottom sheet, `z-[1001]`), còn popover danh sách của `MSelect` (dùng cho ô "Nằm trong chuyên
+  mục") teleport ra `<body>` với `z-[1000]` — thấp hơn panel của drawer, nên danh sách chuyên
+  mục cha mở ra thì bị panel drawer đè lên, vừa không thấy vừa không bấm chọn được. Tạo chuyên
+  mục CHA không cần mở dropdown này (để trống) nên không lộ bug; tạo chuyên mục CON thì bắt
+  buộc phải chọn cha → luôn dính. Desktop không có drawer nên không bị ảnh hưởng.
+- **Quyết định:** Nâng z-index popover của `MSelect` (`frontend/src/components/mds/MSelect.vue`)
+  từ `z-[1000]` lên `z-[1100]`, cao hơn panel `MDrawer` (`z-[1001]`).
+- **Đã build lại + deploy `kho-phim-frontend` lên Cloud Run (revision 00002) và xác nhận trực
+  tiếp trên bản live**: tạo chuyên mục con "MISA JSC" lồng dưới "Phim Giới thiệu Công ty" thành
+  công.
+- **Lưu ý:** đây là bug UI chung (component `MSelect`/`MDrawer` không gắn nhãn nhánh RBAC), cần
+  port sang `phan-quyen-3-cap` cùng đợt với các ADR UI khác (063/066/067/068/069) khi tới lượt.
+
 ## ADR-071 — 2 biến môi trường TƯƠNG THÍCH THÊM cho triển khai Cloud Run (không đổi hành vi cục bộ)
 - **Bối cảnh:** Deploy bản test lên Google Cloud Run (xem `docs/devops-handoff.md` §0a). Hai
   chỗ code giả định môi trường Docker Compose cục bộ, không chạy được nguyên trạng trên
