@@ -914,6 +914,44 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
         .expect(400)
     })
 
+    it('upload intent chỉ dùng đúng một lần và chỉ cho đúng phim đã xin URL (MySQL + MinIO thật)', async () => {
+      const filmA = await createFilm(empA1Token, 'Phim intent A')
+      const filmB = await createFilm(empA1Token, 'Phim intent B')
+      const signed = await http()
+        .post(`/api/films/${filmA.id}/upload-url`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .send({ contentType: 'video/mp4', size: 4 })
+        .expect(201)
+
+      // Đẩy vài byte qua URL đã ký để confirmVersion head-check object thật trên MinIO.
+      const put = await fetch(signed.body.uploadUrl as string, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'video/mp4' },
+        body: Buffer.from([0, 1, 2, 3]),
+      })
+      expect(put.ok).toBe(true)
+
+      // Cùng actor nhưng phim khác vẫn phải bị từ chối: ownership gồm cả film_id, không chỉ key.
+      await http()
+        .post(`/api/films/${filmB.id}/versions`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .send({ storageKey: signed.body.storageKey })
+        .expect(400)
+
+      await http()
+        .post(`/api/films/${filmA.id}/versions`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .send({ storageKey: signed.body.storageKey })
+        .expect(201)
+
+      // Replay cùng key bị chặn bởi UPDATE ... status='pending' trong DB, không tạo version thứ hai.
+      await http()
+        .post(`/api/films/${filmA.id}/versions`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .send({ storageKey: signed.body.storageKey })
+        .expect(400)
+    })
+
     it('query báo cáo sai định dạng ngày → 400', () =>
       http()
         .get('/api/reports/films?from=27-07-2026')

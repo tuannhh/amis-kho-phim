@@ -10,6 +10,7 @@ import { FilmsController } from './films.controller'
 import { StorageModule } from '../storage/storage.module'
 import { NotificationsModule } from '../notifications/notifications.module'
 import { UsersModule } from '../users/users.module'
+import { UploadsModule } from '../uploads/uploads.module'
 
 /**
  * UsersModule được import để `FilmsService.assertCanManage` đọc được vai trò/phòng ban THẬT
@@ -21,6 +22,7 @@ import { UsersModule } from '../users/users.module'
     StorageModule,
     NotificationsModule,
     UsersModule,
+    UploadsModule,
   ],
   providers: [FilmsService],
   controllers: [FilmsController],

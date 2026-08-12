@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: amis-kho-phim-backend
+  namespace: amis-kho-phim
+spec:
+  selector:
+    app.kubernetes.io/name: amis-kho-phim-backend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

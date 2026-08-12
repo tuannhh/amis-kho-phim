@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { In, MoreThan, Repository } from 'typeorm'
+import { EntityManager, In, MoreThan, Repository } from 'typeorm'
 import { createHash } from 'node:crypto'
 import { Film } from './entities/film.entity'
 import { FilmLink, type ExternalFilmPlatform } from './entities/film-link.entity'
@@ -18,8 +18,9 @@ import { slugify } from '../../common/slugify'
 import { StorageService } from '../storage/storage.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { UsersService } from '../users/users.service'
+import { UploadIntentsService } from '../uploads/upload-intents.service'
 import type { RoleCode } from '../users/entities/role.entity'
-import imageSize from 'image-size'
+import { readThumbnailDimensions } from '../../common/media/thumbnail-dimensions'
 import { auditLog } from '../../common/audit/audit-log'
 
 /** Nguồn phát gồm cả 'storage' (MinIO) — GĐ3 có link thật. */
@@ -81,6 +82,7 @@ export class FilmsService {
     private readonly storage: StorageService,
     private readonly notifications: NotificationsService,
     private readonly users: UsersService,
+    private readonly uploadIntents: UploadIntentsService,
   ) {}
 
   /** Bản mới nhất (version_no lớn nhất) — nguồn của storage_key/thumbnail_key/duration. */
@@ -216,18 +218,25 @@ export class FilmsService {
     return !newest || newest.id === f.id
   }
 
-  private async findOrCreateHashtags(names: string[]): Promise<Hashtag[]> {
+  /**
+   * Nhận `manager` thay vì dùng thẳng `this.hashtags` — Tier A retrofit (2026-08-12): hàm
+   * này được gọi TRONG transaction của `create()`/`update()`, phải dùng chung
+   * EntityManager của transaction đó (nếu tự ý dùng repository ngoài transaction, việc tạo
+   * hashtag mới sẽ commit ngay lập tức dù phần còn lại của giao dịch rollback sau đó —
+   * đúng dạng "orphaned hashtag" đã nêu trong audit).
+   */
+  private async findOrCreateHashtags(names: string[], manager: EntityManager): Promise<Hashtag[]> {
     const uniqueNames = Array.from(new Set(names.map((n) => n.trim()).filter(Boolean)))
     if (!uniqueNames.length) return []
     const slugs = uniqueNames.map((n) => slugify(n))
-    const existed = await this.hashtags.find({ where: { slug: In(slugs) } })
+    const existed = await manager.find(Hashtag, { where: { slug: In(slugs) } })
     const bySlug = new Map(existed.map((h) => [h.slug, h]))
     const result: Hashtag[] = []
     for (let i = 0; i < uniqueNames.length; i++) {
       const slug = slugs[i]
       let h = bySlug.get(slug)
       if (!h) {
-        h = await this.hashtags.save(this.hashtags.create({ name: uniqueNames[i], slug }))
+        h = await manager.save(manager.create(Hashtag, { name: uniqueNames[i], slug }))
         bySlug.set(slug, h)
       }
       result.push(h)
@@ -259,34 +268,45 @@ export class FilmsService {
     return new Date().toISOString().slice(0, 10)
   }
 
+  /**
+   * RETROFIT TIER A (2026-08-12) — trước đây ghi `film` xong mới ghi `film_links` ở một câu
+   * lệnh tách rời: nếu bước 2 lỗi (mất kết nối DB, constraint vi phạm...), `film` vẫn tồn tại
+   * hợp lệ theo schema nhưng sai bất biến nghiệp vụ "phim mới phải có nguồn hợp lệ" — đúng
+   * "partial state" mà audit + phản hồi Codex (mục 1.1) chỉ ra. Bọc toàn bộ trong MỘT
+   * transaction: lỗi ở bất kỳ bước nào (kể cả `findOrCreateHashtags`) đều rollback hết,
+   * không để lại `film`/hashtag mồ côi.
+   */
   async create(actor: AuthUser, dto: UpsertFilmDto): Promise<PublicFilm> {
     const slug = await this.uniqueSlug(dto.title)
-    const hashtags = await this.findOrCreateHashtags(dto.hashtags || [])
 
     // SNAPSHOT phòng ban của người tạo, lấy từ DB — KHÔNG nhận từ DTO. Trường này quyết định
     // phạm vi quyền của Cấp 3 nên tuyệt đối không để client tự khai (`02-security-baseline`
     // §2: "không tin trường có ý nghĩa phân quyền do client gửi lên").
     const departmentId = await this.users.getDepartmentId(actor.id)
 
-    const film = await this.films.save(
-      this.films.create({
-        slug,
-        title: dto.title.trim(),
-        description: dto.description?.trim() || null,
-        categoryId: dto.categoryId,
-        uploaderId: actor.id,
-        departmentId,
-        viewCount: 0,
-        duration: '--:--',
-        publishedAt: this.today(),
-        hashtags,
-      }),
-    )
+    await this.films.manager.transaction(async (em) => {
+      const hashtags = await this.findOrCreateHashtags(dto.hashtags || [], em)
 
-    const links = this.linksFromDto(dto)
-    if (links.length) {
-      await this.filmLinks.save(links.map((l) => this.filmLinks.create({ filmId: film.id, ...l })))
-    }
+      const film = await em.save(
+        em.create(Film, {
+          slug,
+          title: dto.title.trim(),
+          description: dto.description?.trim() || null,
+          categoryId: dto.categoryId,
+          uploaderId: actor.id,
+          departmentId,
+          viewCount: 0,
+          duration: '--:--',
+          publishedAt: this.today(),
+          hashtags,
+        }),
+      )
+
+      const links = this.linksFromDto(dto)
+      if (links.length) {
+        await em.save(links.map((l) => em.create(FilmLink, { filmId: film.id, ...l })))
+      }
+    })
 
     // Thông báo "phim mới" tạm TẮT (2026-07-22, quyết định người dùng): thực tế sẽ có rất
     // nhiều phim đăng lên, bắn thông báo cho mọi user mỗi lần sẽ gây spam. Hạ tầng
@@ -341,25 +361,29 @@ export class FilmsService {
     throw new ForbiddenException('Bạn chỉ có thể sửa/xoá phim của chính mình')
   }
 
+  /** RETROFIT TIER A (2026-08-12) — cùng lý do transaction ở `create()`: sửa phim + xoá/ghi
+   * lại `film_links` + tạo hashtag mới đều phải cùng thành công hoặc cùng rollback. */
   async update(actor: AuthUser, id: number, dto: UpsertFilmDto): Promise<PublicFilm> {
     const film = await this.films.findOne({ where: { id } })
     if (!film) throw new NotFoundException('Không tìm thấy phim')
     await this.assertCanManage(actor, film)
 
-    film.title = dto.title.trim()
-    film.categoryId = dto.categoryId
-    film.description = dto.description?.trim() || null
-    // Sửa phim → coi như cập nhật bản mới, gắn lại tag "Phim mới" (khớp hành vi GĐ0.5;
-    // lịch sử phiên bản đầy đủ film_versions là GĐ5).
-    film.publishedAt = this.today()
-    film.hashtags = await this.findOrCreateHashtags(dto.hashtags || [])
-    await this.films.save(film)
+    await this.films.manager.transaction(async (em) => {
+      film.title = dto.title.trim()
+      film.categoryId = dto.categoryId
+      film.description = dto.description?.trim() || null
+      // Sửa phim → coi như cập nhật bản mới, gắn lại tag "Phim mới" (khớp hành vi GĐ0.5;
+      // lịch sử phiên bản đầy đủ film_versions là GĐ5).
+      film.publishedAt = this.today()
+      film.hashtags = await this.findOrCreateHashtags(dto.hashtags || [], em)
+      await em.save(film)
 
-    await this.filmLinks.delete({ filmId: film.id })
-    const links = this.linksFromDto(dto)
-    if (links.length) {
-      await this.filmLinks.save(links.map((l) => this.filmLinks.create({ filmId: film.id, ...l })))
-    }
+      await em.delete(FilmLink, { filmId: film.id })
+      const links = this.linksFromDto(dto)
+      if (links.length) {
+        await em.save(links.map((l) => em.create(FilmLink, { filmId: film.id, ...l })))
+      }
+    })
 
     // Thông báo "cập nhật" tạm TẮT — xem ghi chú ở create() (2026-07-22).
     // await this.notifications.notify(film.id, 'updated', actor.id)
@@ -476,6 +500,11 @@ export class FilmsService {
    * Xin presigned PUT URL cho file video — FE upload thẳng lên MinIO, không qua
    * Node (tránh buffer file lớn). RBAC: chỉ người quản lý được phim đó. Validate
    * MIME + size (MAX_UPLOAD_MB) ở SERVER, key sinh server-side.
+   *
+   * RETROFIT TIER A (2026-08-12) — sau khi ký xong, ghi lại CHỦ SỞ HỮU của key này
+   * (actor/film/loại/hạn) vào `upload_intents`. Trước đây key sinh ra không được lưu vết ở
+   * đâu — object bỏ dở trên MinIO (đóng tab/mất mạng trước khi gọi `confirmVersion`) không
+   * cách nào dọn có chủ đích. Xem `UploadIntentsService`.
    */
   async createUploadUrl(actor: AuthUser, id: number, dto: CreateUploadUrlDto) {
     await this.findManageableFilm(actor, id)
@@ -486,7 +515,15 @@ export class FilmsService {
       const maxMb = process.env.MAX_UPLOAD_MB || '2048'
       throw new BadRequestException(`Kích thước tệp vượt giới hạn ${maxMb}MB`)
     }
-    return this.storage.createVideoUploadUrl(dto.contentType)
+    const result = await this.storage.createVideoUploadUrl(dto.contentType)
+    await this.uploadIntents.record({
+      kind: 'video',
+      storageKey: result.storageKey,
+      filmId: id,
+      actorId: actor.id,
+      expiresInSec: result.expiresIn,
+    })
+    return result
   }
 
   /** Ảnh bìa tối đa 15MB — bằng giới hạn cũ của multer, giữ nguyên để không đổi hành vi. */
@@ -506,14 +543,23 @@ export class FilmsService {
     if (dto.size > FilmsService.MAX_THUMBNAIL_BYTES) {
       throw new BadRequestException('Ảnh bìa vượt giới hạn 15MB')
     }
-    return this.storage.createThumbnailUploadUrl(dto.contentType)
+    // Ghi ownership — cùng lý do đã ghi ở `createUploadUrl` (Tier A retrofit, 2026-08-12).
+    const result = await this.storage.createThumbnailUploadUrl(dto.contentType)
+    await this.uploadIntents.record({
+      kind: 'thumbnail',
+      storageKey: result.thumbnailKey,
+      filmId: id,
+      actorId: actor.id,
+      expiresInSec: result.expiresIn,
+    })
+    return result
   }
 
   /**
-   * Kiểm ảnh bìa ĐÃ nằm trên MinIO: đúng định dạng ảnh thật (magic bytes qua `image-size`,
+   * Kiểm ảnh bìa ĐÃ nằm trên MinIO: đúng định dạng ảnh thật (header parser giới hạn,
    * KHÔNG tin content-type client khai) + đúng tỷ lệ 16:9 + không vượt 15MB.
    *
-   * Chỉ tải về 64KB ĐẦU của file — quá đủ cho `image-size` đọc header JPEG/PNG/WebP, và đó là
+   * Chỉ tải về 64KB ĐẦU của file — quá đủ để đọc header JPEG/PNG/WebP, và đó là
    * lý do bỏ được luồng buffer toàn file trong RAM mà không hạ thấp mức kiểm tra nào.
    * Ảnh không hợp lệ bị XOÁ khỏi MinIO ngay, không để lại rác (cùng cách xử lý video quá cỡ).
    */
@@ -531,20 +577,13 @@ export class FilmsService {
       throw new BadRequestException('Tệp ảnh rỗng')
     }
 
-    let dim: { width?: number; height?: number; type?: string }
-    try {
-      dim = imageSize(head)
-    } catch {
+    const dim = readThumbnailDimensions(head)
+    if (!dim) {
       await this.storage.delete(key)
       throw new BadRequestException('Tệp không phải ảnh hợp lệ')
     }
-    const type = dim.type || ''
-    if (!['jpg', 'jpeg', 'png', 'webp'].includes(type)) {
-      await this.storage.delete(key)
-      throw new BadRequestException('Ảnh bìa phải là JPG, PNG hoặc WebP')
-    }
-    const w = dim.width || 0
-    const h = dim.height || 0
+    const w = dim.width
+    const h = dim.height
     if (!w || !h) {
       await this.storage.delete(key)
       throw new BadRequestException('Không đọc được kích thước ảnh')
@@ -560,6 +599,19 @@ export class FilmsService {
    * Xác nhận tạo bản mới sau khi FE upload xong file/ảnh. Head-check lại key
    * trong MinIO (chống client bịa key/size), lấy size thật, tạo film_versions
    * (version_no tăng dần), cập nhật duration + gắn lại "Phim mới" (publishedAt).
+   *
+   * RETROFIT TIER A (2026-08-12) — trước đây đọc `last.versionNo` NGOÀI giao dịch rồi mới
+   * ghi `version_no = last + 1`, cùng mẫu lỗi đã ghi ở `recordView`: 2 request confirmVersion
+   * song song cho cùng phim (vd. video xong trước, ảnh bìa xong sau, hoặc người dùng bấm xác
+   * nhận 2 lần) đều đọc được cùng `last.versionNo` trước khi request nào kịp ghi → trùng
+   * version_no. Sửa theo đúng mẫu `05-database-rules.md` §3: đưa câu đọc quyết định
+   * (`last`) vào TRONG giao dịch + khoá dòng phim đang đọc (`pessimistic_write`). Unique
+   * index `(film_id, version_no)` (migration AddFilmVersionsUniqueIndex1722200000000) là lớp
+   * chặn cuối nếu lock bị bỏ qua vì lý do nào đó.
+   *
+   * Các lệnh gọi MinIO (`storage.stat`, `assertValidThumbnail`) cố ý đứng NGOÀI giao dịch —
+   * đây là I/O mạng, để trong transaction sẽ giữ khoá dòng phim quá lâu (đúng nguyên tắc
+   * "giao dịch rất ngắn" đã áp dụng ở `recordView`).
    */
   async confirmVersion(actor: AuthUser, id: number, dto: ConfirmVersionDto): Promise<PublicFilm> {
     const film = await this.findManageableFilm(actor, id)
@@ -567,16 +619,7 @@ export class FilmsService {
       throw new BadRequestException('Cần ít nhất file video hoặc ảnh bìa để tạo bản mới')
     }
 
-    const last = await this.versions.findOne({
-      where: { filmId: film.id },
-      order: { versionNo: 'DESC' },
-    })
-
-    // Chỉ thay asset được upload mới; asset kia kế thừa từ bản trước (không để
-    // thêm mỗi ảnh bìa lại làm mất video cũ, vì toPublic chỉ dùng bản mới nhất).
-    let storageKey = dto.storageKey ?? last?.storageKey ?? null
-    let fileSize: string | null = last?.fileSize ?? null
-    let duration: string | null = dto.duration ?? last?.duration ?? null
+    let uploadedFileSize: number | null = null
     if (dto.storageKey) {
       const stat = await this.storage.stat(dto.storageKey)
       if (!stat) throw new BadRequestException('Không tìm thấy file đã upload trên storage')
@@ -590,37 +633,71 @@ export class FilmsService {
           `File đã upload vượt giới hạn ${maxMb}MB (thực tế ${Math.round(stat.size / 1024 / 1024)}MB) — đã huỷ`,
         )
       }
-      storageKey = dto.storageKey
-      fileSize = String(stat.size)
+      uploadedFileSize = stat.size
     }
-
-    let thumbnailKey = dto.thumbnailKey ?? last?.thumbnailKey ?? null
     if (dto.thumbnailKey) {
       // Ảnh bìa nay upload thẳng lên MinIO bằng presigned PUT, nên ĐÂY là chốt kiểm duy nhất
       // (trước kia kiểm ngay lúc nhận multipart). Không kiểm ở đây = nhận bừa mọi file client
       // đẩy lên dưới cái tên ảnh bìa.
       await this.assertValidThumbnail(dto.thumbnailKey)
-      thumbnailKey = dto.thumbnailKey
     }
 
-    const versionNo = (last?.versionNo || 0) + 1
-    await this.versions.save(
-      this.versions.create({
-        filmId: film.id,
-        versionNo,
-        storageKey,
-        fileSize,
-        duration,
-        thumbnailKey,
-        note: dto.note ?? null,
-        createdBy: actor.id,
-      }),
-    )
+    await this.films.manager.transaction(async (em) => {
+      // Khoá dòng phim TRƯỚC khi đọc version_no lớn nhất → request confirmVersion khác cho
+      // cùng phim phải chờ tới khi giao dịch này commit/rollback xong.
+      const lockedFilm = await em.findOne(Film, {
+        where: { id: film.id },
+        lock: { mode: 'pessimistic_write' },
+      })
+      if (!lockedFilm) throw new NotFoundException('Không tìm thấy phim')
 
-    // Cập nhật bản mới → gắn lại tag "Phim mới"; đồng bộ duration ra films (fallback).
-    film.publishedAt = this.today()
-    if (duration) film.duration = duration
-    await this.films.save(film)
+      const last = await em.findOne(FilmVersion, {
+        where: { filmId: film.id },
+        order: { versionNo: 'DESC' },
+      })
+
+      // Chỉ thay asset được upload mới; asset kia kế thừa từ bản trước (không để
+      // thêm mỗi ảnh bìa lại làm mất video cũ, vì toPublic chỉ dùng bản mới nhất).
+      const storageKey = dto.storageKey ?? last?.storageKey ?? null
+      const fileSize = dto.storageKey ? String(uploadedFileSize) : last?.fileSize ?? null
+      const duration = dto.duration ?? last?.duration ?? null
+      const thumbnailKey = dto.thumbnailKey ?? last?.thumbnailKey ?? null
+
+      // Claim intent TRƯỚC khi ghi version. Claim có điều kiện actor+film+kind+pending+TTL
+      // trong cùng transaction; nếu key bị replay, thuộc phim/người khác hoặc sweep đã reserve
+      // thì ném lỗi và toàn bộ transaction rollback, không sinh FilmVersion mồ côi.
+      if (dto.storageKey) {
+        await this.uploadIntents.claimForVersion(
+          { storageKey: dto.storageKey, kind: 'video', filmId: film.id, actorId: actor.id },
+          em,
+        )
+      }
+      if (dto.thumbnailKey) {
+        await this.uploadIntents.claimForVersion(
+          { storageKey: dto.thumbnailKey, kind: 'thumbnail', filmId: film.id, actorId: actor.id },
+          em,
+        )
+      }
+
+      const versionNo = (last?.versionNo || 0) + 1
+      await em.save(
+        em.create(FilmVersion, {
+          filmId: film.id,
+          versionNo,
+          storageKey,
+          fileSize,
+          duration,
+          thumbnailKey,
+          note: dto.note ?? null,
+          createdBy: actor.id,
+        }),
+      )
+
+      // Cập nhật bản mới → gắn lại tag "Phim mới"; đồng bộ duration ra films (fallback).
+      lockedFilm.publishedAt = this.today()
+      if (duration) lockedFilm.duration = duration
+      await em.save(lockedFilm)
+    })
 
     // Thông báo "cập nhật bản mới" tạm TẮT — xem ghi chú ở create() (2026-07-22).
     // if (versionNo > 1) {

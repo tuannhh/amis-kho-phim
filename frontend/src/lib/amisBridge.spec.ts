@@ -80,6 +80,21 @@ describe('getBridgeToken', () => {
     expect(() => getBridgeToken()).not.toThrow()
     expect(getBridgeToken()).toBeNull()
   })
+
+  it('BUILD PRODUCTION không bao giờ đọc ?ssoToken= — fail-closed (Tier A retrofit, 2026-08-12, Production Compatibility Gate)', async () => {
+    const wasDev = import.meta.env.DEV
+    // Mô phỏng build production: các bài test khác trong file này chạy dưới mode dev mặc
+    // định của Vitest — ca này ép DEV=false để chứng minh nhánh production KHÔNG đọc query
+    // param dù URL có mang theo (khác thử nghiệm trước đây từng để lộ token qua URL).
+    ;(import.meta.env as { DEV: boolean }).DEV = false
+    try {
+      const { getBridgeToken } = await loadWith('?ssoToken=token-tu-url')
+      window.AMISBridge = {}
+      expect(getBridgeToken()).toBeNull()
+    } finally {
+      ;(import.meta.env as { DEV: boolean }).DEV = wasDev
+    }
+  })
 })
 
 describe('nút back cứng của app mẹ', () => {

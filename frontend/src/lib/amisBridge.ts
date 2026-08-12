@@ -11,11 +11,14 @@
  *      cậy nhất khi chưa có bridge thật). Thực tế AMIS Mobile có thể có cách khác (User-Agent
  *      riêng, custom scheme, v.v.).
  *   2. Cách app mẹ truyền token đăng nhập — hiện thử `window.AMISBridge?.getToken?.()` (native
- *      tiêm sẵn object toàn cục) trước, fallback về query param `?ssoToken=...`.
+ *      tiêm sẵn object toàn cục) trước, fallback về query param `?ssoToken=...` CHỈ TRONG BUILD
+ *      DEV (xem `getBridgeToken` — Tier A retrofit 2026-08-12, Production Compatibility Gate).
  *      ‼️ CẢNH BÁO BẢO MẬT: query param sẽ lộ token trong URL (lịch sử trình duyệt, log server,
- *      referrer...). Đây CHỈ là giả định tạm để scaffold chạy được — KHÔNG được dùng nguyên
- *      trạng ở production thật. Khi có spec bridge thật, cơ chế đúng nhiều khả năng là
- *      `postMessage`/native bridge, không phải query param.
+ *      referrer...). Fallback này CHỈ để scaffold chạy được lúc dev cục bộ khi chưa có
+ *      `window.AMISBridge` thật — build production (`import.meta.env.PROD`) KHÔNG BAO GIỜ đọc
+ *      query param này, dù URL có mang theo. Khi có spec bridge thật, cơ chế đúng nhiều khả
+ *      năng là `postMessage`/native bridge, không phải query param — xoá hẳn fallback này khi
+ *      đó, không chỉ giữ nguyên trạng "vì đã có guard".
  */
 
 let embeddedCache: boolean | null = null
@@ -46,17 +49,24 @@ declare global {
 
 /**
  * Lấy token SSO app mẹ truyền qua bridge để đổi lấy JWT nội bộ (POST /auth/sso/amis-mobile).
- * Thử object native tiêm sẵn trước, fallback query param nếu không có.
+ * Thử object native tiêm sẵn trước; fallback query param `?ssoToken=` CHỈ hoạt động ở build
+ * dev (`import.meta.env.DEV`) — build production loại bỏ nhánh này hoàn toàn (Vite fold hằng
+ * số `import.meta.env.PROD/DEV` lúc build, không phải kiểm tra runtime có thể bị qua mặt).
  * TODO(DevOps/AMIS Mobile): thay bằng cách lấy token đúng theo spec bridge thật (có thể
- * postMessage bất đồng bộ chứ không phải đọc đồng bộ như dưới đây).
+ * postMessage bất đồng bộ chứ không phải đọc đồng bộ như dưới đây), rồi xoá hẳn fallback dev.
  */
 export function getBridgeToken(): string | null {
   const fromNative = window.AMISBridge?.getToken?.()
   if (fromNative) return fromNative
 
-  // Fallback tạm — KHÔNG dùng nguyên trạng ở production (xem cảnh báo bảo mật đầu file).
-  const fromQuery = new URLSearchParams(location.search).get('ssoToken')
-  return fromQuery || null
+  // Fail-closed theo Production Compatibility Gate (Tier A, 2026-08-12): query param lộ
+  // token qua URL (lịch sử trình duyệt, log server, referrer) — KHÔNG được đọc ở production
+  // dù URL có mang theo `?ssoToken=...`.
+  if (import.meta.env.DEV) {
+    const fromQuery = new URLSearchParams(location.search).get('ssoToken')
+    return fromQuery || null
+  }
+  return null
 }
 
 let backHandler: (() => void) | null = null

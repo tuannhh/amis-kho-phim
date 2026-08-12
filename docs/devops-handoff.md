@@ -354,7 +354,7 @@ Chi tiết đầy đủ kèm bằng chứng file:dòng ở `docs/danh-gia-an-nin
 | R-05 | `npm audit` còn cảnh báo (chủ yếu `multer@1.x`) | Info | Nâng cấp cần nâng NestJS — làm ở nhánh riêng |
 | R-06 | Audit log ghi ra stdout, chưa chống sửa đổi | Thấp | **Cần hạ tầng gom log tập trung** — xem ghi chú dưới |
 | R-07 | Chưa chốt `X-Frame-Options`/CSP `frame-ancestors` | Thấp | Chốt cùng mục 6 (cách nhúng AMIS Mobile) |
-| R-08 | Rate limit đếm trong bộ nhớ tiến trình | Thấp | **Cần Redis nếu chạy nhiều bản sao** — xem ghi chú dưới |
+| R-08 | Rate limit đếm trong bộ nhớ tiến trình | Có guard | Multi-replica bắt buộc `REDIS_URL`; cần xác nhận Redis HA/secret thật lúc go-live. |
 | R-10 | Chưa phân trang `/films`, `/users` | Thấp | Sẽ thành vấn đề hiệu năng khi kho phim lớn dần |
 | R-11 | Response không theo khuôn `{data}`/`{error}` chuẩn MISA | Info | Đổi sẽ phá vỡ toàn bộ frontend — cần quyết định riêng |
 | — | Access token còn sống ≤ 15 phút sau khi khoá tài khoản | TB | Giảm thiểu tạm bằng cách rút ngắn `JWT_ACCESS_TTL` |
@@ -372,9 +372,20 @@ Chi tiết đầy đủ kèm bằng chứng file:dòng ở `docs/danh-gia-an-nin
   chỉ-ghi (người bị điều tra không xoá được dấu vết), và **thời hạn lưu dài hơn** log gỡ lỗi
   thông thường. Nếu MISA yêu cầu tuân thủ chặt hơn, cân nhắc ghi thêm vào bảng `audit_logs`
   riêng (cần migration + chốt chính sách lưu trữ).
-- **R-08 — Rate limit khi chạy nhiều bản sao.** Bộ đếm hiện nằm trong bộ nhớ tiến trình, nên
-  mỗi bản sao đếm riêng: chạy 3 replica thì ngưỡng thực tế thành 30 lần/phút thay vì 10. Nếu
-  triển khai nhiều bản sao, chuyển `ThrottlerModule` sang store Redis dùng chung.
+- **R-08 — Rate limit khi chạy nhiều bản sao.** Đã chuyển có điều kiện: `MULTI_REPLICA=true`
+  thiếu `REDIS_URL` sẽ fail-fast; có URL thì throttler dùng Redis shared. Redis HA và credential
+  phải do hạ tầng quản lý qua secret manager.
+  Readiness cũng PING Redis: Redis chết thì Pod trả `503` ở `/api/health/ready` và Kubernetes
+  ngừng route traffic, còn liveness vẫn không restart mù. Chạy rehearsal local lặp lại bằng
+  `./scripts/rehearse-multi-replica.sh` (hai process + Redis thật, tự flush counter, request
+  thứ 11 xen kẽ phải trả `429`). `docker-compose.multi-replica.yml` là overlay của script.
+
+### Rehearsal restore backup (bắt buộc trước release migration)
+
+Chạy `./scripts/rehearse-db-restore.sh` từ root. Script chỉ dump source theo single transaction,
+restore vào DB mới có prefix `kho_phim_restore_rehearsal` rồi so khớp số dòng `users`, `films`,
+`migrations`; **không tự DROP bất kỳ database nào**. Đây xác minh backup/restore thực sự chạy
+được, không thay thế rehearsal migration trên snapshot pre-release do MISA vận hành.
 
 ---
 
@@ -408,7 +419,8 @@ Chi tiết đầy đủ kèm bằng chứng file:dòng ở `docs/danh-gia-an-nin
       (c) thời hạn lưu **dài hơn** log gỡ lỗi thông thường, theo chính sách tuân thủ của MISA.
       Nếu thiếu (b), nhật ký kiểm toán chỉ có giá trị vận hành, KHÔNG có giá trị điều tra —
       phải nói rõ điều đó với chủ dự án thay vì coi như đã đạt.
-- [ ] Nếu chạy nhiều bản sao: đã chuyển rate limit sang store Redis dùng chung (R-08)
+- [ ] Nếu chạy nhiều bản sao: Secret có `REDIS_URL`, test rate limit chung giữa >=2 Pod;
+      migration Job hoàn tất trước rollout và CronJob sweep đang chạy (`deploy/k8s/README.md`).
 
 ---
 

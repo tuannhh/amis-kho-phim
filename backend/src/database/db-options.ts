@@ -10,6 +10,7 @@ import { FilmView } from '../modules/films/entities/film-view.entity'
 import { Department } from '../modules/departments/entities/department.entity'
 import { Notification } from '../modules/notifications/entities/notification.entity'
 import { UserNotification } from '../modules/notifications/entities/user-notification.entity'
+import { UploadIntent } from '../modules/uploads/entities/upload-intent.entity'
 import { InitAuth1721500000000 } from './migrations/1721500000000-InitAuth'
 import { InitCatalog1721600000000 } from './migrations/1721600000000-InitCatalog'
 import { AddFilmVersions1721700000000 } from './migrations/1721700000000-AddFilmVersions'
@@ -17,11 +18,17 @@ import { AddFilmViews1721800000000 } from './migrations/1721800000000-AddFilmVie
 import { AddNotifications1721900000000 } from './migrations/1721900000000-AddNotifications'
 import { AddDepartmentsAndRbac4Levels1722000000000 } from './migrations/1722000000000-AddDepartmentsAndRbac4Levels'
 import { AddDownloadCountAndTitleIndex1722100000000 } from './migrations/1722100000000-AddDownloadCountAndTitleIndex'
+import { AddFilmVersionsUniqueIndex1722200000000 } from './migrations/1722200000000-AddFilmVersionsUniqueIndex'
+import { AddUploadIntents1722300000000 } from './migrations/1722300000000-AddUploadIntents'
+import { runMigrationsOnBoot } from '../common/config/security.config'
 
 /**
  * Cấu hình kết nối MySQL DÙNG CHUNG cho AppModule (runtime) và DataSource CLI (migration).
  * synchronize=false: chỉ tạo/đổi schema qua migration (ADR — không auto-sync).
- * migrationsRun=true: tự chạy migration khi khởi động → Docker không cần bước thủ công.
+ * migrationsRun: mặc định tự chạy migration khi khởi động (giữ hành vi cũ, Docker không cần
+ * bước thủ công) — TẮT ĐƯỢC bằng `RUN_MIGRATIONS_ON_BOOT=false`, BẮT BUỘC tắt khi
+ * `MULTI_REPLICA=true` (chặn ở `assertSecureConfig`, xem `security.config.ts` — Tier A/Gate-4
+ * retrofit 2026-08-12, Production Compatibility Gate).
  * Đăng ký entity/migration TƯỜNG MINH (không glob) để chạy đúng cả ở dist (.js) lẫn dev (.ts).
  */
 export const dbOptions: DataSourceOptions = {
@@ -63,6 +70,7 @@ export const dbOptions: DataSourceOptions = {
     FilmView,
     Notification,
     UserNotification,
+    UploadIntent,
   ],
   migrations: [
     InitAuth1721500000000,
@@ -72,7 +80,9 @@ export const dbOptions: DataSourceOptions = {
     AddNotifications1721900000000,
     AddDepartmentsAndRbac4Levels1722000000000,
     AddDownloadCountAndTitleIndex1722100000000,
+    AddFilmVersionsUniqueIndex1722200000000,
+    AddUploadIntents1722300000000,
   ],
   synchronize: false,
-  migrationsRun: true,
+  migrationsRun: runMigrationsOnBoot(),
 }

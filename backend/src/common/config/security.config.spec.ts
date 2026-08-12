@@ -80,6 +80,38 @@ describe('collectConfigIssues', () => {
     expect(issues).toHaveLength(1)
     expect(issues[0].level).toBe('warn')
   })
+
+  // Tier A/Gate-4 retrofit (2026-08-12, Production Compatibility Gate): multi-replica đã
+  // khai báo nhưng chưa tắt tự chạy migration lúc khởi động → phải CHẶN, không phải cảnh báo.
+  it('MULTI_REPLICA=true nhưng chưa tắt RUN_MIGRATIONS_ON_BOOT → fatal', () => {
+    const issues = collectConfigIssues({ ...secureEnv(), MULTI_REPLICA: 'true' })
+    expect(issues.some((i) => i.level === 'fatal' && i.message.includes('RUN_MIGRATIONS_ON_BOOT'))).toBe(
+      true,
+    )
+  })
+
+  it('MULTI_REPLICA=true + RUN_MIGRATIONS_ON_BOOT=false → không báo vấn đề gì', () => {
+    const issues = collectConfigIssues({
+      ...secureEnv(),
+      MULTI_REPLICA: 'true',
+      RUN_MIGRATIONS_ON_BOOT: 'false',
+      REDIS_URL: 'redis://redis.internal:6379/0',
+    })
+    expect(issues).toEqual([])
+  })
+
+  it('MULTI_REPLICA=true thiếu REDIS_URL → fatal, không để rate limit tách theo Pod', () => {
+    const issues = collectConfigIssues({
+      ...secureEnv(),
+      MULTI_REPLICA: 'true',
+      RUN_MIGRATIONS_ON_BOOT: 'false',
+    })
+    expect(issues.some((i) => i.level === 'fatal' && i.message.includes('REDIS_URL'))).toBe(true)
+  })
+
+  it('KHÔNG khai báo MULTI_REPLICA (single-instance mặc định) → migrationsRun=true không bị chặn', () => {
+    expect(collectConfigIssues(secureEnv())).toEqual([])
+  })
 })
 
 describe('assertSecureConfig', () => {

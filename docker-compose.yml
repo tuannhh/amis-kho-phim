@@ -45,9 +45,24 @@ services:
       retries: 10
     networks: [kho-phim-net]
 
+  # Dùng khi diễn tập multi-replica local; single-instance vẫn không kết nối Redis trừ khi
+  # MULTI_REPLICA=true. Giữ service trong compose để cùng lệnh có thể dựng đúng dependency.
+  redis:
+    image: redis:7.4-alpine
+    container_name: khophim-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [kho-phim-net]
+
   backend:
     build: ./backend
-    container_name: khophim-backend
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -84,10 +99,17 @@ services:
       # GĐ6.1 — SSO AMIS Mobile placeholder: rỗng = TẮT (an toàn mặc định). Xem .env.example.
       AMIS_SSO_SHARED_SECRET: ${AMIS_SSO_SHARED_SECRET:-}
       AMIS_SSO_MAX_TTL_SECONDS: ${AMIS_SSO_MAX_TTL_SECONDS:-300}
+      # Multi-replica rehearsal/production: fail-fast ở security.config nếu bật mà thiếu Redis
+      # hoặc còn để app tự chạy migration. Single-instance mặc định giữ nguyên hành vi cũ.
+      MULTI_REPLICA: ${MULTI_REPLICA:-false}
+      RUN_MIGRATIONS_ON_BOOT: ${RUN_MIGRATIONS_ON_BOOT:-true}
+      REDIS_URL: ${REDIS_URL:-}
     depends_on:
       mysql:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks: [kho-phim-net]
 
@@ -113,6 +135,7 @@ services:
 volumes:
   mysql_data:
   minio_data:
+  redis_data:
 
 networks:
   kho-phim-net:

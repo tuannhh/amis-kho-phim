@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: amis-kho-phim-upload-intent-sweep
+  namespace: amis-kho-phim
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: sweep
+              image: REGISTRY/amis-kho-phim-backend:TAG
+              command: ["node", "dist/jobs/sweep-upload-intents.js"]
+              envFrom:
+                - secretRef:
+                    name: amis-kho-phim-runtime
+              env:
+                - name: NODE_ENV
+                  value: production
+                - name: MULTI_REPLICA
+                  value: "true"
+                - name: RUN_MIGRATIONS_ON_BOOT
+                  value: "false"

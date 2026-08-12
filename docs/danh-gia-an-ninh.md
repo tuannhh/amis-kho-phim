@@ -128,7 +128,7 @@ quyền, thay vì chỉ đi theo các hàm kiểm quyền đã có.
 | 3.4 | **CSV / Formula injection** | ✅ | **ĐÃ SỬA GĐ7.** Baseline yêu cầu "escape đúng ngữ cảnh" — CSV mở bằng Excel là một ngữ cảnh riêng. Ô bắt đầu bằng `= + - @ Tab CR` được thêm nháy đơn dẫn đầu (`reports.service.ts:toCsv`). Có test cho từng ký tự. |
 | 3.5 | SSRF | ✅ | Không có chỗ nào server tự gọi URL do client cung cấp. Link ngoài (YouTube/Drive) **chỉ được lưu và render ở client**, backend không bao giờ tự fetch — đã xác minh `films.service.ts:linksFromDto` chỉ trim và lưu chuỗi. |
 | 3.6 | Giới hạn kích thước/định dạng input ở server | ✅ | Mọi DTO có `@MaxLength` (vd `film.dto.ts:28` mô tả 2000 ký tự, `:33` tối đa 20 hashtag). Ảnh bìa ≤ 15MB (`films.controller.ts:89`). Video theo `MAX_UPLOAD_MB`. |
-| 3.7 | Kiểm định dạng file thật bằng magic bytes | ✅ | `films.service.ts:saveThumbnail` dùng `image-size` đọc magic bytes, từ chối nếu type không thuộc jpg/png/webp — **không tin** `Content-Type` client khai. Còn ép tỷ lệ 16:9. |
+| 3.7 | Kiểm định dạng file thật bằng magic bytes | ✅ | `thumbnail-dimensions.ts` chỉ đọc header PNG/JPEG/WebP từ tối đa 64KB, mọi offset đều kiểm bounds, từ chối nếu không đúng định dạng — **không tin** `Content-Type` client khai. Còn ép tỷ lệ 16:9. Không dùng parser ảnh tổng quát với input người dùng. |
 | 3.8 | **Giới hạn dung lượng thực tế của file đã upload** | ⚠️ | **ĐÃ SỬA MỘT PHẦN GĐ7.** Presigned PUT của S3 không ràng buộc `Content-Length` → client xin URL cho 1MB vẫn PUT được 50GB. Nay `confirmVersion` kiểm size THẬT do MinIO báo, vượt hạn thì từ chối **và xoá object rác** (`films.service.ts` trong nhánh `if (dto.storageKey)`). Xem R-04. |
 | 3.9 | Deserialization không an toàn | ✅ | Chỉ dùng `JSON.parse` chuẩn, và chỉ sau khi đã xác minh chữ ký HMAC (`auth.service.ts:verifySsoToken` — parse ở `:82`, sau bước verify ở `:73-78`). |
 
@@ -189,7 +189,7 @@ quyền, thay vì chỉ đi theo các hàm kiểm quyền đã có.
 
 | Mã | Rủi ro | Mức | Vì sao không tự sửa |
 |---|---|:--:|---|
-| R-05 | Lỗ hổng tồn đọng trong cây phụ thuộc | Thông tin | **Số liệu đo 2026-07-29:** backend **19 CVE ở phạm vi production** (10 moderate, 9 high; 0 critical) và 50 nếu tính cả devDependency; frontend **0 CVE ở phạm vi production** (8 CVE đều nằm trong devDependency build-time của `vite-plugin-pwa`). Đã chạy `npm audit fix` (không `--force`): **không có bản vá an toàn nào áp dụng được** — 100% bản vá còn lại đòi nâng major (`@nestjs/*` 10→11, `typeorm`, `multer` 1→2). Nâng major giữa đợt hardening vi phạm 6.4 và nguyên tắc 2. **Khuyến nghị cụ thể:** mở nhánh `chore/upgrade-nestjs-11`, nâng đồng bộ `@nestjs/*` + `typeorm` + `multer`, dựa vào 175 test hiện có làm lưới an toàn, rồi hạ ngưỡng cổng chặn CI từ `critical` xuống `high`. |
+| R-05 | Lỗ hổng tồn đọng trong cây phụ thuộc | Theo dõi có thời hạn | **Đo lại 2026-08-12:** backend **14 CVE production** (10 moderate, 4 high; 0 critical). Đã áp dụng bản vá non-breaking cho `brace-expansion` và bỏ hẳn `image-size` (high, không có bản vá) bằng parser header bị giới hạn + test. Bốn CVE high còn lại đi qua Nest 10/Swagger/Multer; `npm audit fix --force` sẽ nhảy major Nest/Multer nên không được tự động áp dụng trong đợt reliability này. CI chặn `critical`; việc còn lại có owner rõ ràng: nhánh `chore/upgrade-nestjs-11`, nâng đồng bộ `@nestjs/*` + `typeorm` + `multer`, chạy full suite rồi nâng ngưỡng CI lên `high`. |
 
 ---
 
@@ -220,14 +220,13 @@ quyền, thay vì chỉ đi theo các hàm kiểm quyền đã có.
 | 8.4 | HSTS | ⚠️ | Đã chuẩn bị sẵn dòng cấu hình (comment) trong `nginx.conf`, **cố ý chưa bật** vì compose dev chạy HTTP thuần — baseline nói rõ chỉ bật khi có HTTPS thật. |
 | 8.5 | CORS không mở rộng không cần thiết | ✅ | **ĐÃ SỬA GĐ7.** Trước: `origin: true` phản chiếu mọi origin. Nay `corsOrigins()` — production mặc định không phản chiếu, chỉ mở khi khai báo `CORS_ORIGINS`. Dev giữ nguyên để không gãy Vite. 3 test. |
 | 8.6 | **Rate limit endpoint xác thực** | ✅ | **ĐÃ SỬA GĐ7.** Xem 1.10. Đã xác minh bằng gọi thật, không chỉ đọc code. |
-| 8.7 | Rate limit trên môi trường nhiều bản sao | ⚠️ | Bộ đếm nằm trong bộ nhớ tiến trình → mỗi bản sao đếm riêng. Xem R-08. |
+| 8.7 | Rate limit trên môi trường nhiều bản sao | ✅* | `MULTI_REPLICA=true` bắt buộc `REDIS_URL`; backend dùng Redis chung cho Throttler. Cấu hình và manifest ở `deploy/k8s/`; cần xác nhận Redis HA thật trước khi release. |
 
 **Rủi ro còn treo ở mục 8**
 
 | Mã | Rủi ro | Mức | Vì sao không tự sửa |
 |---|---|:--:|---|
 | R-07 | Chưa chốt `X-Frame-Options`/CSP `frame-ancestors` (8.2) | Thấp | GĐ6.1 dự kiến nhúng app vào khung AMIS Mobile. Đặt `DENY` sẽ làm hỏng việc nhúng nếu app mẹ dùng iframe; nếu dùng WebView thật thì header không ảnh hưởng. **Không thể quyết đúng khi chưa biết cách nhúng** — đúng nguyên tắc "không tự suy diễn". Vị trí sẵn sàng kèm hướng dẫn đã đặt trong `nginx.conf`. |
-| R-08 | Rate limit dùng bộ nhớ tiến trình, chạy nhiều bản sao sẽ đếm rời rạc (8.7) | Thấp | Cần Redis chia sẻ bộ đếm. Chỉ có ý nghĩa khi đã biết mô hình triển khai thật (hiện chưa xác nhận được với đội hạ tầng MISA). Đã ghi vào `devops-handoff.md`. |
 
 > **Về CSP đầy đủ:** cố ý chưa áp CSP nghiêm ngặt cho tài liệu HTML. Frontend là SPA Vue +
 > Tailwind + service worker; một CSP sai một dòng sẽ làm trắng trang toàn ứng dụng. Việc này
@@ -378,14 +377,6 @@ Iframe → dùng `Content-Security-Policy: frame-ancestors <origin của app m�
 `X-Frame-Options` (không hỗ trợ allowlist theo origin).
 
 ---
-
-### R-08 · Rate limit đếm trong bộ nhớ tiến trình — Thấp
-
-**Vì sao được phép treo.** Chỉ thành vấn đề khi chạy nhiều bản sao, mà mô hình triển khai thật
-thì **chưa xác nhận được với đội hạ tầng MISA**.
-
-**Khuyến nghị.** Nếu chạy ≥ 2 bản sao: cài `@nest-lab/throttler-storage-redis`, trỏ
-`ThrottlerModule.forRoot({ storage: ... })` sang Redis dùng chung. Không đổi gì ở decorator.
 
 ---
 

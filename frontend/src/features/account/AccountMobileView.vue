@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Tài khoản — màn hình CHỈ CÓ Ở COMPACT (<600px), GĐ8-B.
+ * Tài khoản — màn hình Native Mobile cho điện thoại/tablet (<1200px).
  *
  * Lý do tồn tại: từ ADR-061, ở Compact Kho phim ẩn hẳn `MHeaderBar`. Những thứ vốn nằm trong
  * thanh đó mà vẫn CÒN Ý NGHĨA khi chạy nhúng trong AMIS Mobile được gom về đây, đúng một chỗ:
@@ -26,14 +26,14 @@ import { useWindowSize } from '@/lib/windowSize'
 const router = useRouter()
 const auth = useAuthStore()
 const notifications = useNotificationsStore()
-const { isCompact } = useWindowSize()
+const { isNativeMobile } = useWindowSize()
 
 const emit = defineEmits<{ (e: 'notifications'): void }>()
 
 watch(
-  isCompact,
-  (compact) => {
-    if (!compact) router.replace({ name: 'films' })
+  isNativeMobile,
+  (nativeMobile) => {
+    if (!nativeMobile) router.replace({ name: 'films' })
   },
   { immediate: true },
 )

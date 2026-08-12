@@ -1,0 +1,24 @@
+# Overlay rehearsal local: hai process backend THẬT cùng MySQL/MinIO/Redis nhưng publish cổng
+# riêng để test có chủ đích request xen kẽ. Dùng kèm docker-compose.yml, không phải production.
+#
+# MULTI_REPLICA=true RUN_MIGRATIONS_ON_BOOT=false REDIS_URL=redis://redis:6379 \
+#   docker compose -f docker-compose.yml -f docker-compose.multi-replica.yml up -d --build
+services:
+  backend:
+    ports:
+      - "${MULTI_REPLICA_BACKEND_A_PORT:-8301}:3000"
+    environment:
+      MULTI_REPLICA: "true"
+      RUN_MIGRATIONS_ON_BOOT: "false"
+      REDIS_URL: redis://redis:6379
+
+  backend-2:
+    extends:
+      file: docker-compose.yml
+      service: backend
+    ports:
+      - "${MULTI_REPLICA_BACKEND_B_PORT:-8302}:3000"
+    environment:
+      MULTI_REPLICA: "true"
+      RUN_MIGRATIONS_ON_BOOT: "false"
+      REDIS_URL: redis://redis:6379

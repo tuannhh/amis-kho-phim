@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { APP_GUARD } from '@nestjs/core'
 import { ConfigModule } from '@nestjs/config'
 import { ThrottlerModule } from '@nestjs/throttler'
+import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis'
 import { TypeOrmModule } from '@nestjs/typeorm'
 import { HealthController } from './common/health.controller'
 import { dbOptions } from './database/db-options'
@@ -15,6 +16,8 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { ReportsModule } from './modules/reports/reports.module'
 import { JwtAuthGuard } from './common/auth/jwt-auth.guard'
 import { RolesGuard } from './common/auth/roles.guard'
+import { RedisHealthService } from './common/redis-health.service'
+import Redis from 'ioredis'
 
 /**
  * AppModule — gốc lắp ráp các module domain (kiến trúc module hoá, 01-architecture.md).
@@ -22,6 +25,35 @@ import { RolesGuard } from './common/auth/roles.guard'
  * JwtAuthGuard (xác thực) chạy TRƯỚC RolesGuard (phân quyền). Route công khai gắn @Public.
  */
 const dbEnabled = process.env.DB_ENABLED !== 'false'
+const multiReplica = process.env.MULTI_REPLICA === 'true'
+
+/**
+ * Single instance giữ store memory nhẹ như prototype. Multi Pod/Swarm phải dùng Redis dùng
+ * chung; assertSecureConfig chặn boot nếu thiếu REDIS_URL, nên không có đường fallback âm
+ * thầm làm nới rate limit theo số replica.
+ */
+const throttlerOptions = {
+  throttlers: [{ name: 'default', ttl: 60_000, limit: 60 }],
+  // AppModule được nạp trước khi main.ts gọi assertSecureConfig(). Chỉ tạo Redis store khi
+  // URL thực sự có mặt, rồi để assertSecureConfig() chặn hẳn cấu hình multi-replica thiếu URL.
+  ...(multiReplica && process.env.REDIS_URL
+    ? { storage: new ThrottlerStorageRedisService(process.env.REDIS_URL) }
+    : {}),
+}
+
+const redisHealthProvider = {
+  provide: RedisHealthService,
+  useFactory: () =>
+    multiReplica && process.env.REDIS_URL
+      ? new RedisHealthService(
+          new Redis(process.env.REDIS_URL, {
+            connectTimeout: 3_000,
+            enableOfflineQueue: false,
+            maxRetriesPerRequest: 1,
+          }),
+        )
+      : new RedisHealthService(),
+}
 
 @Module({
   imports: [
@@ -29,7 +61,7 @@ const dbEnabled = process.env.DB_ENABLED !== 'false'
     // GĐ7 — hạ tầng rate limit. CỐ Ý KHÔNG đăng ký ThrottlerGuard toàn cục: route
     // /media/:key phát video sinh rất nhiều request Range khi tua, giới hạn toàn cục
     // sẽ làm gãy trình phát. Chỉ AuthController bật guard này (chống dò mật khẩu).
-    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 60 }]),
+    ThrottlerModule.forRoot(throttlerOptions),
     // Kết nối MySQL utf8mb4 (config dùng chung với CLI migration). Tắt bằng DB_ENABLED=false.
     ...(dbEnabled
       ? [
@@ -47,11 +79,14 @@ const dbEnabled = process.env.DB_ENABLED !== 'false'
       : []),
   ],
   controllers: [HealthController],
-  providers: dbEnabled
-    ? [
+  providers: [
+    redisHealthProvider,
+    ...(dbEnabled
+      ? [
         { provide: APP_GUARD, useClass: JwtAuthGuard },
         { provide: APP_GUARD, useClass: RolesGuard },
       ]
-    : [],
+      : []),
+  ],
 })
 export class AppModule {}

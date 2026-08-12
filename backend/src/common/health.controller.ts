@@ -2,6 +2,7 @@ import { Controller, Get, Optional, ServiceUnavailableException } from '@nestjs/
 import { InjectDataSource } from '@nestjs/typeorm'
 import { DataSource } from 'typeorm'
 import { Public } from './auth/public.decorator'
+import { RedisHealthService } from './redis-health.service'
 
 /**
  * Health check — dùng cho nginx/docker/orchestrator. Công khai (không cần đăng nhập).
@@ -24,6 +25,7 @@ export class HealthController {
    */
   constructor(
     @Optional() @InjectDataSource() private readonly dataSource?: DataSource,
+    private readonly redisHealth: RedisHealthService = new RedisHealthService(),
   ) {}
 
   @Public()
@@ -40,8 +42,17 @@ export class HealthController {
   @Get('ready')
   async ready() {
     if (!this.dataSource) {
-      // Chạy chế độ không DB — coi như sẵn sàng, nói rõ để không gây hiểu nhầm.
-      return { status: 'ready', database: 'disabled', time: new Date().toISOString() }
+      // Chạy chế độ không DB chỉ có ở development/test. Dù vậy Redis vẫn là dependency của
+      // multi-replica, nên không được trả ready giả khi shared throttler đã mất.
+      const redis = await this.redisHealth.status()
+      if (redis === 'unreachable') {
+        throw new ServiceUnavailableException({
+          status: 'not-ready',
+          database: 'disabled',
+          redis: 'unreachable',
+        })
+      }
+      return { status: 'ready', database: 'disabled', redis, time: new Date().toISOString() }
     }
     try {
       await this.dataSource.query('SELECT 1')
@@ -53,6 +64,19 @@ export class HealthController {
         database: 'unreachable',
       })
     }
-    return { status: 'ready', database: 'ok', time: new Date().toISOString() }
+    const redis = await this.redisHealth.status()
+    if (redis === 'unreachable') {
+      throw new ServiceUnavailableException({
+        status: 'not-ready',
+        database: 'ok',
+        redis: 'unreachable',
+      })
+    }
+    return {
+      status: 'ready',
+      database: 'ok',
+      redis,
+      time: new Date().toISOString(),
+    }
   }
 }

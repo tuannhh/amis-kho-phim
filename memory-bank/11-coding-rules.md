@@ -88,6 +88,10 @@
 - **Thêm endpoint nhận id bản ghi từ request → phải kiểm quyền sở hữu**, dùng lại
   `FilmsService.assertCanManage`/`findManageableFilm` thay vì tự viết điều kiện mới.
 - **Ghi `auditLog()` cho mọi hành động nhạy cảm mới** (xoá dữ liệu, đổi quyền, xuất hàng loạt).
+- **Presigned upload phải được claim atomically trước khi tạo `FilmVersion`.** Điều kiện claim
+  luôn gồm `storageKey + kind + filmId + actorId + status=pending + expiresAt>now`, thực hiện
+  bằng một `UPDATE` trong cùng transaction; không dùng `find` rồi `update`, và không đánh dấu
+  consume sau khi đã lưu version. Đây là hàng rào ownership và chống replay/race (ADR-075).
 
 ## 5. Nghiệp vụ — những hành vi trông như bug nhưng là CHỦ ĐÍCH
 
@@ -154,8 +158,8 @@ Ghi ở đây để người sau không "sửa" nhầm:
 
 - **Chạy `npm test` ở CẢ backend lẫn frontend trước khi báo xong**, không chỉ phần vừa sửa.
 - **Bốn lệnh test, đừng quên hai lệnh sau:**
-  `cd backend && npm test` (216 unit) · `cd backend && npm run test:e2e` (106 tích hợp, cần
-  `docker compose up -d mysql`) · `cd frontend && npm test` (69) ·
+  `cd backend && npm test` (252 unit) · `cd backend && npm run test:e2e` (107 tích hợp, cần
+  `docker compose up -d mysql minio`) · `cd frontend && npm test` (105) ·
   `cd backend && npm run test:concurrency` (cần TOÀN BỘ stack chạy, mất ~2,5 phút) ·
   `cd backend && npm run test:concurrency:upload` (tải đồng thời luồng upload, ~10 giây).
 - **e2e dùng database RIÊNG `kho_phim_e2e`**, tự DROP+CREATE mỗi lần chạy. Có chốt an toàn
@@ -175,3 +179,13 @@ Ghi ở đây để người sau không "sửa" nhầm:
   Backend có `--ignore-scripts`; **frontend CỐ Ý KHÔNG có** vì `sharp` cần postinstall.
 - **Docker Compose hiện tại chỉ dành cho dev** — không dùng cho production
   (xem `docs/devops-handoff.md` mục 2).
+- **`MULTI_REPLICA=true` bắt buộc có `REDIS_URL`.** Rate limit phải dùng Redis dùng chung; job
+  migration chạy một lần tách khỏi web Deployment; cleanup upload-intent chạy bằng CronJob,
+  không theo request ở từng Pod. Xem `deploy/k8s/README.md` và ADR-075.
+- **Multi-replica chỉ được coi là verified sau rehearsal 2 process.** Dùng
+  `scripts/rehearse-multi-replica.sh` (tự dựng overlay + flush Redis) rồi chạy assertion;
+  kết quả bắt buộc là mười `401` xen kẽ và request 11 là `429`. Readiness phải hạ `503` khi Redis
+  không reachable; không dùng liveness để restart mù vì lỗi dependency.
+- **Rehearsal backup/restore không được ghi đè source.** Chạy `scripts/rehearse-db-restore.sh`;
+  target phải có prefix `kho_phim_restore_rehearsal`, script fail nếu target tồn tại và không tự
+  DROP database. Điều này là bằng chứng backup restore, khác với migration rehearsal pre-release.

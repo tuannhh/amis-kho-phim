@@ -10,11 +10,11 @@ describe('pickView', () => {
   const desktop = { name: 'desktop' }
   const mobile = { name: 'mobile' }
 
-  it('Compact (<600px) dùng view mobile', () => {
+  it('điện thoại và tablet native surface dùng view mobile', () => {
     expect(pickView(true, desktop, mobile)).toBe(mobile)
   })
 
-  it('Medium/Expanded/Large dùng view desktop', () => {
+  it('desktop surface dùng view desktop', () => {
     expect(pickView(false, desktop, mobile)).toBe(desktop)
   })
 

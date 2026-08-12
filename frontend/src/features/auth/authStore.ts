@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { isEmbedded, getBridgeToken } from '@/lib/amisBridge'
+import { getHostAdapter } from '@/lib/hostAdapter'
+import { getAuthTransport } from '@/lib/authTransport'
 
 /**
  * RBAC 4 CẤP CÓ SCOPE PHÒNG BAN (ADR-040) — khớp `RoleCode` của backend
@@ -27,17 +28,18 @@ export interface AuthUser {
 }
 
 const API = (import.meta.env.VITE_API_BASE as string) || '/api'
-const LS_ACCESS = 'kp.accessToken'
-const LS_REFRESH = 'kp.refreshToken'
-
 /**
  * Auth store — nguồn danh tính phía FE (thay CURRENT_MOCK_USER của GĐ0.5).
- * Token lưu localStorage để giữ phiên qua reload (mức prototype; GĐ7 chuyển OIDC).
+ * Token lưu qua `AuthTransport` (mặc định localStorage — mức prototype; GĐ7 chuyển OIDC).
+ * Retrofit Tier B (2026-08-12, Production Compatibility Gate): store KHÔNG biết token nằm ở
+ * đâu — chỉ gọi `getAuthTransport()`, xem cảnh báo bảo mật + kế hoạch đổi sang cookie HttpOnly
+ * ở `lib/authTransport.ts`.
  * LƯU Ý: FE chỉ để hiển thị/UX — quyền THỰC được backend kiểm (RolesGuard/service).
  */
 export const useAuthStore = defineStore('auth', () => {
-  const accessToken = ref<string | null>(localStorage.getItem(LS_ACCESS))
-  const refreshToken = ref<string | null>(localStorage.getItem(LS_REFRESH))
+  const transport = getAuthTransport()
+  const accessToken = ref<string | null>(transport.getAccessToken())
+  const refreshToken = ref<string | null>(transport.getRefreshToken())
   const user = ref<AuthUser | null>(null)
   const ready = ref(false) // đã thử khôi phục phiên xong chưa (cho router guard chờ)
 
@@ -51,16 +53,14 @@ export const useAuthStore = defineStore('auth', () => {
   function setTokens(access: string, refresh: string) {
     accessToken.value = access
     refreshToken.value = refresh
-    localStorage.setItem(LS_ACCESS, access)
-    localStorage.setItem(LS_REFRESH, refresh)
+    transport.setTokens(access, refresh)
   }
 
   function clear() {
     accessToken.value = null
     refreshToken.value = null
     user.value = null
-    localStorage.removeItem(LS_ACCESS)
-    localStorage.removeItem(LS_REFRESH)
+    transport.clear()
   }
 
   async function login(email: string, password: string) {
@@ -130,15 +130,15 @@ export const useAuthStore = defineStore('auth', () => {
 
   /**
    * Khôi phục phiên lúc mở app: có refresh token thì lấy /me. Nếu chưa có phiên và đang
-   * chạy nhúng trong AMIS Mobile (GĐ6.1, xem lib/amisBridge.ts) có token bridge → thử SSO
-   * trước khi coi như "chưa đăng nhập" (tránh nháy màn login rồi lại vào app).
+   * chạy nhúng trong AMIS Mobile (GĐ6.1, xem lib/hostAdapter.ts + lib/amisBridge.ts) có token
+   * bridge → thử SSO trước khi coi như "chưa đăng nhập" (tránh nháy màn login rồi lại vào app).
    */
   async function restore() {
     if (accessToken.value && refreshToken.value) {
       const ok = await refresh()
       if (!ok) clear()
-    } else if (isEmbedded()) {
-      const bridgeToken = getBridgeToken()
+    } else if (getHostAdapter().isEmbedded()) {
+      const bridgeToken = getHostAdapter().getBridgeToken()
       if (bridgeToken) await loginViaBridge(bridgeToken)
       // Thất bại/không có token bridge → rơi xuống, ready=true, router cho hiện LoginView
       // thường (embedded vẫn chấp nhận đăng nhập email/mật khẩu làm phương án dự phòng).

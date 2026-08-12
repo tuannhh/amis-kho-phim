@@ -1,0 +1,7 @@
+resources:
+  - namespace.yaml
+  - service.yaml
+  - deployment.yaml
+  - migration-job.yaml
+  - upload-intent-sweep-cronjob.yaml
+  - pdb.yaml

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { isEmbedded, registerBackHandler } from '@/lib/amisBridge'
+import { getHostAdapter } from '@/lib/hostAdapter'
 import MHeaderBar from '@/components/mds/MHeaderBar.vue'
 import MSidebar from '@/components/mds/MSidebar.vue'
 import MToast from '@/components/mds/MToast.vue'
@@ -31,7 +31,7 @@ const notifications = useNotificationsStore()
 
 // GĐ6 — PWA & Mobile: window size class (mobile-pwa.md §2), trạng thái mạng và
 // service worker cập nhật (mobile-pwa.md §7).
-const { isCompact, sizeClass } = useWindowSize()
+const { isNativeMobile, sizeClass } = useWindowSize()
 const { isOnline } = useNetworkStatus()
 const { needRefresh, offlineReady, applyUpdate, dismissOfflineReady } = usePwaUpdate()
 
@@ -51,14 +51,17 @@ function toggleNotificationsPanel() {
 // Trang auth (login/đổi mật khẩu) hiển thị full-page, không header/sidebar.
 const isBlank = computed(() => route.meta.blank === true)
 
-// GĐ6.1 — Chế độ nhúng trong WebView AMIS Mobile (scaffold, xem lib/amisBridge.ts):
-// app mẹ đã có chrome riêng (header/điều hướng của nó) nên Kho phim ẩn hẳn MHeaderBar +
-// sidebar/bottom-nav, chỉ render router-view full màn hình — tương tự cách isBlank xử lý
-// trang auth, nhưng áp dụng cho MỌI route khi đang nhúng.
-const isEmbeddedMode = isEmbedded()
+// GĐ6.1 — capability của WebView AMIS Mobile đi qua HostAdapter. Host sở hữu launcher/status
+// bar, còn mini-app vẫn phải sở hữu native top bar/navigation nghiệp vụ ở cả phone/tablet.
+//
+// Retrofit Tier B (2026-08-12, Production Compatibility Gate): gọi qua `getHostAdapter()`
+// thay vì thẳng `isEmbedded()`/`window.AMISBridge` rải rác — implementation đổi được (khi có
+// bridge contract thật) mà không phải sửa lại component này.
+const host = getHostAdapter()
+const isEmbeddedMode = host.isEmbedded()
 
 /**
- * GĐ8-B (ADR-061) — Ở COMPACT, ẨN HẲN `MHeaderBar`.
+ * Native Mobile (phone + tablet) không dựng `MHeaderBar` Platform.
  *
  * Đây là NGOẠI LỆ CÓ CHỦ ĐÍCH với quy chuẩn "web app độc lập phải có header MDS"
  * (`references/patterns/header-bar.md`). Lý do: mô hình phân phối THẬT của Kho phim trên
@@ -66,8 +69,8 @@ const isEmbeddedMode = isEmbedded()
  * app AMIS Mobile — tức luôn nhúng, và app mẹ đã có chrome riêng. Dựng thêm một thanh brand
  * nữa bên trong chỉ tạo cảm giác "web thu nhỏ" chứ không thêm chức năng nào.
  *
- * Không áp dụng cho Medium/Expanded/Large: ở các kích thước đó người dùng thực sự mở bằng
- * trình duyệt, header MDS giữ NGUYÊN như trước.
+ * Tablet vẫn là native surface theo UI compliance gate, kể cả chạy browser test/PWA; desktop
+ * Platform bắt đầu từ 1200px.
  *
  * Những chức năng của header bị mất được bù ở đâu:
  *   - Tìm kiếm  → ô tìm kiếm ngay trong `FilmListMobileView` (không còn dựa vào icon header).
@@ -76,26 +79,19 @@ const isEmbeddedMode = isEmbedded()
  *   - Nút 9 chấm chuyển ứng dụng + cụm AVA/Chat/Trợ giúp → KHÔNG bù, vô nghĩa khi nhúng
  *     trong AMIS Mobile (app mẹ đã có).
  */
-const showMdsHeader = computed(() => !isCompact.value)
-
-/**
- * Layout "không chrome" của GĐ6.1 chỉ còn dùng khi nhúng ở kích thước KHÔNG phải Compact
- * (trường hợp hiếm: tablet/WebView rộng). Ở Compact, dù có nhúng hay không, ta vẫn dựng vỏ
- * mobile riêng (hero header + bottom nav) vì đó mới là thứ người dùng cần để đi lại giữa các
- * màn của Kho phim — app mẹ không điều hướng hộ bên trong Kho phim.
- */
-const isChromeless = computed(() => isEmbeddedMode && !isCompact.value)
+const showMdsHeader = computed(() => !isNativeMobile.value)
 
 // Nút back cứng của app mẹ (Android) gọi vào đây qua window.__khoPhimHandleNativeBack.
-// TODO(AMIS Mobile bridge thật): điểm nối window.AMISBridge?.closeWebview?.() bên dưới là
-// giả định tạm — xác nhận lại tên hàm thật với đội AMIS Mobile.
+// TODO(AMIS Mobile bridge thật): `host.closeApp()` (xem lib/hostAdapter.ts) gọi
+// window.AMISBridge?.closeWebview?.() — tên hàm CHƯA xác nhận với đội AMIS Mobile, đây vẫn
+// là giả định tạm dù đã gom về một chỗ.
 onMounted(() => {
   if (!isEmbeddedMode) return
-  registerBackHandler(() => {
+  host.registerBackHandler(() => {
     if (route.name !== 'films' && router.currentRoute.value.fullPath !== '/') {
       router.back()
     } else {
-      window.AMISBridge?.closeWebview?.()
+      host.closeApp()
     }
   })
 })
@@ -147,7 +143,7 @@ const collapsed = computed<boolean>({
 })
 
 /* ── Bottom nav Compact (GĐ8-B) ───────────────────────────────────────────────
- * Bottom nav chỉ chứa TỐI ĐA 4 mục + FAB (mobile-pwa.md §3 cho phép <= 5 điểm đến cấp một;
+ * Bottom nav chỉ chứa TỐI ĐA 4 mục + FAB (mobile native spec cho phép <= 5 điểm đến cấp một;
  * FAB tính là một). Danh sách sidebar đầy đủ của Cấp 3/Cấp 4 dài hơn thế, nên:
  *   - "Thêm phim" KHÔNG còn là một tab — nó trở thành FAB ở giữa thanh (hành động chính,
  *     không phải một điểm đến ngang hàng), và chỉ hiện khi có quyền tạo phim.
@@ -202,7 +198,7 @@ const SECOND_LEVEL_ROUTES = new Set([
   'admin-reports',
 ])
 const showBottomNav = computed(
-  () => isCompact.value && !SECOND_LEVEL_ROUTES.has(route.name as string),
+  () => isNativeMobile.value && !SECOND_LEVEL_ROUTES.has(route.name as string),
 )
 
 /**
@@ -282,21 +278,14 @@ function offlineRetry() {
     <p class="text-[13px]" style="color: var(--mds-text-secondary)">Đang xác thực...</p>
   </div>
 
-  <!-- Layout embedded ở kích thước KHÔNG phải Compact: full màn hình, không header/sidebar/
-       bottom-nav (app mẹ tự có chrome). Ở Compact dùng vỏ mobile bên dưới — xem isChromeless. -->
-  <template v-else-if="isChromeless">
-    <router-view />
-    <MToast />
-  </template>
-
   <!-- Layout auth: full-page -->
   <router-view v-else-if="isBlank" />
 
-  <!-- Layout app: header + sidebar (Medium+) · hero header từng màn + bottom nav (Compact) -->
+  <!-- Layout app: desktop header/sidebar (>=1200) · native phone/tablet shell (<1200). -->
   <div
     v-else
   class="flex flex-col"
-  :class="{ 'mds-mobile-app': isCompact }"
+  :class="{ 'mds-mobile-app': isNativeMobile }"
     style="background: var(--mds-bg-page, #ECEDEF); min-height: 100dvh; height: 100dvh"
   >
     <div ref="topBarEl" class="shrink-0" style="padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right)">
@@ -326,7 +315,7 @@ function offlineRetry() {
         search-placeholder="Tìm phim theo tên, hashtag... (Enter để tìm)"
         :user="currentUser"
         :notification-count="notifications.unreadCount"
-        :compact="isCompact"
+        :compact="false"
         :show-whats-new="false"
         @search="onHeaderSearch"
         @logo-click="goHome"
@@ -335,7 +324,7 @@ function offlineRetry() {
       />
     </div>
 
-    <NotificationsPanel v-model="notificationsPanelOpen" :top-offset="topBarHeight + 4" :full-screen="isCompact" />
+    <NotificationsPanel v-model="notificationsPanelOpen" :top-offset="topBarHeight + 4" :full-screen="isNativeMobile" />
 
     <!-- Popover menu người dùng -->
     <template v-if="userMenuOpen">
@@ -373,24 +362,21 @@ function offlineRetry() {
     </template>
 
     <div class="flex min-h-0 flex-1">
-      <!-- Compact (<600px): KHÔNG giữ sidebar cố định (mobile-pwa.md §2/§3) — thay bằng
-           bottom navigation vì sidebarItems tối đa 5 điểm đến ổn định, đủ điều kiện dùng
-           bottom nav thay vì drawer. -->
+      <!-- Native phone/tablet: không dùng sidebar desktop; dùng app navigation riêng. -->
       <MSidebar
-        v-if="!isCompact"
+        v-if="!isNativeMobile"
         :items="sidebarItems"
         :model-value="activeKey"
         v-model:collapsed="collapsed"
         @update:model-value="onNavigate"
       />
       <main class="min-w-0 flex-1 overflow-hidden" :style="showBottomNav ? { paddingBottom: 'calc(var(--mds-mobile-bottom-nav-height) + var(--mds-mobile-safe-bottom))' } : {}">
-        <!-- Ở Compact các màn cấp một tự dựng thanh đầu trang và tự phát `notifications`
-             (chuông nằm trên hero header của màn, không còn trên header MDS). -->
+        <!-- Native view tự dựng top bar/hero và phát notifications, không dùng header desktop. -->
         <router-view @notifications="toggleNotificationsPanel" />
       </main>
     </div>
 
-    <!-- Bottom navigation — Compact only. 4 mục + FAB "Thêm phim" ở giữa (xem MobileBottomNav). -->
+    <!-- Bottom navigation — Native phone/tablet. 4 mục + FAB "Thêm phim" ở giữa. -->
     <MobileBottomNav
       v-if="showBottomNav"
       :items="mobileNavItems"

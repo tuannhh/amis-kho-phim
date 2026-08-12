@@ -838,6 +838,15 @@
   (production có thể chuyển sang presigned GET ngắn hạn — ghi nhận nợ kỹ thuật). Verify:
   curl + fetch trình duyệt đều trả 206 `bytes 0-999/113422`, đúng số byte.
 
+## ADR-075 — Atomic upload intent + multi-replica runtime + tablet native surface [2026-08-12]
+- **Quyết định:** claim `upload_intents` bằng một UPDATE có điều kiện key+actor+film+kind+
+  pending+TTL trong cùng transaction trước save version; sweep reserve `cleaning` trước xóa.
+  Multi-replica fail-fast nếu không tắt migration boot hoặc thiếu Redis shared. K8s migration
+  Job/CronJob cleanup và Swarm scheduler là đường vận hành chuẩn. View native được chọn dưới
+  1200px, gồm tablet/split view; embedded tablet không chromeless.
+- **Lý do:** update theo key sau save không chống IDOR/replay/expiry/race. In-memory throttle
+  nhân ngưỡng theo Pod. MDS cấm tablet rơi về Platform desktop shell.
+
 ## ADR-020 — Chọn @aws-sdk/client-s3 (S3-compatible) cho MinIO, key sinh server-side [GĐ3]
 - **Quyết định:** Dùng `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner` (forcePathStyle)
   thay vì `minio` client — chuẩn S3, dễ chuyển sang AMIS Drive/S3 thật khi bàn giao. Hai

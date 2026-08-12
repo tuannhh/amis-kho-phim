@@ -111,6 +111,14 @@ FE hiển thị **các nút link** tương ứng nguồn nào có. Trang xem có
 - `vite-plugin-pwa` (Workbox): manifest, installable, cache app shell, offline fallback.
 - Không cache file video (chỉ cache UI + metadata).
 
+## 8b. Multi-replica và upload (2026-08-12)
+- Khi `MULTI_REPLICA=true`, web replica bắt buộc `RUN_MIGRATIONS_ON_BOOT=false`; migration chạy
+  một Job/task trước rollout. Rate limit auth bắt buộc dùng Redis chung qua `REDIS_URL`.
+- Presigned upload được ghi `upload_intents`; `confirmVersion` claim atomically theo
+  key+actor+film+kind+pending+TTL trong transaction trước khi ghi version. Cleanup reserve
+  `cleaning` trước khi xoá object để không race với confirm.
+- K8s dùng Migration Job + CronJob cleanup; Swarm dùng one-shot task/scheduler. Xem `deploy/`.
+
 ## 9. UTF-8 / Tiếng Việt
 - MySQL `utf8mb4` + collation `utf8mb4_unicode_ci`.
 - Backend trả JSON UTF-8; slug hoá tiếng Việt (bỏ dấu) cho URL.

@@ -13,19 +13,19 @@ import { defineAsyncComponent, defineComponent, h, type Component } from 'vue'
 import { useWindowSize } from './windowSize'
 
 /**
- * Chọn view theo size class. Tách riêng thành hàm THUẦN để test được logic quyết định
+ * Chọn view theo surface. Tách riêng thành hàm THUẦN để test được logic quyết định
  * mà không cần mount cả cây component (component thật cần router/pinia/API).
  */
-export function pickView<T>(isCompact: boolean, desktop: T, mobile: T): T {
-  return isCompact ? mobile : desktop
+export function pickView<T>(isNativeMobile: boolean, desktop: T, mobile: T): T {
+  return isNativeMobile ? mobile : desktop
 }
 
 /**
  * Bọc 2 component thành 1 "resolver" dùng làm component của route.
  *
- * `isCompact` là computed trên `window.innerWidth` (xem windowSize.ts) nên khi người dùng
- * kéo resize cửa sổ qua mốc 600px, render function chạy lại và Vue tự unmount view cũ,
- * mount view mới — KHÔNG cần tải lại trang.
+ * `isNativeMobile` ưu tiên contract host AMIS, fallback theo `window.innerWidth` khi browser
+ * test/PWA. MDS yêu cầu tablet dùng composition native riêng; khi surface đổi Vue tự unmount
+ * view cũ, mount view mới — KHÔNG cần tải lại trang.
  */
 export function responsiveView(
   desktop: Component,
@@ -35,8 +35,8 @@ export function responsiveView(
   return defineComponent({
     name,
     setup() {
-      const { isCompact } = useWindowSize()
-      return () => h(pickView(isCompact.value, desktop, mobile))
+      const { isNativeMobile } = useWindowSize()
+      return () => h(pickView(isNativeMobile.value, desktop, mobile))
     },
   })
 }

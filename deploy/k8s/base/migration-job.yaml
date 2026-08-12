@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: amis-kho-phim-migrate-TAG
+  namespace: amis-kho-phim
+  labels:
+    app.kubernetes.io/name: amis-kho-phim-backend
+    app.kubernetes.io/component: migration
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migration
+          image: REGISTRY/amis-kho-phim-backend:TAG
+          command: ["npm", "run", "migration:run"]
+          envFrom:
+            - secretRef:
+                name: amis-kho-phim-runtime
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: MULTI_REPLICA
+              value: "true"
+            - name: RUN_MIGRATIONS_ON_BOOT
+              value: "false"

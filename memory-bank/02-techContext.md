@@ -12,6 +12,7 @@
 | Auth | JWT (access+refresh), bcrypt/argon2 | chỗ cắm OIDC AMIS sau |
 | Reverse proxy | nginx | serve FE + proxy /api + /media |
 | Container | Docker + Docker Compose | 5 service |
+| Multi-replica | Redis dùng chung + K8s Job/CronJob | Throttle, migration, cleanup upload |
 | Test | Vitest (FE) + Jest (BE) + Supertest (e2e) | |
 
 ## Cấu trúc thư mục (dự kiến)
@@ -45,6 +46,8 @@ amis-kho-phim/
 ## Biến môi trường chính (.env)
 `MYSQL_*`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`,
 `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `MAX_UPLOAD_MB`, `NEW_FILM_TTL_DAYS=14`, `VITE_API_BASE`.
+
+Multi-replica bắt buộc thêm `MULTI_REPLICA=true`, `RUN_MIGRATIONS_ON_BOOT=false`, `REDIS_URL`.
 
 ## Quy ước
 - Commit theo Conventional Commits; nhánh `feat/<module>`.

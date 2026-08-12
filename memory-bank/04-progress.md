@@ -4,6 +4,25 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
+- **2026-08-12 — Production remediation sau independent audit — ✅ code + local verification.**
+  Sửa P0 upload-intent bằng atomic conditional claim trong đúng transaction tạo version (cấm
+  cross-film/replay); multi-replica dùng Redis shared throttler, migration Job, upload-cleanup
+  CronJob và PDB K8s; mobile/tablet luôn chọn native composition khi chạy trong host AMIS (và
+  browser fallback <1200px). Đã xác minh **252 unit BE + 107 e2e MySQL/MinIO + 105 unit FE**,
+  typecheck/build cả hai phía, image backend mới `ready`, tải đồng thời 30 video + 30 thumbnail
+  pass, `kubectl kustomize`/Compose hợp lệ. Còn bắt buộc ở môi trường MISA: Redis HA/secret,
+  rehearsal migration trên backup, rollout 3 Pod và QA AMIS Mobile OS/bridge thật — chưa được
+  phép ghi là PASS từ local.
+- **2026-08-12 — Reliability rehearsal bổ sung — ✅ local evidence.** Redis outage làm cả hai
+  backend multi-replica trả readiness `503`, Redis phục hồi thì cả hai `ready`; test HTTP xen kẽ
+  xác nhận request login thứ 11 bị `429` qua shared Redis (không phải memory từng process).
+  Backup source được dump/restore thành công vào `kho_phim_restore_rehearsal`, đối chiếu
+  `users/films/migrations = 6/8/10`. Thêm CI production-compatibility gate và script rehearsal
+  lặp lại; còn production staging/AMIS host là external gate.
+- **2026-08-12 — Giảm bề mặt CVE parser ảnh — ✅ verified.** Bỏ dependency `image-size` có
+  advisory high không có bản vá, thay bằng parser header PNG/JPEG/WebP giới hạn 64KB với bounds
+  check từng offset và 4 unit test. `npm audit --omit=dev` còn 0 critical, 4 high/10 moderate
+  do chuỗi Nest 10/Swagger/Multer cần upgrade major có kiểm soát; đã ghi owner/risk register.
 - **2026-08-11 — Fix bug user báo trên bản Cloud Run + deploy lại `kho-phim-frontend`.**
   User báo 2 lỗi: (1) không upload được file/ảnh bìa (cả mobile+desktop), (2) không tạo được
   chuyên mục con trên mobile. Điều tra: (1) test lại TOÀN BỘ luồng thật qua trình duyệt (chọn
@@ -1206,6 +1225,10 @@ Tất cả đều thuộc loại đổi kiến trúc / phá vỡ hợp đồng A
   guard đẩy về Kho phim; 0 lỗi console. Đã chụp ảnh Review Gate.
 
 ## Nhật ký GĐ 0 + 0.5
+- 2026-08-12 — [Production remediation] Upload intent được claim atomically theo actor/phim/loại/
+  pending/TTL trước FilmVersion; cleanup reserve trước delete. E2E MySQL+MinIO chứng minh chặn
+  cross-film và replay. Thêm Redis throttler guard, K8s migration Job/CronJob/PDB, Swarm runbook;
+  tablet <1200px dùng native mobile composition thay cho desktop shell.
 - 2026-07-21 — [GĐ 0] Chốt stack: NestJS + MySQL + MinIO, FE Vue3+Tailwind+MDS, PWA, Docker — DONE
 - 2026-07-21 — [GĐ 0] Khởi tạo memory bank + chiến lược UI-first (Review Gate mỗi GĐ) — DONE
 - 2026-07-21 — [GĐ 0] Scaffold FE: Vite Vue3-TS + Tailwind v4 + copy bộ MDS (37 file) + tokens, theme blue — DONE

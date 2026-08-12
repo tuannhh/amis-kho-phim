@@ -51,9 +51,8 @@ const THUMB_KEY = 'thumb-00000000-0000-0000-0000-000000000000.png'
 
 /**
  * Dựng 33 byte đầu của một file PNG hợp lệ (chữ ký 8 byte + chunk IHDR mang width/height).
- * `image-size` chỉ cần chừng này để đọc kích thước — đúng bản chất tối ưu của ADR-055: server
- * chỉ tải 64KB đầu từ MinIO thay vì cả file. Dùng buffer thật thay vì mock `image-size` để
- * test đo đúng hành vi thư viện, không đo mock của chính mình.
+ * Parser header chỉ cần chừng này để đọc kích thước — đúng bản chất tối ưu của ADR-055: server
+ * chỉ tải 64KB đầu từ MinIO thay vì cả file. Dùng buffer thật thay vì mock để test đúng parser.
  */
 function pngHeader(width: number, height: number): Buffer {
   const buf = Buffer.alloc(33)
@@ -96,7 +95,14 @@ interface Mocks {
     increment: jest.Mock
     find: jest.Mock
     manager: { transaction: jest.Mock }
-    txEntityManager: { findOne: jest.Mock; create: jest.Mock; save: jest.Mock; increment: jest.Mock }
+    txEntityManager: {
+      findOne: jest.Mock
+      find: jest.Mock
+      create: jest.Mock
+      save: jest.Mock
+      increment: jest.Mock
+      delete: jest.Mock
+    }
   }
   storage: {
     isAllowedVideoType: jest.Mock
@@ -110,6 +116,7 @@ interface Mocks {
   }
   versions: { findOne: jest.Mock; save: jest.Mock; create: jest.Mock }
   users: { getDepartmentId: jest.Mock; getRoleAndDepartment: jest.Mock }
+  uploadIntents: { record: jest.Mock; claimForVersion: jest.Mock }
 }
 
 function setup(film: Film | null = filmOwnedByOwner): Mocks {
@@ -121,12 +128,15 @@ function setup(film: Film | null = filmOwnedByOwner): Mocks {
   const txEntityManager = {
     findOne: jest.fn().mockImplementation((entity: unknown) => {
       const name = (entity as { name?: string })?.name
-      // Film → trả phim đang test; FilmView → không có bản ghi trùng.
+      // Film → trả phim đang test; FilmView/FilmVersion → không có bản ghi trùng/bản trước.
       return Promise.resolve(name === 'Film' ? film : null)
     }),
+    // Hashtag lookup trong `findOrCreateHashtags` khi chạy trong transaction (create/update).
+    find: jest.fn().mockResolvedValue([]),
     create: jest.fn().mockImplementation((_e: unknown, x: unknown) => x),
     save: jest.fn().mockImplementation((x) => Promise.resolve(x)),
     increment: jest.fn().mockResolvedValue(undefined),
+    delete: jest.fn().mockResolvedValue(undefined),
   }
   const films = {
     findOne: jest.fn().mockResolvedValue(film),
@@ -167,6 +177,8 @@ function setup(film: Film | null = filmOwnedByOwner): Mocks {
     readHeadBytes: jest.fn().mockResolvedValue(Buffer.from('day khong phai anh')),
   }
   const notifications = { notify: jest.fn() }
+  // Upload intent phải được claim atomically trong transaction trước khi tạo version.
+  const uploadIntents = { record: jest.fn().mockResolvedValue(undefined), claimForVersion: jest.fn().mockResolvedValue(undefined) }
   // UsersService giả lập DANH BẠ THẬT trong DB. Quan trọng: `assertCanManage` phải đọc vai
   // trò/phòng ban từ đây (DB) chứ không từ token — nên test cố tình cho `AuthUser.roleCode`
   // và danh bạ khớp nhau, và có riêng một ca kiểm chứng service thực sự gọi vào danh bạ.
@@ -188,8 +200,9 @@ function setup(film: Film | null = filmOwnedByOwner): Mocks {
     storage as unknown as StorageService,
     notifications as unknown as NotificationsService,
     users as never,
+    uploadIntents as never,
   )
-  return { service, films, storage, versions, users }
+  return { service, films, storage, versions, users, uploadIntents }
 }
 
 const dto = { title: 'Phim A sửa', categoryId: 1 }
@@ -427,12 +440,82 @@ describe('FilmsService — validate upload ở SERVER (không tin FE)', () => {
   })
 
   it('ảnh bìa PNG đúng 16:9 → chấp nhận, tạo version mới', async () => {
-    const { service, storage, versions } = setup()
+    const { service, films, storage } = setup()
     storage.stat.mockResolvedValue({ size: 1024, contentType: 'image/png' })
     storage.readHeadBytes.mockResolvedValue(pngHeader(1280, 720))
     await service.confirmVersion(actor(OWNER_ID, 'employee'), 1, { thumbnailKey: THUMB_KEY } as never)
     expect(storage.delete).not.toHaveBeenCalled()
-    expect(versions.save).toHaveBeenCalled()
+    // Tier A retrofit (2026-08-12): confirmVersion nay ghi film_versions TRONG transaction
+    // (khoá dòng phim), qua `em.save`, không còn gọi trực tiếp repository `versions.save`.
+    expect(films.txEntityManager.save).toHaveBeenCalled()
+  })
+})
+
+// Tier A retrofit (2026-08-12, Production Compatibility Gate) — presigned URL đã ký phải có
+// chủ (actor/film/loại/hạn) và phải được đánh dấu consumed khi dùng thật, để `sweepExpired`
+// dọn đúng object mồ côi mà không đụng tới upload đang/đã dùng hợp lệ.
+describe('FilmsService — upload-intent ownership (Tier A retrofit 2026-08-12)', () => {
+  it('ký URL video → ghi ownership (actor/film/loại/hạn), KHÔNG để lộ key không có chủ', async () => {
+    const { service, uploadIntents } = setup()
+    const result = await service.createUploadUrl(actor(OWNER_ID, 'employee'), 1, {
+      contentType: 'video/mp4',
+      size: 100,
+    } as never)
+    expect(uploadIntents.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'video',
+        storageKey: result.storageKey,
+        filmId: 1,
+        actorId: OWNER_ID,
+        expiresInSec: result.expiresIn,
+      }),
+    )
+  })
+
+  it('ký URL ảnh bìa → ghi ownership tương tự video', async () => {
+    const { service, uploadIntents } = setup()
+    const result = await service.createThumbnailUploadUrl(actor(OWNER_ID, 'employee'), 1, {
+      contentType: 'image/png',
+      size: 1024,
+    } as never)
+    expect(uploadIntents.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'thumbnail',
+        storageKey: result.thumbnailKey,
+        filmId: 1,
+        actorId: OWNER_ID,
+      }),
+    )
+  })
+
+  it('confirmVersion claim atomically đúng key/chủ/phim/loại trước khi tạo version', async () => {
+    const { service, films, storage, uploadIntents } = setup()
+    storage.stat.mockResolvedValue({ size: 1024, contentType: 'image/png' })
+    storage.readHeadBytes.mockResolvedValue(pngHeader(1280, 720))
+    await service.confirmVersion(actor(OWNER_ID, 'employee'), 1, {
+      thumbnailKey: THUMB_KEY,
+    } as never)
+    expect(uploadIntents.claimForVersion).toHaveBeenCalledWith(
+      { storageKey: THUMB_KEY, kind: 'thumbnail', filmId: 1, actorId: OWNER_ID },
+      expect.anything(),
+    )
+    expect(uploadIntents.claimForVersion).toHaveBeenCalledTimes(1)
+    const claimCall = uploadIntents.claimForVersion.mock.invocationCallOrder[0]
+    const versionSaveCall = films.txEntityManager.save.mock.invocationCallOrder.find(
+      (order) => order > claimCall,
+    )
+    expect(versionSaveCall).toBeDefined()
+  })
+
+  it('không tạo version khi key không thuộc actor/phim hoặc đã hết hạn', async () => {
+    const { service, storage, films, uploadIntents } = setup()
+    storage.stat.mockResolvedValue({ size: 1024, contentType: 'image/png' })
+    storage.readHeadBytes.mockResolvedValue(pngHeader(1280, 720))
+    uploadIntents.claimForVersion.mockRejectedValue(new BadRequestException('Upload không hợp lệ'))
+    await expect(
+      service.confirmVersion(actor(OWNER_ID, 'employee'), 1, { thumbnailKey: THUMB_KEY } as never),
+    ).rejects.toThrow('Upload không hợp lệ')
+    expect(films.txEntityManager.save).not.toHaveBeenCalled()
   })
 })
 
@@ -497,13 +580,15 @@ describe('FilmsService.create — snapshot phòng ban của người tạo (ADR-
     } as never)
 
     expect(users.getDepartmentId).toHaveBeenCalledWith(EMP_B)
-    expect(films.save.mock.calls[0][0].departmentId).toBe(DEPT_B)
+    // Tier A retrofit (2026-08-12): create() nay ghi phim TRONG transaction qua `em.save`,
+    // không còn gọi trực tiếp repository `films.save` (xem ghi chú ở films.service.ts#create).
+    expect(films.txEntityManager.save.mock.calls[0][0].departmentId).toBe(DEPT_B)
   })
 
   it('người tạo chưa có phòng ban → department_id = null (không bịa giá trị)', async () => {
     const { service, films } = setupForCreate()
     await service.create(actor(SUPER, 'super_admin'), { title: 'Phim mới', categoryId: 1 } as never)
-    expect(films.save.mock.calls[0][0].departmentId).toBeNull()
+    expect(films.txEntityManager.save.mock.calls[0][0].departmentId).toBeNull()
   })
 })
 

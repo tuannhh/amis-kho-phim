@@ -5,6 +5,22 @@
 
 ## Tóm tắt nhanh (đọc 30 giây là hiểu hết)
 
+### ✅ VỪA XONG: Production remediation (2026-08-12)
+- Atomic upload intent, test E2E cross-film/replay; Redis shared throttle guard; K8s migration
+  Job + CronJob sweep + PDB; Swarm runbook; tablet `<1200px` native mobile surface.
+- Verified sau remediation: **252 unit BE + 107 e2e MySQL/MinIO + 105 unit FE**, typecheck/build
+  hai phía, image backend cục bộ `ready`, 30 video + 30 thumbnail presign đồng thời pass và
+  K8s/Compose manifest render hợp lệ.
+- Reliability rehearsal bổ sung: 2 backend thật + Redis: mười login sai xen kẽ `401`, request
+  thứ 11 `429`; Redis outage → readiness `503`, recovery → `ready`. Backup/restore source sang
+  `kho_phim_restore_rehearsal` pass (`users/films/migrations = 6/8/10`). Lặp lại bằng
+  `scripts/rehearse-multi-replica.sh` và `scripts/rehearse-db-restore.sh`.
+- Bỏ `image-size` có advisory high không có bản vá; parser header PNG/JPEG/WebP bounded 64KB,
+  4 unit test. SCA còn 0 critical, 4 high/10 moderate (Nest 10/Swagger/Multer) có risk register
+  và nhánh upgrade major cần thực hiện riêng.
+- Còn cần hạ tầng MISA xác nhận: Redis HA/secret, migration rehearsal trên DB backup, 3-replica
+  rollout, AMIS Mobile bridge thật và QA OS accessibility. Không suy diễn PASS từ local test.
+
 ### ✅ VỪA XONG: GĐ 8 — GIAI ĐOẠN C: SỬA 3 LỖI UI + QUÉT TOÀN DẢI VIEWPORT (2026-08-07, Opus 5)
 Người dùng test bản mobile trên điện thoại thật, xác nhận *"đẹp hơn đáng kể rồi"*, kèm 3 ảnh
 chụp lỗi. Cả 3 đã tái hiện được trên browser rồi mới sửa:

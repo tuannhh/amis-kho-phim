@@ -48,6 +48,27 @@ export function isProduction(): boolean {
 }
 
 /**
+ * Có tự chạy migration mỗi lần backend khởi động không (đọc bởi `db-options.ts` để đặt
+ * `migrationsRun`). Mặc định TRUE — giữ nguyên hành vi Docker Compose hiện có (một
+ * container/service, `migrationsRun: true` cứng trước đây). Chỉ tắt khi vận hành CHỦ ĐỘNG
+ * đặt `RUN_MIGRATIONS_ON_BOOT=false` VÀ tự chạy migration bằng một job riêng — bắt buộc khi
+ * `MULTI_REPLICA=true` (xem `multiReplicaDeclared` + kiểm tra fatal trong
+ * `collectConfigIssues`, Production Compatibility Gate mục "Gate 4").
+ */
+export function runMigrationsOnBoot(): boolean {
+  return process.env.RUN_MIGRATIONS_ON_BOOT !== 'false'
+}
+
+/**
+ * Người vận hành khai báo TƯỜNG MINH đang chạy nhiều bản sao (multi-replica K8s/Swarm) —
+ * KHÔNG tự suy luận từ hạ tầng, vì suy luận sai sẽ khiến cảnh báo phình to giả tạo (nguyên
+ * tắc "chỉ target đã thực sự cam kết mới tính" — skill `production-compatibility-gate`).
+ */
+export function multiReplicaDeclared(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.MULTI_REPLICA === 'true'
+}
+
+/**
  * Có được phép chạy tiếp với cấu hình yếu không. TRUE = chế độ máy dev (chỉ cảnh báo).
  * Xem ghi chú đầu file về lý do không dùng riêng NODE_ENV.
  */
@@ -135,6 +156,35 @@ export function collectConfigIssues(env: NodeJS.ProcessEnv = process.env): Confi
     issues.push({
       level: 'fatal',
       message: `AMIS_SSO_SHARED_SECRET quá ngắn (< ${MIN_SECRET_LENGTH} ký tự). Secret yếu = bất kỳ ai đoán được đều đăng nhập được dưới DANH NGHĨA BẤT KỲ EMAIL nào. Để trống nếu chưa dùng.`,
+    })
+  }
+
+  // Tier A/Gate-4 retrofit (2026-08-12, Production Compatibility Gate): nếu vận hành đã
+  // khai báo chạy nhiều bản sao mà vẫn để mỗi bản sao tự chạy migration lúc khởi động, N
+  // replica cùng chạy migration song song có thể đua nhau đổi schema giữa chừng (không phải
+  // giả thuyết — đây là lý do TypeORM/Flyway/Prisma đều khuyến cáo migration one-shot job
+  // cho môi trường multi-instance). Không dùng flag để che vấn đề — flag chỉ được coi là ổn
+  // khi RUN_MIGRATIONS_ON_BOOT đã tắt.
+  if (multiReplicaDeclared(env) && env.RUN_MIGRATIONS_ON_BOOT !== 'false') {
+    issues.push({
+      level: 'fatal',
+      message:
+        'MULTI_REPLICA=true nhưng RUN_MIGRATIONS_ON_BOOT chưa đặt "false" — mỗi Pod/container ' +
+        'khởi động sẽ tự chạy migration cùng lúc. Chạy migration bằng MỘT job riêng trước khi ' +
+        'rollout (vd K8s Job hoặc `npm run migration:run` thủ công), rồi đặt ' +
+        'RUN_MIGRATIONS_ON_BOOT=false cho mọi replica.',
+    })
+  }
+
+  // Rate limiter trong bộ nhớ chỉ đếm trong MỘT tiến trình. Khi chạy nhiều replica, mọi
+  // attempt login phải đi qua Redis chung; thiếu URL là lỗi cấu hình, không hạ xuống memory
+  // silently khiến ngưỡng chống brute-force bị nhân theo số Pod.
+  if (multiReplicaDeclared(env) && !env.REDIS_URL) {
+    issues.push({
+      level: 'fatal',
+      message:
+        'MULTI_REPLICA=true nhưng thiếu REDIS_URL — rate limit sẽ bị tách theo từng Pod/container. ' +
+        'Cấp Redis dùng chung (TLS/auth theo hạ tầng) và truyền REDIS_URL qua secret manager.',
     })
   }
 

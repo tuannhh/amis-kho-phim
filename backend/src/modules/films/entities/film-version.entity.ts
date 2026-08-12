@@ -16,7 +16,10 @@ import { User } from '../../users/entities/user.entity'
  * storage_key/thumbnail_key là key trong MinIO (server sinh, không nhận từ client).
  */
 @Entity({ name: 'film_versions' })
-@Index('IDX_film_versions_film', ['filmId'])
+// Unique (film_id, version_no) — Tier A retrofit (2026-08-12, xem migration
+// AddFilmVersionsUniqueIndex1722200000000): DB là chốt chặn cuối chống 2 version cùng
+// version_no khi confirmVersion() chạy song song, độc lập với lock ở tầng service.
+@Index('IDX_film_versions_film_version_no', ['filmId', 'versionNo'], { unique: true })
 export class FilmVersion {
   @PrimaryGeneratedColumn()
   id!: number
