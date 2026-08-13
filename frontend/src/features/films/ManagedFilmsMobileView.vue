@@ -72,7 +72,10 @@ function confirmFilters() {
   filterOpen.value = false
 }
 function openFilm(film: ApiFilm) {
-  router.push({ name: 'film-detail', params: { slug: film.slug } })
+  router.push({
+    name: 'film-detail',
+    params: { categorySlug: film.urlCategorySlug, filmSlug: film.urlFilmSlug },
+  })
 }
 function editFilm(film: ApiFilm) {
   router.push({ name: 'upload', query: { edit: film.slug } })

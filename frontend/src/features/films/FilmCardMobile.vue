@@ -5,6 +5,7 @@ import MIcon from '@/components/mds/MIcon.vue'
 import MDropdownMenu from '@/components/mds/MDropdownMenu.vue'
 import { useToast } from '@/components/mds/toast.js'
 import { filmSources, type ApiFilm } from './filmsApi'
+import { canonicalFilmUrl } from './filmShareLink'
 import { SOURCE_LABEL, categoryColorFor, thumbnailGradient, formatVNDate } from './filmTypes'
 import { useAuthStore } from '@/features/auth/authStore'
 import { canManageFilm } from '@/features/auth/permissions'
@@ -52,11 +53,14 @@ const canManage = computed(() => canManageFilm(auth.user, props.film))
  * Mục Sửa/Xoá chỉ xuất hiện khi thực sự có quyền — backend vẫn là nơi kiểm quyền thật.
  */
 const menuItems = computed(() => {
-  const items: Array<Record<string, unknown>> = filmSources(props.film).map((s) => ({
-    key: `copy:${s}`,
-    label: `Copy link ${SOURCE_LABEL[s]}`,
-    icon: 'copy',
-  }))
+  const items: Array<Record<string, unknown>> = [
+    { key: 'share', label: 'Chia sẻ liên kết phim', icon: 'share' },
+    ...filmSources(props.film).map((s) => ({
+      key: `copy:${s}`,
+      label: `Copy link ${SOURCE_LABEL[s]}`,
+      icon: 'copy',
+    })),
+  ]
   if (canManage.value) {
     if (items.length) items.push({ divider: true })
     items.push({ key: 'edit', label: 'Sửa thông tin', icon: 'pencil' })
@@ -70,6 +74,15 @@ async function onMenuSelect(item: { key?: string }) {
   if (!key) return
   if (key === 'edit') return emit('edit', props.film)
   if (key === 'delete') return emit('delete', props.film)
+  if (key === 'share') {
+    try {
+      await navigator.clipboard.writeText(canonicalFilmUrl(props.film))
+      toast.success('Đã copy liên kết phim')
+    } catch {
+      toast.error('Không thể copy liên kết phim — trình duyệt chặn quyền clipboard')
+    }
+    return
+  }
   if (key.startsWith('copy:')) {
     const source = key.slice(5) as keyof typeof SOURCE_LABEL
     const url = props.film.links[source]

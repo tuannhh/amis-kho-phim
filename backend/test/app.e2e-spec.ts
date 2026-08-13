@@ -53,6 +53,7 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
   let deptAId: number
   let deptBId: number
   let categoryId: number
+  let categorySlug: string
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
@@ -128,6 +129,7 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
       .send({ name: 'Chuyên mục E2E' })
       .expect(201)
     categoryId = cat.body.id
+    categorySlug = cat.body.slug
   })
 
   afterAll(async () => {
@@ -1227,6 +1229,151 @@ describe('AMIS Kho phim — kiểm thử tích hợp (DB thật)', () => {
         .set('Authorization', `Bearer ${empA1Token}`)
         .expect(200)
       expect(r.body.isNew).toBe(true)
+    })
+  })
+
+  describe('[2026-08-13] URL công khai ten-chuyen-muc/ten-phim-ngay-phat-hanh-version', () => {
+    const TITLE = 'Giới thiệu tập đoàn MISA E2E'
+    const todayDdMmYyyy = new Date().toISOString().slice(0, 10).split('-').reverse().join('')
+
+    it('tạo phim mới → urlCategorySlug/urlFilmSlug đúng dạng ten-phim-ngay-version (version 1)', async () => {
+      const film = await createFilm(empA1Token, TITLE)
+      const r = await http()
+        .get(`/api/films/${film.slug}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .expect(200)
+      expect(r.body.urlCategorySlug).toBe(categorySlug)
+      expect(r.body.urlFilmSlug).toBe(`${film.slug}-${todayDdMmYyyy}-1`)
+    })
+
+    it('GET by-path trả về ĐÚNG phim vừa tạo', async () => {
+      const film = await createFilm(empA1Token, `${TITLE} (by-path)`)
+      const detail = await http()
+        .get(`/api/films/${film.slug}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .expect(200)
+
+      const byPath = await http()
+        .get(`/api/films/by-path/${detail.body.urlCategorySlug}/${detail.body.urlFilmSlug}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .expect(200)
+      expect(byPath.body.id).toBe(film.id)
+      expect(byPath.body.slug).toBe(film.slug)
+    })
+
+    it('by-path sai (chuyên mục hoặc tên không khớp) → 404', () =>
+      http()
+        .get('/api/films/by-path/khong-ton-tai/khong-ton-tai-01012026-1')
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .expect(404))
+
+    it('sửa phim → URL CŨ vẫn resolve được sau khi sửa (giống Youtube, không 404)', async () => {
+      const film = await createFilm(empA1Token, `${TITLE} (sửa)`)
+      const before = await http()
+        .get(`/api/films/${film.slug}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .expect(200)
+      const oldPath = `${before.body.urlCategorySlug}/${before.body.urlFilmSlug}`
+
+      await http()
+        .patch(`/api/films/${film.id}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .send({ title: `${TITLE} (đã sửa)`, categoryId })
+        .expect(200)
+
+      // Cùng ngày + cùng version nên path TRƯỚC/SAU khi sửa trùng nhau trong ca test này (đúng
+      // — không phải bug: `assignCurrent` tái dùng dòng cũ khi path không đổi, xem
+      // `FilmUrlSlugsService.assignCurrent`). Điều bắt buộc phải đúng: URL đã lấy TRƯỚC khi
+      // sửa vẫn phải resolve ra ĐÚNG phim đó sau khi sửa, không bao giờ 404.
+      const oldStill = await http()
+        .get(`/api/films/by-path/${oldPath}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .expect(200)
+      expect(oldStill.body.id).toBe(film.id)
+    })
+
+    /** Upload 1 file (video giả) qua đúng luồng presigned URL + confirmVersion thật trên MinIO. */
+    const uploadOneVersion = async (filmId: number) => {
+      const signed = await http()
+        .post(`/api/films/${filmId}/upload-url`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .send({ contentType: 'video/mp4', size: 4 })
+        .expect(201)
+      const put = await fetch(signed.body.uploadUrl as string, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'video/mp4' },
+        body: Buffer.from([0, 1, 2, 3]),
+      })
+      expect(put.ok).toBe(true)
+      await http()
+        .post(`/api/films/${filmId}/versions`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .send({ storageKey: signed.body.storageKey })
+        .expect(201)
+    }
+
+    it('upload bản ĐẦU TIÊN (confirmVersion, MinIO thật) → version_no vẫn là 1, TÁI DÙNG URL đã có ở create() thay vì tạo URL thừa', async () => {
+      const film = await createFilm(empA1Token, `${TITLE} (confirmVersion v1)`)
+      const beforeUpload = await http()
+        .get(`/api/films/${film.slug}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .expect(200)
+      expect(beforeUpload.body.urlFilmSlug.endsWith('-1')).toBe(true)
+
+      await uploadOneVersion(film.id)
+
+      const afterUpload = await http()
+        .get(`/api/films/${film.slug}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .expect(200)
+      // `film_versions` của phim này TRƯỚC lần confirmVersion này đang rỗng → version_no vẫn
+      // tính ra 1 (đúng `(last?.versionNo || 0) + 1`), nên URL không đổi — không phải bug.
+      expect(afterUpload.body.urlFilmSlug).toBe(beforeUpload.body.urlFilmSlug)
+    })
+
+    it('upload bản THỨ HAI → version_no tăng lên 2, sinh URL MỚI THẬT SỰ, URL bản 1 vẫn resolve', async () => {
+      const film = await createFilm(empA1Token, `${TITLE} (confirmVersion v2)`)
+      await uploadOneVersion(film.id) // → version_no=1, URL vẫn "...-1" như create()
+
+      const v1 = await http()
+        .get(`/api/films/${film.slug}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .expect(200)
+      const v1Path = `${v1.body.urlCategorySlug}/${v1.body.urlFilmSlug}`
+      expect(v1.body.urlFilmSlug.endsWith('-1')).toBe(true)
+
+      await uploadOneVersion(film.id) // → version_no=2
+
+      const v2 = await http()
+        .get(`/api/films/${film.slug}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .expect(200)
+      expect(v2.body.urlFilmSlug.endsWith('-2')).toBe(true)
+      expect(v2.body.urlFilmSlug).not.toBe(v1.body.urlFilmSlug)
+
+      // URL bản 1 (đã "cũ" sau khi có bản 2) vẫn phải tra ra được, không 404.
+      const v1Resolved = await http()
+        .get(`/api/films/by-path/${v1Path}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .expect(200)
+      expect(v1Resolved.body.id).toBe(film.id)
+    })
+
+    it('2 phim KHÁC NHAU trùng tên (nên trùng ngày/version) → tự thêm hậu tố, KHÔNG đè URL của nhau', async () => {
+      const filmA = await createFilm(empA1Token, 'Trùng URL E2E')
+      const filmB = await createFilm(empA2Token, 'Trùng URL E2E')
+
+      const a = await http().get(`/api/films/${filmA.slug}`).set('Authorization', `Bearer ${empA1Token}`).expect(200)
+      const b = await http().get(`/api/films/${filmB.slug}`).set('Authorization', `Bearer ${empA1Token}`).expect(200)
+
+      // Title khác nhau vì film.slug đã tự thêm hậu tố -2 (uniqueSlug) khi trùng tên — nhưng
+      // dù slug base có giống nhau (hiếm), path vẫn phải KHÁC NHAU và cả 2 đều resolve đúng.
+      expect(a.body.urlFilmSlug).not.toBe(b.body.urlFilmSlug)
+      const pathA = await http()
+        .get(`/api/films/by-path/${a.body.urlCategorySlug}/${a.body.urlFilmSlug}`)
+        .set('Authorization', `Bearer ${empA1Token}`)
+        .expect(200)
+      expect(pathA.body.id).toBe(filmA.id)
     })
   })
 

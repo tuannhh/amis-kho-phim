@@ -102,6 +102,7 @@ interface Mocks {
       save: jest.Mock
       increment: jest.Mock
       delete: jest.Mock
+      update: jest.Mock
     }
   }
   storage: {
@@ -117,6 +118,12 @@ interface Mocks {
   versions: { findOne: jest.Mock; save: jest.Mock; create: jest.Mock }
   users: { getDepartmentId: jest.Mock; getRoleAndDepartment: jest.Mock }
   uploadIntents: { record: jest.Mock; claimForVersion: jest.Mock }
+  filmUrlSlugs: {
+    assignCurrent: jest.Mock
+    findCurrent: jest.Mock
+    findCurrentMap: jest.Mock
+    findByPath: jest.Mock
+  }
 }
 
 function setup(film: Film | null = filmOwnedByOwner): Mocks {
@@ -137,6 +144,7 @@ function setup(film: Film | null = filmOwnedByOwner): Mocks {
     save: jest.fn().mockImplementation((x) => Promise.resolve(x)),
     increment: jest.fn().mockResolvedValue(undefined),
     delete: jest.fn().mockResolvedValue(undefined),
+    update: jest.fn().mockResolvedValue(undefined),
   }
   const films = {
     findOne: jest.fn().mockResolvedValue(film),
@@ -179,6 +187,14 @@ function setup(film: Film | null = filmOwnedByOwner): Mocks {
   const notifications = { notify: jest.fn() }
   // Upload intent phải được claim atomically trong transaction trước khi tạo version.
   const uploadIntents = { record: jest.fn().mockResolvedValue(undefined), claimForVersion: jest.fn().mockResolvedValue(undefined) }
+  // URL công khai (2026-08-13) — không kiểm logic sinh path thật ở đây (đã có
+  // `film-url-slugs.service.spec.ts` riêng), chỉ cần không throw khi create/update/confirmVersion gọi tới.
+  const filmUrlSlugs = {
+    assignCurrent: jest.fn().mockResolvedValue(undefined),
+    findCurrent: jest.fn().mockResolvedValue(undefined),
+    findCurrentMap: jest.fn().mockResolvedValue(new Map()),
+    findByPath: jest.fn().mockResolvedValue(null),
+  }
   // UsersService giả lập DANH BẠ THẬT trong DB. Quan trọng: `assertCanManage` phải đọc vai
   // trò/phòng ban từ đây (DB) chứ không từ token — nên test cố tình cho `AuthUser.roleCode`
   // và danh bạ khớp nhau, và có riêng một ca kiểm chứng service thực sự gọi vào danh bạ.
@@ -197,12 +213,14 @@ function setup(film: Film | null = filmOwnedByOwner): Mocks {
     repo() as never,
     versions as never,
     repo() as never,
+    repo() as never, // categories — chỉ cần đọc slug, không có ca test riêng ở đây
     storage as unknown as StorageService,
     notifications as unknown as NotificationsService,
     users as never,
     uploadIntents as never,
+    filmUrlSlugs as never,
   )
-  return { service, films, storage, versions, users, uploadIntents }
+  return { service, films, storage, versions, users, uploadIntents, filmUrlSlugs }
 }
 
 const dto = { title: 'Phim A sửa', categoryId: 1 }

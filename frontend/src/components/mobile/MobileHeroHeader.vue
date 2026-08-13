@@ -20,16 +20,20 @@ import MIcon from '@/components/mds/MIcon.vue'
 withDefaults(
   defineProps<{
     title: string
+    /** Màn gốc của mini-app có Back về AMIS Mobile/Platform qua host adapter. */
+    showBack?: boolean
+    /** Chỉ dùng cho tên app ở màn gốc; tiêu đề chức năng giữ nhịp chuẩn 22/28. */
+    largeTitle?: boolean
     /** Dòng phụ nhỏ dưới tiêu đề (vd tên người dùng, số lượng bản ghi). */
     subtitle?: string
     /** Hiện chuông thông báo ở góc phải (bù cho chuông của MHeaderBar đã bị ẩn). */
     showNotifications?: boolean
     notificationCount?: number
   }>(),
-  { subtitle: '', showNotifications: false, notificationCount: 0 },
+  { showBack: false, largeTitle: false, subtitle: '', showNotifications: false, notificationCount: 0 },
 )
 
-const emit = defineEmits<{ (e: 'notifications'): void }>()
+const emit = defineEmits<{ (e: 'back'): void; (e: 'notifications'): void }>()
 </script>
 
 <template>
@@ -40,9 +44,24 @@ const emit = defineEmits<{ (e: 'notifications'): void }>()
       padding-top: max(14px, env(safe-area-inset-top));
     "
   >
-    <div class="flex items-start gap-2">
+    <div class="flex min-h-12 items-center gap-1">
+      <!-- Màn gốc vẫn cần Back về host AMIS; page dùng component quyết định gọi adapter nào. -->
+      <button
+        v-if="showBack"
+        type="button"
+        class="-ml-2 grid h-12 w-12 shrink-0 place-items-center rounded-full text-white active:bg-white/15"
+        aria-label="Quay lại AMIS"
+        @click="emit('back')"
+      >
+        <MIcon name="arrow-left" :size="24" />
+      </button>
       <div class="min-w-0 flex-1">
-        <h1 class="truncate text-[22px] font-semibold leading-[28px] text-white">{{ title }}</h1>
+        <h1
+          class="truncate font-semibold text-white"
+          :class="largeTitle ? 'text-[24px] leading-8' : 'text-[22px] leading-[28px]'"
+        >
+          {{ title }}
+        </h1>
         <p v-if="subtitle" class="mt-0.5 truncate text-[13px] leading-[18px] text-white/75">
           {{ subtitle }}
         </p>

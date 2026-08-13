@@ -26,6 +26,13 @@ export interface ApiFilm {
   thumbnailUrl: string | null
   publishedAt: string
   /**
+   * URL công khai HIỆN TẠI của phim (2026-08-13) — ghép router-link dạng
+   * `{ name: 'film-detail', params: { categorySlug: urlCategorySlug, filmSlug: urlFilmSlug } }`.
+   * LUÔN là bản canonical mới nhất kể cả khi phim này được tải qua 1 alias URL cũ hơn.
+   */
+  urlCategorySlug: string
+  urlFilmSlug: string
+  /**
    * Có gắn nhãn "Phim mới" hay không — TÍNH Ở BACKEND (ADR-052), FE chỉ hiển thị.
    *
    * ĐỪNG thay bằng `isFilmNew(publishedAt)` ở FE cho "gọn": nhãn còn phụ thuộc phim này có
@@ -70,6 +77,9 @@ export const filmsApi = {
   /** Phim người dùng hiện tại có quyền sửa/xoá — màn "Phim tôi quản lý" (đợt 2 việc 6). */
   listManaged: () => apiFetch<ApiFilm[]>('/films?scope=managed'),
   getBySlug: (slug: string) => apiFetch<ApiFilm>(`/films/${slug}`),
+  /** Tra theo URL công khai `ten-chuyen-muc/ten-phim-ngay-phat-hanh-version` (2026-08-13). */
+  getByPath: (categorySlug: string, filmSlug: string) =>
+    apiFetch<ApiFilm>(`/films/by-path/${categorySlug}/${filmSlug}`),
   create: (payload: UpsertFilmPayload) =>
     apiFetch<ApiFilm>('/films', { method: 'POST', body: JSON.stringify(payload) }),
   update: (id: number, payload: UpsertFilmPayload) =>

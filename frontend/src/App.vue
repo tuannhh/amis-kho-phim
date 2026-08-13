@@ -121,7 +121,7 @@ const sidebarItems = computed(() =>
 
 const activeKey = computed<string>(() => {
   const name = route.name as string
-  if (name === 'film-detail') return 'films'
+  if (name === 'film-detail' || name === 'film-detail-legacy') return 'films'
   return name || 'films'
 })
 /**
@@ -185,12 +185,17 @@ const showMobileFab = computed(() => canCreateFilm(auth.role))
  * riêng). Với `upload` còn một lý do nữa: FAB "Thêm phim" hiện đè lên chính màn Thêm phim là
  * vô nghĩa, và bottom nav che mất footer Huỷ/Xuất bản.
  *
+ * `film-detail-legacy` (route `/films/:slug` giữ cho link cũ trước 2026-08-13) dùng CHUNG
+ * component với `film-detail` nên cũng phải liệt kê ở đây — nếu không, người vào bằng link
+ * cũ trên Compact sẽ thấy bottom nav đè lên đúng màn có nút back riêng.
+ *
  * KHÔNG đưa vào đây các màn quản trị (báo cáo, phòng ban, người dùng): chúng vẫn là bản
  * desktop ở Compact, không có nút back nào, nên bottom nav là lối thoát duy nhất — GĐ8 Giai
  * đoạn B sẽ dựng lại chúng rồi mới tính tiếp.
  */
 const SECOND_LEVEL_ROUTES = new Set([
   'film-detail',
+  'film-detail-legacy',
   'upload',
   'my-films',
   'admin-departments',
@@ -310,8 +315,7 @@ function offlineRetry() {
       <MHeaderBar
         v-if="showMdsHeader"
         variant="brand"
-        app-name="AMIS Kho phim"
-        company-name="MISA"
+        app-name="Kho phim"
         search-placeholder="Tìm phim theo tên, hashtag... (Enter để tìm)"
         :user="currentUser"
         :notification-count="notifications.unreadCount"

@@ -11,7 +11,6 @@ import MEmptyState from '@/components/mds/MEmptyState.vue'
 import MSpinner from '@/components/mds/MSpinner.vue'
 import MobileHeroHeader from '@/components/mobile/MobileHeroHeader.vue'
 import { useNotificationsStore } from '@/features/notifications/notificationsStore'
-import { categoryColorFor, categoryColorVar, categoryIconFor } from './filmTypes'
 import { useFilmsStore } from './filmsStore'
 import { filmSearchQuery } from './searchState'
 import FilmCardMobile from './FilmCardMobile.vue'
@@ -20,6 +19,7 @@ import CategoryShelves from './CategoryShelves.vue'
 import { PAGE_SIZE_OPTIONS, useFilmListFilters } from './useFilmListFilters'
 import { flattenCategoryTree, type ApiCategoryNode } from '@/features/categories/categoriesApi'
 import type { ApiFilm } from './filmsApi'
+import { getHostAdapter } from '@/lib/hostAdapter'
 
 /**
  * Kho phim — BẢN MOBILE (Compact <600px, GĐ8). Không phải FilmListView co giãn bằng CSS:
@@ -41,12 +41,14 @@ import type { ApiFilm } from './filmsApi'
  * GĐ8-B đổi phần VỎ chứ không đổi nghiệp vụ:
  *  - Hero header brand bo góc dưới lớn, chứa tiêu đề + chuông thông báo + ô tìm kiếm dạng
  *    viên thuốc nền trắng, thay cho toolbar trắng phẳng của GĐ8-A.
- *  - Hàng ô chuyên mục (icon vuông bo tròn) làm lối tắt lọc nhanh ở đầu vùng nội dung.
+ *  - Không dựng lối tắt chuyên mục ở đầu vùng nội dung: số chuyên mục có thể tăng không giới
+ *    hạn; mọi lọc nằm gọn trong bottom sheet để màn gốc giữ nhịp đọc danh sách.
  *  - Nút "Thêm phim" KHÔNG còn ở đây — nó là FAB giữa bottom nav (xem `MobileBottomNav`).
  */
 const router = useRouter()
 const store = useFilmsStore()
 const notifications = useNotificationsStore()
+const host = getHostAdapter()
 
 const emit = defineEmits<{ (e: 'notifications'): void }>()
 
@@ -121,48 +123,20 @@ function selectAllCategories() {
 /* ── Điều hướng / thao tác ────────────────────────────────────────────────── */
 
 function openFilm(film: ApiFilm) {
-  router.push({ name: 'film-detail', params: { slug: film.slug } })
+  router.push({
+    name: 'film-detail',
+    params: { categorySlug: film.urlCategorySlug, filmSlug: film.urlFilmSlug },
+  })
+}
+
+/** Màn gốc quay về app mẹ qua adapter; không tự đoán lịch sử/URL của host. */
+function backToHost() {
+  host.closeApp()
 }
 
 /** "Tất cả" trên một kệ → lọc luôn theo chuyên mục đó. */
 function showAllOfCategory(categoryId: number) {
   categoryFilter.value = categoryId
-}
-
-/**
- * Ô chuyên mục ở đầu trang: chỉ chuyên mục CẤP MỘT (nhánh con vẫn được gộp vào khi lọc, theo
- * đúng quy tắc dùng chung ở `useFilmListFilters`). Giới hạn 8 ô — quá số đó thì hàng cuộn
- * ngang thành vô tận và mất tác dụng "lối tắt".
- *
- * Kèm ô "Tất cả" đứng đầu để bỏ lọc nhanh mà không phải mở bottom sheet.
- */
-const categoryTiles = computed(() => {
-  const all = {
-    id: null as number | null,
-    name: 'Tất cả',
-    icon: 'layout-grid',
-    color: categoryColorVar('brand'),
-  }
-  // Tối đa 7 chuyên mục + ô "Tất cả" = 8 ô = đúng 2 hàng lưới 4 cột, không lẻ hàng.
-  return [
-    all,
-    ...categoriesTree.value.slice(0, 7).map((c) => ({
-      id: c.id as number | null,
-      name: c.name,
-      icon: categoryIconFor(c.id),
-      color: categoryColorVar(categoryColorFor(c.id)),
-    })),
-  ]
-})
-
-/**
- * Bấm ô chuyên mục đang chọn lần nữa = bỏ lọc (không cần đi tìm nút Xoá).
- * `id === null` là ô "Tất cả" → luôn bỏ lọc chuyên mục.
- */
-function toggleCategoryTile(id: number | null) {
-  if (id == null) categoryFilter.value = undefined
-  else categoryFilter.value = categoryFilter.value === id ? undefined : id
-  scrollArea.value?.scrollTo({ top: 0 })
 }
 
 const manageDialogs = ref<InstanceType<typeof FilmManageDialogs> | null>(null)
@@ -188,8 +162,11 @@ function goNext() {
          Thay cho toolbar trắng phẳng của GĐ8-A và cho cả MHeaderBar đã ẩn (ADR-061). -->
     <MobileHeroHeader
       title="Kho phim"
+      show-back
+      large-title
       show-notifications
       :notification-count="notifications.unreadCount"
+      @back="backToHost"
       @notifications="emit('notifications')"
     >
       <div class="mt-3 flex items-center gap-2">
@@ -252,45 +229,6 @@ function goNext() {
       class="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-4"
       style="background: linear-gradient(180deg, var(--mds-brand-50) 0px, var(--mds-bg-page, #ecedef) 200px)"
     >
-      <!-- Hàng ô chuyên mục: lối tắt lọc nhanh. Icon Tabler đã đăng ký, nền là tint pha từ
-           ĐÚNG token màu của chuyên mục đó (cùng tông với MTag chuyên mục trên thẻ phim),
-           không có mã màu nào nằm ngoài tokens.css. -->
-      <div v-if="categoryTiles.length > 1" class="mb-5 grid grid-cols-4 gap-x-2 gap-y-3">
-        <button
-          v-for="tile in categoryTiles"
-          :key="tile.id ?? 'all'"
-          type="button"
-          class="flex min-w-0 flex-col items-center gap-1.5"
-          :aria-pressed="(categoryFilter ?? null) === tile.id"
-          @click="toggleCategoryTile(tile.id)"
-        >
-          <span
-            class="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-2xl transition-transform active:scale-95"
-            :style="{
-              background: `color-mix(in srgb, ${tile.color} 13%, white)`,
-              color: tile.color,
-              boxShadow:
-                (categoryFilter ?? null) === tile.id
-                  ? `0 0 0 2px white, 0 0 0 4px ${tile.color}`
-                  : '0 2px 8px -3px rgba(16,24,40,0.18)',
-            }"
-          >
-            <MIcon :name="tile.icon" :size="24" />
-          </span>
-          <!-- min-h 2 dòng: tên chuyên mục dài ngắn khác nhau, không ghim chiều cao thì các ô
-               trong cùng hàng lệch chân nhau. -->
-          <span
-            class="line-clamp-2 min-h-[28px] w-full text-center text-[11px] leading-[14px]"
-            :style="{
-              color: (categoryFilter ?? null) === tile.id ? tile.color : 'var(--mds-text-secondary)',
-              fontWeight: (categoryFilter ?? null) === tile.id ? 600 : 400,
-            }"
-          >
-            {{ tile.name }}
-          </span>
-        </button>
-      </div>
-
       <!-- Chip bộ lọc đang bật + số kết quả: một hàng, cuộn ngang, không đẩy trang tràn -->
       <div class="mb-3 flex items-center gap-2">
         <!-- Chip: viên thuốc CAO 32px cho gọn mắt, nhưng nút bao ngoài cao 48px để vùng chạm

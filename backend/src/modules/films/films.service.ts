@@ -7,6 +7,8 @@ import { FilmLink, type ExternalFilmPlatform } from './entities/film-link.entity
 import { Hashtag } from './entities/hashtag.entity'
 import { FilmVersion } from './entities/film-version.entity'
 import { FilmView } from './entities/film-view.entity'
+import { FilmUrlSlug } from './entities/film-url-slug.entity'
+import { Category } from '../categories/entities/category.entity'
 import {
   UpsertFilmDto,
   ConfirmVersionDto,
@@ -19,6 +21,7 @@ import { StorageService } from '../storage/storage.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { UsersService } from '../users/users.service'
 import { UploadIntentsService } from '../uploads/upload-intents.service'
+import { FilmUrlSlugsService, UNCATEGORIZED_URL_SEGMENT } from './film-url-slugs.service'
 import type { RoleCode } from '../users/entities/role.entity'
 import { readThumbnailDimensions } from '../../common/media/thumbnail-dimensions'
 import { auditLog } from '../../common/audit/audit-log'
@@ -50,6 +53,14 @@ export interface PublicFilm {
   thumbnailUrl: string | null
   publishedAt: string
   /**
+   * URL công khai HIỆN TẠI của phim (2026-08-13) — FE ghép router-link từ 2 trường này:
+   * `/${urlCategorySlug}/${urlFilmSlug}`. Đây LUÔN là bản canonical mới nhất (dù phim được
+   * tải qua alias lịch sử nào, xem `FilmsService.getByPath`) — dùng để build link chia sẻ
+   * mới và để FE tự phát hiện đang đứng ở URL cũ hay không (so route.params với 2 trường này).
+   */
+  urlCategorySlug: string
+  urlFilmSlug: string
+  /**
    * Có được gắn nhãn "Phim mới" hay không. TÍNH Ở BACKEND, không để FE tự suy từ `publishedAt`.
    *
    * Hai điều kiện phải thoả ĐỒNG THỜI:
@@ -79,11 +90,26 @@ export class FilmsService {
     @InjectRepository(Hashtag) private readonly hashtags: Repository<Hashtag>,
     @InjectRepository(FilmVersion) private readonly versions: Repository<FilmVersion>,
     @InjectRepository(FilmView) private readonly filmViews: Repository<FilmView>,
+    @InjectRepository(Category) private readonly categories: Repository<Category>,
     private readonly storage: StorageService,
     private readonly notifications: NotificationsService,
     private readonly users: UsersService,
     private readonly uploadIntents: UploadIntentsService,
+    private readonly filmUrlSlugs: FilmUrlSlugsService,
   ) {}
+
+  /**
+   * Slug chuyên mục dùng để sinh URL — đọc TRỰC TIẾP từ bảng `categories` (không qua `em` của
+   * transaction cha) vì đây là dữ liệu ĐÃ COMMIT từ trước, không bị giao dịch hiện tại ghi đè;
+   * không cần nằm trong cùng transaction để nhất quán. Trả `null` nếu phim không có chuyên
+   * mục (`categoryId` null) hoặc chuyên mục đã bị xoá — `FilmUrlSlugsService.assignCurrent`
+   * tự dùng fallback `chua-phan-loai`.
+   */
+  private async categorySlugOf(categoryId: number | null): Promise<string | null> {
+    if (categoryId == null) return null
+    const c = await this.categories.findOne({ where: { id: categoryId }, select: { slug: true } })
+    return c?.slug ?? null
+  }
 
   /** Bản mới nhất (version_no lớn nhất) — nguồn của storage_key/thumbnail_key/duration. */
   private latestVersion(f: Film): FilmVersion | undefined {
@@ -107,7 +133,7 @@ export class FilmsService {
     return ageDays >= 0 && ageDays <= this.newFilmTtlDays()
   }
 
-  private toPublic(f: Film, isLatestOfTitle = true): PublicFilm {
+  private toPublic(f: Film, urlSlug: FilmUrlSlug | undefined, isLatestOfTitle = true): PublicFilm {
     const links: Partial<Record<FilmSourceKey, string>> = {}
     for (const l of f.links || []) links[l.platform] = l.url
 
@@ -133,6 +159,10 @@ export class FilmsService {
       links,
       thumbnailUrl,
       publishedAt: f.publishedAt,
+      // Fallback khi chưa có dòng film_url_slugs (không nên xảy ra sau backfill — chỉ phòng
+      // hờ dữ liệu thiếu nhất quán): dùng thẳng slug phim cũ, vẫn ra 1 URL hợp lệ dùng được.
+      urlCategorySlug: urlSlug?.categorySlug ?? UNCATEGORIZED_URL_SEGMENT,
+      urlFilmSlug: urlSlug?.slugSegment ?? f.slug,
       isNew: isLatestOfTitle && this.withinNewTtl(f.publishedAt),
     }
   }
@@ -148,6 +178,8 @@ export class FilmsService {
 
   async list(): Promise<PublicFilm[]> {
     const rows = await this.films.find({ relations: this.relations, order: FilmsService.NEWEST_FIRST })
+    // MỘT câu truy vấn cho URL hiện tại của TOÀN BỘ danh sách — tránh N+1 (2026-08-13).
+    const urlSlugs = await this.filmUrlSlugs.findCurrentMap(rows.map((f) => f.id))
     // Danh sách đã sắp "mới trước" nên phim ĐẦU TIÊN gặp trong mỗi nhóm tiêu đề chính là bản
     // mới nhất của nhóm đó. Không tốn thêm truy vấn nào (ADR-052).
     const seenTitles = new Set<string>()
@@ -155,7 +187,7 @@ export class FilmsService {
       const key = FilmsService.titleKey(f.title)
       const isLatest = !seenTitles.has(key)
       seenTitles.add(key)
-      return this.toPublic(f, isLatest)
+      return this.toPublic(f, urlSlugs.get(f.id), isLatest)
     })
   }
 
@@ -198,7 +230,24 @@ export class FilmsService {
   async getBySlug(slug: string): Promise<PublicFilm> {
     const f = await this.films.findOne({ where: { slug }, relations: this.relations })
     if (!f) throw new NotFoundException('Không tìm thấy phim')
-    return this.toPublic(f, await this.isLatestOfTitle(f))
+    const urlSlug = await this.filmUrlSlugs.findCurrent(f.id)
+    return this.toPublic(f, urlSlug, await this.isLatestOfTitle(f))
+  }
+
+  /**
+   * Tra theo URL công khai (2026-08-13) — `categorySlug`/`filmSlug` có thể là bản CANONICAL
+   * hiện tại HOẶC một alias lịch sử (phim đã sửa/thêm bản mới sau khi URL này được chia sẻ).
+   * Cả hai đều trả về ĐÚNG phim đó, `PublicFilm.urlCategorySlug/urlFilmSlug` LUÔN là bản
+   * canonical mới nhất — FE tự so sánh với `route.params` để biết có nên cập nhật thanh địa
+   * chỉ về URL mới nhất hay không (không bắt buộc, chỉ là gợi ý hiển thị).
+   */
+  async getByPath(categorySlug: string, filmSlug: string): Promise<PublicFilm> {
+    const urlSlug = await this.filmUrlSlugs.findByPath(categorySlug, filmSlug)
+    if (!urlSlug) throw new NotFoundException('Không tìm thấy phim')
+    const f = await this.films.findOne({ where: { id: urlSlug.filmId }, relations: this.relations })
+    if (!f) throw new NotFoundException('Không tìm thấy phim')
+    const currentUrlSlug = urlSlug.isCurrent ? urlSlug : await this.filmUrlSlugs.findCurrent(f.id)
+    return this.toPublic(f, currentUrlSlug, await this.isLatestOfTitle(f))
   }
 
   /**
@@ -283,6 +332,8 @@ export class FilmsService {
     // phạm vi quyền của Cấp 3 nên tuyệt đối không để client tự khai (`02-security-baseline`
     // §2: "không tin trường có ý nghĩa phân quyền do client gửi lên").
     const departmentId = await this.users.getDepartmentId(actor.id)
+    const categorySlug = await this.categorySlugOf(dto.categoryId)
+    const publishedAt = this.today()
 
     await this.films.manager.transaction(async (em) => {
       const hashtags = await this.findOrCreateHashtags(dto.hashtags || [], em)
@@ -297,7 +348,7 @@ export class FilmsService {
           departmentId,
           viewCount: 0,
           duration: '--:--',
-          publishedAt: this.today(),
+          publishedAt,
           hashtags,
         }),
       )
@@ -306,6 +357,10 @@ export class FilmsService {
       if (links.length) {
         await em.save(links.map((l) => em.create(FilmLink, { filmId: film.id, ...l })))
       }
+
+      // URL công khai (2026-08-13) — bản đầu tiên luôn là version 1 (chưa có `film_versions`
+      // nào ở thời điểm tạo; file/video thật upload sau qua `confirmVersion`).
+      await this.filmUrlSlugs.assignCurrent(em, { filmId: film.id, filmSlug: slug, categorySlug, publishedAt, versionNo: 1 })
     })
 
     // Thông báo "phim mới" tạm TẮT (2026-07-22, quyết định người dùng): thực tế sẽ có rất
@@ -361,28 +416,54 @@ export class FilmsService {
     throw new ForbiddenException('Bạn chỉ có thể sửa/xoá phim của chính mình')
   }
 
-  /** RETROFIT TIER A (2026-08-12) — cùng lý do transaction ở `create()`: sửa phim + xoá/ghi
-   * lại `film_links` + tạo hashtag mới đều phải cùng thành công hoặc cùng rollback. */
+  /**
+   * RETROFIT TIER A (2026-08-12) — cùng lý do transaction ở `create()`: sửa phim + xoá/ghi
+   * lại `film_links` + tạo hashtag mới đều phải cùng thành công hoặc cùng rollback.
+   *
+   * 2026-08-13 — khoá dòng phim (`pessimistic_write`) TRONG transaction, giống `confirmVersion`
+   * (trước đây `update()` chỉ đọc rồi sửa NGOÀI transaction): cần đọc `film_versions` mới
+   * nhất một cách nhất quán để tính `versionNo` cho URL công khai mới — nếu không khoá,
+   * `update()` và `confirmVersion()` chạy song song trên cùng phim có thể đọc cùng một
+   * `last.versionNo` rồi sinh 2 URL cùng lúc, một trong hai `assignCurrent` sẽ ghi đè
+   * `is_current` của cái kia theo thứ tự ngẫu nhiên thay vì tuần tự hoá đúng.
+   */
   async update(actor: AuthUser, id: number, dto: UpsertFilmDto): Promise<PublicFilm> {
     const film = await this.films.findOne({ where: { id } })
     if (!film) throw new NotFoundException('Không tìm thấy phim')
     await this.assertCanManage(actor, film)
 
+    const categorySlug = await this.categorySlugOf(dto.categoryId)
+    const publishedAt = this.today()
+
     await this.films.manager.transaction(async (em) => {
-      film.title = dto.title.trim()
-      film.categoryId = dto.categoryId
-      film.description = dto.description?.trim() || null
+      const lockedFilm = await em.findOne(Film, { where: { id }, lock: { mode: 'pessimistic_write' } })
+      if (!lockedFilm) throw new NotFoundException('Không tìm thấy phim')
+
+      lockedFilm.title = dto.title.trim()
+      lockedFilm.categoryId = dto.categoryId
+      lockedFilm.description = dto.description?.trim() || null
       // Sửa phim → coi như cập nhật bản mới, gắn lại tag "Phim mới" (khớp hành vi GĐ0.5;
       // lịch sử phiên bản đầy đủ film_versions là GĐ5).
-      film.publishedAt = this.today()
-      film.hashtags = await this.findOrCreateHashtags(dto.hashtags || [], em)
-      await em.save(film)
+      lockedFilm.publishedAt = publishedAt
+      lockedFilm.hashtags = await this.findOrCreateHashtags(dto.hashtags || [], em)
+      await em.save(lockedFilm)
 
-      await em.delete(FilmLink, { filmId: film.id })
+      await em.delete(FilmLink, { filmId: lockedFilm.id })
       const links = this.linksFromDto(dto)
       if (links.length) {
-        await em.save(links.map((l) => em.create(FilmLink, { filmId: film.id, ...l })))
+        await em.save(links.map((l) => em.create(FilmLink, { filmId: lockedFilm.id, ...l })))
       }
+
+      // URL công khai mới (2026-08-13) — giữ nguyên version hiện có của phim (sửa metadata
+      // không phải upload bản mới), chỉ ngày trong URL đổi theo `publishedAt` vừa cập nhật.
+      const last = await em.findOne(FilmVersion, { where: { filmId: lockedFilm.id }, order: { versionNo: 'DESC' } })
+      await this.filmUrlSlugs.assignCurrent(em, {
+        filmId: lockedFilm.id,
+        filmSlug: lockedFilm.slug,
+        categorySlug,
+        publishedAt,
+        versionNo: last?.versionNo || 1,
+      })
     })
 
     // Thông báo "cập nhật" tạm TẮT — xem ghi chú ở create() (2026-07-22).
@@ -618,6 +699,10 @@ export class FilmsService {
     if (!dto.storageKey && !dto.thumbnailKey) {
       throw new BadRequestException('Cần ít nhất file video hoặc ảnh bìa để tạo bản mới')
     }
+    // categoryId không đổi ở thao tác này — đọc slug chuyên mục TRƯỚC transaction là đủ
+    // (cùng cách làm ở `update()`/`create()`, xem `categorySlugOf`).
+    const categorySlug = await this.categorySlugOf(film.categoryId)
+    const publishedAt = this.today()
 
     let uploadedFileSize: number | null = null
     if (dto.storageKey) {
@@ -694,9 +779,19 @@ export class FilmsService {
       )
 
       // Cập nhật bản mới → gắn lại tag "Phim mới"; đồng bộ duration ra films (fallback).
-      lockedFilm.publishedAt = this.today()
+      lockedFilm.publishedAt = publishedAt
       if (duration) lockedFilm.duration = duration
       await em.save(lockedFilm)
+
+      // URL công khai mới (2026-08-13) — version tăng, ngày đổi → luôn sinh 1 URL mới khác
+      // URL trước đó (URL cũ vẫn còn dùng được, xem `FilmUrlSlugsService.assignCurrent`).
+      await this.filmUrlSlugs.assignCurrent(em, {
+        filmId: lockedFilm.id,
+        filmSlug: lockedFilm.slug,
+        categorySlug,
+        publishedAt,
+        versionNo,
+      })
     })
 
     // Thông báo "cập nhật bản mới" tạm TẮT — xem ghi chú ở create() (2026-07-22).

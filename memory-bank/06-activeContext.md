@@ -5,7 +5,37 @@
 
 ## Tóm tắt nhanh (đọc 30 giây là hiểu hết)
 
-### ✅ VỪA XONG: Production remediation (2026-08-12)
+### ✅ VỪA XONG: làm gọn root mobile + chia sẻ URL phim (2026-08-13)
+- `FilmListMobileView` không còn shortcut chuyên mục; đây là page dùng chung cho mọi role,
+  nên Cấp 1–4 đều có cùng mobile composition. Chuyên mục vẫn lọc qua bottom sheet `Bộ lọc`.
+- Root `Kho phim` có Back 48px gọi `HostAdapter.closeApp()` để về AMIS Mobile/Platform và title
+  24px. Browser QA độc lập no-op, không tự đoán lịch sử/URL của host production.
+- `Chia sẻ liên kết phim` trong menu `⋯` của danh sách và chi tiết mobile copy hyperlink
+  canonical từ `urlCategorySlug/urlFilmSlug` backend; 107 FE unit + build pass và visual QA
+  320/360/390/430/768 pass. Cần QA clipboard/bridge trên host AMIS thật trước release.
+
+### ✅ VỪA XONG: URL công khai mỗi phim `/ten-chuyen-muc/ten-phim-ngay-phat-hanh-version` (2026-08-13)
+- Bảng lịch sử `film_url_slugs` (không xoá dòng cũ, chỉ tắt `is_current`) + `FilmUrlSlugsService`
+  sinh/tra URL kiểu YouTube: cập nhật bản mới → URL mới, URL cũ mở mãi mãi qua route legacy
+  `:slug` (không xoá) tự redirect sang URL canonical. Chi tiết đầy đủ + backtest: **ADR-073**.
+- Test: 258 unit BE + 114 e2e MySQL/MinIO thật + 105 unit FE, đã xác nhận sống trên browser thật
+  (bấm thẻ phim → URL mới; gõ URL legacy cũ → tự chuyển URL mới, phim hiện đúng).
+- Rút kinh nghiệm DevOps quan trọng khi backtest đợt sau: `docker compose up -d --build` có thể
+  KHÔNG rebuild thật — xem chi tiết cách kiểm chắc ở ADR-073.
+
+### ✅ VỪA XONG: rà soát UI URL/header + list mobile (2026-08-13)
+- Runtime local đã xác nhận header desktop là **Kho phim**, không còn picker công ty `MISA`; ở
+  mobile 320/360/390/430/768 vẫn là composition native (không còn platform header desktop).
+- `CategoryShelves.vue` không dùng `divide-y` nữa: utility Tailwind đã ghi đè `border-color`
+  token thành divider tối. Danh sách theo chuyên mục nay là một list-group có shadow/radius MDS
+  và separator inset nhạt; desktop không đổi.
+- Link canonical đã click và reload trực tiếp trên browser:
+  `/phim-gioi-thieu-cong-ty/phim-gioi-thieu-misa-07082026-1` → đúng trang chi tiết. Test mới
+  nhất: **105 FE unit + FE build; 258 BE unit + 114 e2e MySQL/MinIO** đều pass.
+- Khi visual QA sau deploy thấy giao diện cũ trong khi source/image đã mới, kiểm tra PWA update
+  banner trước: bấm **Cập nhật** để service worker bỏ bundle cũ rồi mới kết luận có regression.
+
+### ✅ TRƯỚC ĐÓ: Production remediation (2026-08-12)
 - Atomic upload intent, test E2E cross-film/replay; Redis shared throttle guard; K8s migration
   Job + CronJob sweep + PDB; Swarm runbook; tablet `<1200px` native mobile surface.
 - Verified sau remediation: **252 unit BE + 107 e2e MySQL/MinIO + 105 unit FE**, typecheck/build

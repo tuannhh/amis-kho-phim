@@ -82,14 +82,13 @@ const shelves = computed<Shelf[]>(() => {
 
 <template>
   <div v-if="shelves.length" class="flex flex-col" :class="mobile ? 'gap-5' : 'gap-4'">
-    <!-- Mobile (GĐ8-B): kệ KHÔNG nằm trong hộp trắng. Thẻ phim đã là hộp trắng nổi khối, lồng
-         thêm một hộp trắng nữa chỉ tạo hai lớp trắng chồng nhau nhìn bẹt. Tiêu đề kệ đứng
-         thẳng trên nền trang, thẻ phim "trôi" bên dưới — đúng nhịp của app di động.
-         Desktop giữ NGUYÊN hộp trắng + shadow-card như cũ. -->
+    <!-- Mobile: tiêu đề đứng trên nền trang; các dòng cùng chuyên mục là MỘT nhóm có bề mặt
+         trắng. Đây là list-group (không phải card lồng card): thumbnail và text vẫn là row,
+         còn nhóm giúp mắt nhận ra ranh giới giữa hai chuyên mục khi lướt nhanh. -->
     <section
       v-for="shelf in shelves"
       :key="shelf.id"
-      :class="mobile ? '' : 'rounded-lg bg-white p-4'"
+      :class="mobile ? 'flex flex-col gap-2.5' : 'rounded-lg bg-white p-4'"
       :style="mobile ? '' : 'box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))'"
     >
       <div class="mb-3 flex items-center justify-between gap-2">
@@ -116,10 +115,13 @@ const shelves = computed<Shelf[]>(() => {
         </button>
       </div>
 
-      <!-- Mobile (ADR-068): danh sách DỌC từng dòng kiểu YouTube, không cuộn ngang nữa —
-           người dùng phản hồi kiểu thẻ cuộn ngang cũ "nhìn hơi xấu". Desktop giữ NGUYÊN hàng
-           cuộn ngang bằng thẻ `FilmCard` như trước. -->
-      <div v-if="mobile" class="flex flex-col divide-y" style="border-color: var(--mds-border-light, #e9eaeb)">
+      <!-- Mobile: dùng border theo token MDS có inset, không dùng `divide-y` vì utility đó có
+           thể ghi đè màu token bằng divider tối của Tailwind. -->
+      <div
+        v-if="mobile"
+        class="mobile-shelf-list flex flex-col overflow-hidden rounded-xl bg-white px-3"
+        style="box-shadow: var(--mds-shadow-card, 0 0 2px 0 rgba(0,0,0,0.1))"
+      >
         <FilmCardMobile
           v-for="film in shelf.films"
           :key="film.id"
@@ -147,3 +149,10 @@ const shelves = computed<Shelf[]>(() => {
     </section>
   </div>
 </template>
+
+<style scoped>
+/* Đường phân cách chỉ tồn tại BÊN TRONG nhóm phim, nhẹ và cùng màu token MDS. */
+.mobile-shelf-list > :deep(article + article) {
+  border-top: 1px solid var(--mds-border-light, #e9eaeb);
+}
+</style>

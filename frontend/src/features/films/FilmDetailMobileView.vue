@@ -12,6 +12,8 @@ import MMobileTopBar from '@/components/mds/MMobileTopBar.vue'
 import VideoPlayer from '@/components/VideoPlayer.vue'
 import { useToast } from '@/components/mds/toast.js'
 import { filmsApi, filmSources, type ApiFilm } from './filmsApi'
+import { canonicalFilmUrl } from './filmShareLink'
+import { loadFilmByRoute } from './filmRouteResolve'
 import { SOURCE_LABEL, categoryColorFor, formatVNDate } from './filmTypes'
 import { useAuthStore } from '@/features/auth/authStore'
 import { canManageFilm } from '@/features/auth/permissions'
@@ -46,7 +48,7 @@ async function load() {
   notFound.value = false
   film.value = null
   try {
-    film.value = await filmsApi.getBySlug(route.params.slug as string)
+    film.value = await loadFilmByRoute(route, router)
     await recordViewOnce()
   } catch {
     notFound.value = true
@@ -67,7 +69,7 @@ async function recordViewOnce() {
 }
 
 onMounted(load)
-watch(() => route.params.slug, load)
+watch(() => [route.params.categorySlug, route.params.filmSlug, route.params.slug], load)
 
 // RBAC 4 cấp (ADR-040) — DÙNG CHUNG helper với desktop, không có bản sao quy tắc cho mobile.
 const canManage = computed(() => canManageFilm(auth.user, film.value))
@@ -75,11 +77,14 @@ const canManage = computed(() => canManageFilm(auth.user, film.value))
 /** Menu "⋯": gom mọi hành động phụ. Nhãn viết ngắn cho màn hẹp. */
 const menuItems = computed(() => {
   if (!film.value) return []
-  const items: Array<Record<string, unknown>> = filmSources(film.value).map((s) => ({
-    key: `copy:${s}`,
-    label: `Copy link ${SOURCE_LABEL[s]}`,
-    icon: 'copy',
-  }))
+  const items: Array<Record<string, unknown>> = [
+    { key: 'share', label: 'Chia sẻ liên kết phim', icon: 'share' },
+    ...filmSources(film.value).map((s) => ({
+      key: `copy:${s}`,
+      label: `Copy link ${SOURCE_LABEL[s]}`,
+      icon: 'copy',
+    })),
+  ]
   if (canManage.value) {
     if (items.length) items.push({ divider: true })
     items.push({ key: 'edit', label: 'Sửa thông tin', icon: 'pencil' })
@@ -94,6 +99,15 @@ async function onMenuSelect(item: { key?: string }) {
   if (key === 'edit') return goEdit()
   if (key === 'delete') {
     deleteOpen.value = true
+    return
+  }
+  if (key === 'share') {
+    try {
+      await navigator.clipboard.writeText(canonicalFilmUrl(film.value))
+      toast.success('Đã copy liên kết phim')
+    } catch {
+      toast.error('Không thể copy liên kết phim — trình duyệt chặn quyền clipboard')
+    }
     return
   }
   if (key.startsWith('copy:')) {

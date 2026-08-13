@@ -53,6 +53,17 @@ export class FilmsController {
     return scope === 'managed' ? this.films.listManaged(actor) : this.films.list()
   }
 
+  /**
+   * URL công khai (2026-08-13): `/api/films/by-path/:categorySlug/:filmSlug`. Đặt TRƯỚC
+   * `:slug` bên dưới dù không bắt buộc (số lượng segment khác nhau nên NestJS/Express không
+   * nhầm lẫn) — theo đúng quy ước "route cụ thể đứng trước route tổng quát" đã áp dụng ở
+   * `list()` phía trên.
+   */
+  @Get('by-path/:categorySlug/:filmSlug')
+  getByPath(@Param('categorySlug') categorySlug: string, @Param('filmSlug') filmSlug: string) {
+    return this.films.getByPath(categorySlug, filmSlug)
+  }
+
   @Get(':slug')
   getBySlug(@Param('slug') slug: string) {
     return this.films.getBySlug(slug)

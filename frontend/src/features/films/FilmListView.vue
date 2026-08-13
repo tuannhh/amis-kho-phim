@@ -59,7 +59,10 @@ onMounted(() => {
 })
 
 function openFilm(film: ApiFilm) {
-  router.push({ name: 'film-detail', params: { slug: film.slug } })
+  router.push({
+    name: 'film-detail',
+    params: { categorySlug: film.urlCategorySlug, filmSlug: film.urlFilmSlug },
+  })
 }
 
 /** "Xem tất cả" trên một kệ → chọn luôn chuyên mục đó ở bộ lọc, chuyển sang lưới đầy đủ. */

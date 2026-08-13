@@ -10,13 +10,15 @@ import MSpinner from '@/components/mds/MSpinner.vue'
 import VideoPlayer from '@/components/VideoPlayer.vue'
 import { useToast } from '@/components/mds/toast.js'
 import { filmsApi, filmSources, type ApiFilm } from './filmsApi'
+import { loadFilmByRoute } from './filmRouteResolve'
 import { categoryColorFor, formatVNDate } from './filmTypes'
 import { useAuthStore } from '@/features/auth/authStore'
 import { canManageFilm } from '@/features/auth/permissions'
 
 /**
- * Chi tiết/Xem phim — URL riêng /films/:slug. GĐ2: fetch trực tiếp theo slug
- * (không phụ thuộc filmsStore đã load hay chưa — vào thẳng link vẫn đúng).
+ * Chi tiết/Xem phim — URL riêng `ten-chuyen-muc/ten-phim-ngay-phat-hanh-version` (2026-08-13),
+ * vẫn nhận cả route cũ `/films/:slug` (xem `filmRouteResolve.ts`). GĐ2: fetch trực tiếp theo
+ * route (không phụ thuộc filmsStore đã load hay chưa — vào thẳng link vẫn đúng).
  */
 const route = useRoute()
 const router = useRouter()
@@ -40,7 +42,7 @@ async function load() {
   notFound.value = false
   film.value = null
   try {
-    film.value = await filmsApi.getBySlug(route.params.slug as string)
+    film.value = await loadFilmByRoute(route, router)
     await recordViewOnce()
   } catch {
     notFound.value = true
@@ -61,7 +63,7 @@ async function recordViewOnce() {
 }
 
 onMounted(load)
-watch(() => route.params.slug, load)
+watch(() => [route.params.categorySlug, route.params.filmSlug, route.params.slug], load)
 
 // Quyền sửa/xoá theo RBAC 4 cấp có scope phòng ban (ADR-040) — dùng helper DÙNG CHUNG với
 // FilmListView để hai màn không lệch nhau. FE chỉ ẩn/hiện; backend

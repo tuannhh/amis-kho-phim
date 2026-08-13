@@ -51,7 +51,10 @@ function relativeTime(iso: string): string {
 async function onItemClick(n: ApiNotification) {
   if (!n.isRead) await store.markRead(n.id)
   close()
-  if (n.filmSlug) router.push({ name: 'film-detail', params: { slug: n.filmSlug } })
+  // Thông báo chỉ mang theo `filmSlug` (không có chuyên mục) → vào qua route LEGACY
+  // `/films/:slug`, tự điều hướng tiếp sang URL canonical mới nhất (xem `filmRouteResolve.ts`).
+  // Đường tự nhiên phần lớn vì tính năng thông báo đang tắt (`FilmsService`, 2026-07-22).
+  if (n.filmSlug) router.push({ name: 'film-detail-legacy', params: { slug: n.filmSlug } })
 }
 </script>
 

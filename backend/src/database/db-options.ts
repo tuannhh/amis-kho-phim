@@ -11,6 +11,7 @@ import { Department } from '../modules/departments/entities/department.entity'
 import { Notification } from '../modules/notifications/entities/notification.entity'
 import { UserNotification } from '../modules/notifications/entities/user-notification.entity'
 import { UploadIntent } from '../modules/uploads/entities/upload-intent.entity'
+import { FilmUrlSlug } from '../modules/films/entities/film-url-slug.entity'
 import { InitAuth1721500000000 } from './migrations/1721500000000-InitAuth'
 import { InitCatalog1721600000000 } from './migrations/1721600000000-InitCatalog'
 import { AddFilmVersions1721700000000 } from './migrations/1721700000000-AddFilmVersions'
@@ -20,6 +21,7 @@ import { AddDepartmentsAndRbac4Levels1722000000000 } from './migrations/17220000
 import { AddDownloadCountAndTitleIndex1722100000000 } from './migrations/1722100000000-AddDownloadCountAndTitleIndex'
 import { AddFilmVersionsUniqueIndex1722200000000 } from './migrations/1722200000000-AddFilmVersionsUniqueIndex'
 import { AddUploadIntents1722300000000 } from './migrations/1722300000000-AddUploadIntents'
+import { AddFilmUrlSlugs1722400000000 } from './migrations/1722400000000-AddFilmUrlSlugs'
 import { runMigrationsOnBoot } from '../common/config/security.config'
 
 /**
@@ -71,6 +73,7 @@ export const dbOptions: DataSourceOptions = {
     Notification,
     UserNotification,
     UploadIntent,
+    FilmUrlSlug,
   ],
   migrations: [
     InitAuth1721500000000,
@@ -82,6 +85,7 @@ export const dbOptions: DataSourceOptions = {
     AddDownloadCountAndTitleIndex1722100000000,
     AddFilmVersionsUniqueIndex1722200000000,
     AddUploadIntents1722300000000,
+    AddFilmUrlSlugs1722400000000,
   ],
   synchronize: false,
   migrationsRun: runMigrationsOnBoot(),

@@ -15,6 +15,67 @@
 > — là bug bảo mật chung, cần port sang `phan-quyen-3-cap` ở đợt sau. **ADR-051 gắn `[RBAC4]`**
 > vì phụ thuộc `FILM_WRITE_ROLES` của mô hình 4 cấp.
 
+## ADR-074 — Mobile Kho phim: không có shortcut chuyên mục; Back về host; share link canonical (2026-08-13)
+- **Bối cảnh:** Dải shortcut chuyên mục ở đầu màn Kho phim mobile chiếm nhiều không gian và sẽ
+  không còn dùng được khi số chuyên mục tăng. Người dùng yêu cầu bỏ dải đó cho mọi quyền,
+  tăng nhẹ tên app + có Back về ứng dụng AMIS trước đó, đồng thời copy được hyperlink canonical
+  của phim từ mobile.
+- **Quyết định:** Xoá hoàn toàn `categoryTiles` khỏi `FilmListMobileView` dùng chung cho mọi
+  role; không bỏ nghiệp vụ lọc — cây chuyên mục vẫn ở bottom sheet `Bộ lọc`. `MobileHeroHeader`
+  hỗ trợ `showBack`/`largeTitle`; riêng root Kho phim dùng Back 48px và gọi
+  `HostAdapter.closeApp()` để host AMIS/Platform quyết định quay về đâu (browser adapter chỉ
+  no-op; app không tự đoán lịch sử/URL của host). Không tự ghép tên phim ở client: helper
+  `canonicalFilmUrl()` tạo hyperlink tuyệt đối từ `urlCategorySlug/urlFilmSlug` do backend
+  canonical hoá. Mục `Chia sẻ liên kết phim` nằm trước các copy source link trong menu `⋯` ở
+  cả danh sách và chi tiết mobile, không phụ thuộc quyền sửa/xoá.
+- **Bằng chứng:** 107 unit FE + build pass; local Docker visual QA ở 320/360/390/430/768 xác
+  nhận Back, không còn shortcut chuyên mục hay desktop header, và 5 menu phim có mục Share.
+  Menu chi tiết mobile cũng có cùng mục. Native bridge thật và clipboard permission của AMIS
+  Mobile vẫn cần QA trên host thật trước release (local browser chỉ chứng minh UI/flow).
+
+## ADR-073 — URL công khai mỗi phim: `/ten-chuyen-muc/ten-phim-ngay-phat-hanh-version`, bảng lịch sử URL không xoá (2026-08-13)
+- **Bối cảnh:** Người dùng yêu cầu mỗi phim có 1 đường link riêng cấu trúc
+  `/ten-chuyen-muc/ten-phim-ngay-phat-hanh-version` (ví dụ
+  `/phim-gioi-thieu-cong-ty/phim-gioi-thieu-misa-07082026-1`), hành vi giống YouTube: cập nhật
+  bản mới → sinh link mới, **link cũ vẫn phải mở được mãi mãi** (không bao giờ 404). Ngày dùng
+  trong URL là ngày phát hành **mới nhất** (`films.published_at`), không phải ngày tạo phim.
+- **Quyết định:** Bảng lịch sử mới `film_url_slugs` (không phải cột trên `films`) — mỗi lần
+  sinh URL (tạo phim, sửa metadata, upload bản mới qua `confirmVersion`) là 1 dòng, cờ
+  `is_current` đánh dấu URL hiện hành; dòng cũ **không bao giờ xoá**, chỉ tắt cờ. `path` có
+  UNIQUE index — khi trùng (2 phim khác nhau cùng chuyên mục + cùng tên + cùng ngày + cùng số
+  bản) thì tự thêm hậu tố `-2`, `-3`... (`FilmUrlSlugsService.assignCurrent`, vòng lặp thử tăng
+  dần). Gọi lại với path không đổi (ví dụ sửa phim nhưng chưa đổi ngày/tên/version) thì TÁI
+  DÙNG dòng hiện có, không insert dòng thừa (idempotent — đã bắt được lỗi giả định sai trong
+  e2e: `confirmVersion` lần đầu sau `create()` vẫn là version 1 vì `film_versions` rỗng ngay
+  sau `create()`, không phải version 2 như tưởng).
+- **Route công khai mới** `GET /films/by-path/:categorySlug/:filmSlug` (đặt TRƯỚC `:slug` cũ
+  trong controller). Route `:slug` cũ **giữ nguyên, không xoá** — vẫn tra được phim qua slug
+  legacy, chỉ không còn là URL "chính thức" hiển thị cho người dùng nữa.
+- **Frontend:** thêm route Vue Router `/:categorySlug/:filmSlug` (tên `film-detail`) SAU route
+  legacy `/films/:slug` (đổi tên `film-detail-legacy`) — Vue Router 4 tự xếp static route ưu
+  tiên hơn dynamic bất kể thứ tự khai báo nên không lo đụng các route tĩnh khác
+  (`/admin/...`). `filmRouteResolve.ts` là helper dùng chung cho `FilmDetailView`/
+  `FilmDetailMobileView`: vào qua route legacy hoặc URL không phải bản canonical mới nhất →
+  tự `router.replace()` sang URL canonical, KHÔNG hiện lỗi/nháy trang.
+- **Category bị xoá** (film.categoryId set NULL) → fallback `chua-phan-loai` (hằng số
+  `UNCATEGORIZED_URL_SEGMENT`), không lỗi.
+- **N+1:** `list()` batch-fetch URL hiện hành qua `findCurrentMap()`, không query từng phim.
+- **Đã backtest:** 258 unit BE + 114 e2e MySQL/MinIO thật (thêm 7 case riêng cho tính năng này,
+  gồm case bản đầu tiên tái dùng URL / bản thứ hai sinh URL mới thật) + 105 unit FE, typecheck/
+  build hai phía sạch. Xác nhận sống trên browser thật (Docker Compose rebuild `--no-cache` cả
+  2 service sau khi phát hiện `--build` không chắc rebuild — xem lưu ý DevOps bên dưới): bấm thẻ
+  phim ra đúng URL mới, gõ thẳng URL legacy `/films/phim-gioi-thieu-misa` tự chuyển sang
+  `/phim-gioi-thieu-cong-ty/phim-gioi-thieu-misa-07082026-1` và phim vẫn hiện đúng nội dung.
+- **Lưu ý DevOps (rút ra khi backtest đợt này):** `docker compose up -d --build <service>` có
+  thể KHÔNG rebuild thật (compose tự quyết "không cần") và container cũ vẫn chạy dù lệnh trả về
+  thành công — muốn chắc chắn code mới chạy, dùng tường minh
+  `docker compose build --no-cache <service>` rồi `docker compose up -d --force-recreate
+  <service>`. Kiểm bằng cách grep code mới trong file JS đã build ra
+  (`docker compose exec frontend grep -rl <keyword> /usr/share/nginx/html/assets/*.js`) thay vì
+  tin log build. Frontend là PWA (`vite-plugin-pwa`) — service worker cũ có thể tiếp tục phục vụ
+  bundle cũ trong tab đã mở dù server đã có bản mới; cần unregister service worker +
+  `caches.delete()` (hoặc hard reload/tab mới) khi test tay trên trình duyệt đã mở từ trước.
+
 ## ADR-072 — MSelect popover z-index phải cao hơn MDrawer (bug chặn tạo chuyên mục con trên mobile)
 - **Bối cảnh:** Test bản Cloud Run, user báo "tạo được chuyên mục cha nhưng không tạo được
   chuyên mục con trên mobile". `CategoryMobileView.vue` bọc form thêm/sửa trong `MDrawer`

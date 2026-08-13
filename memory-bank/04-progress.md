@@ -4,6 +4,36 @@
 > Format: `YYYY-MM-DD — [GĐ x] mô tả — trạng thái`.
 
 ## Trạng thái tổng
+- **2026-08-13 — Làm gọn root mobile Kho phim + share URL phim — ✅ code + local runtime
+  evidence.** Bỏ lưới shortcut chuyên mục khỏi `FilmListMobileView` chung cho mọi role (lọc
+  vẫn nằm ở `Bộ lọc`), thêm Back 48px về host qua `HostAdapter.closeApp()` và title `Kho phim`
+  24px. Menu `⋯` ở row danh sách lẫn trang chi tiết mobile thêm `Chia sẻ liên kết phim`, copy
+  URL canonical tuyệt đối từ slug backend. Test 107 FE unit + FE build pass; visual QA Docker
+  tại 320/360/390/430/768 xác nhận không còn dải chuyên mục/desktop header, Back và menu
+  share đều hiện. Bridge/clipboard thực của AMIS Mobile là gate môi trường, chưa suy diễn PASS
+  từ browser local.
+- **2026-08-13 — Rà soát độc lập URL/header và sửa list mobile Kho phim — ✅ code + runtime
+  evidence.** Xác nhận URL canonical tạo từ thẻ phim là
+  `/phim-gioi-thieu-cong-ty/phim-gioi-thieu-misa-07082026-1`; tải lại trực tiếp vẫn mở đúng
+  chi tiết, header desktop chỉ còn `Kho phim` và không còn picker công ty `MISA`. Sửa
+  `CategoryShelves.vue`: bỏ `divide-y` Tailwind đã ghi đè token viền bằng màu tối, thay bằng
+  list-group bo góc/shadow MDS và divider inset `--mds-border-light`. Rà thật 320/360/390/430/
+  768: vẫn là native mobile shell, không có desktop platform header. Test lại: 105 FE unit,
+  build FE, 258 BE unit, 114 e2e MySQL/MinIO đều pass. Cần bấm banner PWA **Cập nhật** sau
+  deploy để client đang giữ service worker cũ nhận bundle mới; đừng kết luận code chưa áp
+  dụng chỉ từ một tab còn cache.
+- **2026-08-13 — URL công khai mỗi phim `/ten-chuyen-muc/ten-phim-ngay-phat-hanh-version` — ✅
+  code + backtest + xác nhận browser thật.** Bảng lịch sử `film_url_slugs` (migration
+  `1722400000000-AddFilmUrlSlugs`, backfill 8 phim thật) + `FilmUrlSlugsService` sinh/tái dùng
+  URL idempotent, tự thêm hậu tố khi trùng; route mới `GET /films/by-path/:categorySlug/
+  :filmSlug`; route legacy `:slug` giữ nguyên. Frontend thêm route `/:categorySlug/:filmSlug`,
+  `filmRouteResolve.ts` tự redirect URL cũ/không-canonical sang URL mới nhất, cập nhật 8 nơi
+  gọi `router.push`/`getBySlug`. Quyết định đầy đủ + trade-off: **ADR-073**.
+  Test: 258 unit BE + 114 e2e MySQL/MinIO thật (7 case mới, sửa 1 giả định sai trong lúc viết
+  test — xem ADR-073) + 105 unit FE + typecheck/build sạch hai phía. Xác nhận trực tiếp trên
+  Docker Compose local (sau khi rebuild `--no-cache` cả backend+frontend — `--build` không chắc
+  rebuild, xem ADR-073): bấm thẻ phim ra URL mới đúng cấu trúc, gõ URL legacy cũ tự chuyển sang
+  URL mới và phim vẫn hiện đúng nội dung.
 - **2026-08-12 — Production remediation sau independent audit — ✅ code + local verification.**
   Sửa P0 upload-intent bằng atomic conditional claim trong đúng transaction tạo version (cấm
   cross-film/replay); multi-replica dùng Redis shared throttler, migration Job, upload-cleanup

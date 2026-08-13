@@ -54,8 +54,13 @@ const router = createRouter({
       meta: { title: 'Phim tôi quản lý', roles: MANAGED_FILMS_ROLES },
     },
     {
+      // Route CŨ, giữ nguyên cho link đã chia sẻ TRƯỚC 2026-08-13 (yêu cầu chủ dự án: link
+      // cũ không bao giờ được 404). Component tự phát hiện + `router.replace` sang URL mới
+      // — xem `filmRouteResolve.ts`. KHÔNG dùng để tạo link MỚI nữa (xem route `film-detail`
+      // bên dưới, `path: '/'` phải đứng SAU route này vì `/films` là 1 segment tĩnh cụ thể
+      // hơn, và route 2-segment generic bên dưới xếp cuối cùng theo quy ước).
       path: '/films/:slug',
-      name: 'film-detail',
+      name: 'film-detail-legacy',
       component: lazyResponsiveView(
         () => import('@/features/films/FilmDetailView.vue'),
         () => import('@/features/films/FilmDetailMobileView.vue'),
@@ -129,6 +134,21 @@ const router = createRouter({
       ),
       // ADR-053: Cấp 3 vào được, backend tự giới hạn dữ liệu theo phòng ban của họ.
       meta: { title: 'Báo cáo', roles: REPORT_ROLES },
+    },
+    {
+      // URL công khai MỚI của phim (2026-08-13, yêu cầu chủ dự án): cấu trúc
+      // `ten-chuyen-muc/ten-phim-ngay-phat-hanh-version`. Đặt CUỐI mảng route theo quy ước —
+      // dù vue-router 4 tự xếp route TĨNH (`/admin/users`, `/my-films`...) ưu tiên hơn route
+      // ĐỘNG 2 tham số này bất kể thứ tự khai báo, nên không có rủi ro route này "nuốt" các
+      // route cố định phía trên (kể cả khi 1 chuyên mục lỡ có slug trùng tên 1 route tĩnh).
+      path: '/:categorySlug/:filmSlug',
+      name: 'film-detail',
+      component: lazyResponsiveView(
+        () => import('@/features/films/FilmDetailView.vue'),
+        () => import('@/features/films/FilmDetailMobileView.vue'),
+        'FilmDetailResponsive',
+      ),
+      meta: { title: 'Chi tiết phim' },
     },
   ],
 })

@@ -12,7 +12,7 @@ import MIcon from '@/components/mds/MIcon.vue'
 import { useToast } from '@/components/mds/toast.js'
 import { useFormValidation, rules } from '@/components/mds/useFormValidation.js'
 import { useFilmsStore } from '@/features/films/filmsStore'
-import { filmsApi, type UpsertFilmPayload, type ConfirmVersionPayload } from '@/features/films/filmsApi'
+import { filmsApi, type UpsertFilmPayload, type ConfirmVersionPayload, type ApiFilm } from '@/features/films/filmsApi'
 import { putToStorage, readVideoDuration, formatDuration } from '@/features/films/storageUpload'
 import { categoriesApi, flattenCategoryTree, type ApiCategoryNode } from '@/features/categories/categoriesApi'
 import { useAuthStore } from '@/features/auth/authStore'
@@ -237,7 +237,15 @@ async function publish() {
  * Upload video (presigned PUT + progress) và/hoặc ảnh bìa (multipart), rồi xác
  * nhận tạo bản mới. Trả true nếu OK, false nếu có lỗi (đã hiện toast).
  */
-async function uploadAssets(filmId: number): Promise<boolean> {
+/**
+ * Trả về:
+ *  - `false` — lỗi upload, dừng lại (như cũ).
+ *  - `ApiFilm` — có asset mới, `confirmVersion` đã trả về bản GHI MỚI NHẤT (URL công khai
+ *    2026-08-13 đã đổi theo version mới — dùng bản NÀY để điều hướng, không dùng `created`/
+ *    `updated` chụp TRƯỚC khi upload, vì URL đó đã là bản CŨ ngay khi vừa tạo xong).
+ *  - `null` — không có asset mới (chỉ sửa metadata) → gọi nơi dùng `created`/`updated` sẵn có.
+ */
+async function uploadAssets(filmId: number): Promise<ApiFilm | null | false> {
   const payload: ConfirmVersionPayload = {}
   let hasNewAsset = false
 
@@ -296,17 +304,17 @@ async function uploadAssets(filmId: number): Promise<boolean> {
 
   // 3) Xác nhận tạo bản mới (chỉ khi có asset mới)
   if (hasNewAsset) {
-    await filmsApi.confirmVersion(filmId, payload)
+    return await filmsApi.confirmVersion(filmId, payload)
   }
-  return true
+  return null
 }
 
 async function createNewFilm() {
   submitting.value = true
   try {
     const created = await filmsApi.create(buildPayload())
-    const ok = await uploadAssets(created.id)
-    if (!ok) {
+    const uploadResult = await uploadAssets(created.id)
+    if (uploadResult === false) {
       // Phim metadata đã tạo nhưng upload lỗi — báo rõ, giữ nguyên form để thử lại.
       await store.load()
       submitting.value = false
@@ -316,7 +324,7 @@ async function createNewFilm() {
     pristineSnapshot.value = JSON.stringify(snapshotFields())
     toast.success(`Đã xuất bản phim mới "${created.title}"`)
     await store.load()
-    finishSuccess(created.slug)
+    finishSuccess(uploadResult ?? created)
   } catch (e: unknown) {
     toast.error(e instanceof Error ? e.message : 'Xuất bản phim không thành công')
   } finally {
@@ -328,8 +336,8 @@ async function saveUpdate(id: number, successMessage: string) {
   submitting.value = true
   try {
     const updated = await filmsApi.update(id, buildPayload())
-    const ok = await uploadAssets(id)
-    if (!ok) {
+    const uploadResult = await uploadAssets(id)
+    if (uploadResult === false) {
       await store.load()
       submitting.value = false
       return
@@ -338,7 +346,7 @@ async function saveUpdate(id: number, successMessage: string) {
     pristineSnapshot.value = JSON.stringify(snapshotFields())
     toast.success(successMessage)
     await store.load()
-    finishSuccess(updated.slug)
+    finishSuccess(uploadResult ?? updated)
   } catch (e: unknown) {
     toast.error(e instanceof Error ? e.message : 'Lưu phim không thành công')
   } finally {
@@ -356,12 +364,15 @@ async function confirmUpdateVersion() {
  * Kết thúc thành công. Trong popup thì báo lên cho màn cha xử lý (đóng popup, danh sách đã
  * được `store.load()` làm mới); ở trang riêng thì điều hướng sang trang xem phim như cũ.
  */
-function finishSuccess(slug: string) {
+function finishSuccess(film: ApiFilm) {
   if (props.embedded) {
     emit('saved')
     return
   }
-  router.push({ name: 'film-detail', params: { slug } })
+  router.push({
+    name: 'film-detail',
+    params: { categorySlug: film.urlCategorySlug, filmSlug: film.urlFilmSlug },
+  })
 }
 
 function cancel() {

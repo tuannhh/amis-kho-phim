@@ -97,7 +97,10 @@ function fmt(n: number) {
 }
 
 function openFilm(film: ApiFilm) {
-  router.push({ name: 'film-detail', params: { slug: film.slug } })
+  router.push({
+    name: 'film-detail',
+    params: { categorySlug: film.urlCategorySlug, filmSlug: film.urlFilmSlug },
+  })
 }
 
 /**
